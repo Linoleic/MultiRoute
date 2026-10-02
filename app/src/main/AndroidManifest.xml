@@ -48,11 +48,11 @@
             </intent-filter>
         </activity>
 
-        <!-- ContentProvider to distribute routing rules to hooked apps -->
+        <!-- ContentProvider to distribute routing rules to hooked apps (internal only) -->
         <provider
             android:name=".data.RouteConfigProvider"
             android:authorities="com.multiroute.provider"
-            android:exported="true" />
+            android:exported="false" />
 
         <!-- Service to keep cellular connection requested -->
         <service

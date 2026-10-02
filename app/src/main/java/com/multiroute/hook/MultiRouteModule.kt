@@ -125,11 +125,11 @@ class MultiRouteModule : XposedModule() {
             val smClass = Class.forName("android.os.ServiceManager", false, classLoader)
             val getServiceMethod = smClass.getMethod("getService", String::class.java)
             val binder = getServiceMethod.invoke(null, "connectivity")
-            if (binder != null) {
+            if (binder != null && !binder.javaClass.name.contains("BinderProxy") && binder.javaClass.name.contains("ConnectivityService")) {
                 val csClass = binder.javaClass
                 log(Log.INFO, TAG, "Resolved ConnectivityService via ServiceManager: ${csClass.name}")
                 hookConnectivityService(csClass)
-                return
+                if (isConnectivityHooked) return
             }
         } catch (_: Throwable) {
         }
@@ -179,27 +179,28 @@ class MultiRouteModule : XposedModule() {
 
     private fun hookConnectivityService(csClass: Class<*>) {
         if (isConnectivityHooked) return
-        isConnectivityHooked = true
+        if (csClass.name.contains("BinderProxy")) return
         log(Log.INFO, TAG, "Installing dynamic multi-route hooks on ${csClass.name}...")
 
-        // 1. Hook getMobileDataPreferredUids() to inject custom cellular UIDs
-        hookGetMobileDataPreferredUids(csClass)
+        var hookedCount = 0
+        if (hookGetMobileDataPreferredUids(csClass)) hookedCount++
+        if (hookGetDefaultNetworkForUid(csClass)) hookedCount++
+        if (hookGetActiveNetworkForUidInternal(csClass)) hookedCount++
 
-        // 2. Hook getDefaultNetworkForUid(int) for dynamic interface resolution
-        hookGetDefaultNetworkForUid(csClass)
-
-        // 3. Hook getActiveNetworkForUidInternal(int, boolean)
-        hookGetActiveNetworkForUidInternal(csClass)
-
-        log(Log.INFO, TAG, "ConnectivityService dynamic hooks installed successfully")
+        if (hookedCount > 0) {
+            isConnectivityHooked = true
+            log(Log.INFO, TAG, "ConnectivityService dynamic hooks installed successfully ($hookedCount hooked)")
+        } else {
+            log(Log.WARN, TAG, "No methods could be hooked on ${csClass.name}")
+        }
     }
 
-    private fun hookGetMobileDataPreferredUids(csClass: Class<*>) {
+    private fun hookGetMobileDataPreferredUids(csClass: Class<*>): Boolean {
         val method = csClass.declaredMethods.firstOrNull {
             it.name == "getMobileDataPreferredUids" && it.parameterTypes.isEmpty()
-        } ?: return
+        } ?: return false
 
-        try {
+        return try {
             method.isAccessible = true
             deoptimize(method)
             hook(method).intercept { chain ->
@@ -214,19 +215,21 @@ class MultiRouteModule : XposedModule() {
                 originalSet
             }
             log(Log.INFO, TAG, "Successfully hooked getMobileDataPreferredUids")
+            true
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "Failed to hook getMobileDataPreferredUids: ${t.message}", t)
+            false
         }
     }
 
-    private fun hookGetDefaultNetworkForUid(csClass: Class<*>) {
+    private fun hookGetDefaultNetworkForUid(csClass: Class<*>): Boolean {
         val method = csClass.declaredMethods.firstOrNull {
             it.name == "getDefaultNetworkForUid" &&
                     it.parameterTypes.size == 1 &&
                     it.parameterTypes[0] == Int::class.javaPrimitiveType
-        } ?: return
+        } ?: return false
 
-        try {
+        return try {
             method.isAccessible = true
             deoptimize(method)
             hook(method).intercept { chain ->
@@ -244,20 +247,22 @@ class MultiRouteModule : XposedModule() {
                 chain.proceed()
             }
             log(Log.INFO, TAG, "Successfully hooked getDefaultNetworkForUid (Dynamic)")
+            true
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "Failed to hook getDefaultNetworkForUid: ${t.message}", t)
+            false
         }
     }
 
-    private fun hookGetActiveNetworkForUidInternal(csClass: Class<*>) {
+    private fun hookGetActiveNetworkForUidInternal(csClass: Class<*>): Boolean {
         val method = csClass.declaredMethods.firstOrNull {
             it.name == "getActiveNetworkForUidInternal" &&
                     it.parameterTypes.size == 2 &&
                     it.parameterTypes[0] == Int::class.javaPrimitiveType &&
                     it.parameterTypes[1] == Boolean::class.javaPrimitiveType
-        } ?: return
+        } ?: return false
 
-        try {
+        return try {
             method.isAccessible = true
             deoptimize(method)
             hook(method).intercept { chain ->
@@ -279,8 +284,10 @@ class MultiRouteModule : XposedModule() {
                 chain.proceed()
             }
             log(Log.INFO, TAG, "Successfully hooked getActiveNetworkForUidInternal (Dynamic)")
+            true
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "Failed to hook getActiveNetworkForUidInternal: ${t.message}", t)
+            false
         }
     }
 

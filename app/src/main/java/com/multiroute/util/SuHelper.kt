@@ -126,18 +126,8 @@ object SuHelper {
             executeCommand("settings put secure mobile_data_preferred_uids \"$uidStr\"")
         }
 
-        // 2. Sync Linux kernel policy routing dynamically for every assigned interface
-        val script = buildString {
-            // Remove previous MultiRoute rules at priority 14500
-            append("while ip rule del pref 14500 2>/dev/null; do :; done; ")
-
-            for ((iface, uids) in channelToUidsMap) {
-                for (uid in uids) {
-                    append("ip rule add uidrange $uid-$uid lookup $iface pref 14500; ")
-                }
-            }
-        }
-
+        // 2. Sync Linux kernel policy routing dynamically for every assigned interface (dual-stack + LAN bypass)
+        val script = RouteRuleBuilder.buildFullSyncScript(channelToUidsMap)
         executeCommand(script)
     }
 
@@ -149,12 +139,29 @@ object SuHelper {
 
     /**
      * Dynamically detects whether the LSPosed MultiRoute module is actually activated in system_server.
+     * Prevents false positives by strictly verifying the marker file with system_server process validation
+     * and system properties, rather than relying on forgeable logs or in-process hook short-circuits.
      */
     fun checkModuleActivated(): Boolean {
-        // 1. Direct hook check inside this app
-        if (isModuleActiveInLSPosed()) return true
+        // 1. Root check for marker file written by system_server (/data/system/multiroute_active)
+        // Must verify that the recorded PID is currently running and belongs to system_server
+        val rootFileCheck = runCatching {
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /data/system/multiroute_active"))
+            val text = p.inputStream.bufferedReader().use { it.readText() }.trim()
+            p.errorStream.bufferedReader().use { it.readText() }
+            p.waitFor()
+            val pid = text.substringBefore(":").toIntOrNull()
+            if (pid != null) {
+                val cmdProc = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/cmdline"))
+                val cmdline = cmdProc.inputStream.bufferedReader().use { it.readText() }
+                cmdProc.errorStream.bufferedReader().use { it.readText() }
+                cmdProc.waitFor()
+                cmdline.contains("system_server")
+            } else false
+        }.getOrDefault(false)
+        if (rootFileCheck) return true
 
-        // 2. Direct marker file check written by system_server (/data/system/multiroute_active)
+        // 2. Direct marker file check (if permissions allow unprivileged read)
         val fileCheck = runCatching {
             val f = java.io.File("/data/system/multiroute_active")
             if (f.exists()) {
@@ -168,17 +175,7 @@ object SuHelper {
         }.getOrDefault(false)
         if (fileCheck) return true
 
-        // 3. Root check for marker file
-        val rootFileCheck = runCatching {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /data/system/multiroute_active"))
-            val text = p.inputStream.bufferedReader().use { it.readText() }.trim()
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
-            text.isNotEmpty()
-        }.getOrDefault(false)
-        if (rootFileCheck) return true
-
-        // 4. Transient system property check (unprivileged + root)
+        // 3. System property check (unprivileged + root)
         val prop = runCatching {
             val p = Runtime.getRuntime().exec(arrayOf("getprop", "sys.multiroute.active"))
             val line = p.inputStream.bufferedReader().use { it.readLine() }?.trim()
@@ -197,16 +194,7 @@ object SuHelper {
         }.getOrDefault(false)
         if (rootProp) return true
 
-        // 5. Fallback: Check logcat for system_server hook initialization (safe buffer drain)
-        val logcatActive = runCatching {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "logcat -d -t 150 -s MultiRoute-SystemServer:I"))
-            val lines = p.inputStream.bufferedReader().use { it.readLines() }
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
-            lines.any { it.contains("MultiRoute") || it.contains("ConnectivityService") }
-        }.getOrDefault(false)
-
-        return logcatActive
+        return false
     }
 
     /**
@@ -219,7 +207,7 @@ object SuHelper {
         val activeTables = mutableListOf<String>()
 
         try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id; su -v; ip rule show pref 14500"))
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id; su -v; ip rule show pref 14500; ip -6 rule show pref 14500"))
             val lines = p.inputStream.bufferedReader().use { it.readLines() }
             p.errorStream.bufferedReader().use { it.readText() }
             p.waitFor()
