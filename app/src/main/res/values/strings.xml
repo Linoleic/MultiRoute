@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">MultiRoute</string>
+    <string name="module_description">Android 多网络并发与分应用策略路由管理模块。基于现代 LibXposed 规范 (v102)，通过拦截 system_server (ConnectivityService) 配合底层策略路由，支持应用绑定专属网络通道 (主/副 Wi-Fi、移动蜂窝等) 并发通信与息屏常驻。</string>
+</resources>

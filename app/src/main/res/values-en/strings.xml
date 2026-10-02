@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">MultiRoute</string>
+    <string name="module_description">Concurrent multi-network routing module for Android. Based on modern LibXposed specification (v102), hooking system_server (ConnectivityService) with kernel policy routing to enable per-app binding to dedicated network channels (Primary/Secondary Wi-Fi, Mobile Data) and screen-off keep-alive.</string>
+</resources>
