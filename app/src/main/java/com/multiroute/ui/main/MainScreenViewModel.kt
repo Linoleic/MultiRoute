@@ -1,9 +1,14 @@
 package com.multiroute.ui.main
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.multiroute.data.RouteConfigProvider
@@ -60,11 +65,52 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private var allApps: List<AppItem> = emptyList()
+    private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private var lastNetworkChangeTime = 0L
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            handleNetworkChanged()
+        }
+
+        override fun onLost(network: Network) {
+            handleNetworkChanged()
+        }
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            handleNetworkChanged()
+        }
+    }
+
+    private fun handleNetworkChanged() {
+        val now = System.currentTimeMillis()
+        if (now - lastNetworkChangeTime < 1500L) return
+        lastNetworkChangeTime = now
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
+                _uiState.value = _uiState.value.copy(channels = activeChannels)
+                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+            } catch (_: Exception) {}
+        }
+    }
 
     init {
         loadTestServerConfig()
         refreshEnvironment()
         loadInstalledApps()
+        try {
+            val request = NetworkRequest.Builder().build()
+            connectivityManager?.registerNetworkCallback(request, networkCallback)
+        } catch (_: Exception) {}
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            connectivityManager?.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {}
     }
 
     private fun loadTestServerConfig() {
@@ -206,18 +252,23 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun testSingleChannel(channel: NetworkChannel) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isTestingSingleChannel = true)
-            val result = NetworkUtils.testSingleChannelPublicIp(
-                context = getApplication(),
-                channel = channel,
-                config = _uiState.value.testServerConfig
-            )
-            val updated = _uiState.value.testResults.toMutableMap()
-            updated[channel.id] = result
-            _uiState.value = _uiState.value.copy(
-                isTestingSingleChannel = false,
-                testResults = updated,
-                snackBarMessage = "${channel.interfaceName} 出口测试完成"
-            )
+            try {
+                val result = NetworkUtils.testSingleChannelPublicIp(
+                    context = getApplication(),
+                    channel = channel,
+                    config = _uiState.value.testServerConfig
+                )
+                val updated = _uiState.value.testResults.toMutableMap()
+                updated[channel.id] = result
+                _uiState.value = _uiState.value.copy(
+                    testResults = updated,
+                    snackBarMessage = "${channel.interfaceName} 出口测试完成"
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(snackBarMessage = "${channel.interfaceName} 测试失败: ${e.message}")
+            } finally {
+                _uiState.value = _uiState.value.copy(isTestingSingleChannel = false)
+            }
         }
     }
 
@@ -296,19 +347,24 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun runChannelTests() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isTesting = true, testResults = emptyMap())
-            val currentChannels = _uiState.value.channels.ifEmpty {
-                NetworkUtils.getActiveChannels(getApplication())
+            try {
+                val currentChannels = _uiState.value.channels.ifEmpty {
+                    NetworkUtils.getActiveChannels(getApplication())
+                }
+                val results = NetworkUtils.testChannelsConcurrently(
+                    context = getApplication(),
+                    channels = currentChannels,
+                    config = _uiState.value.testServerConfig
+                )
+                _uiState.value = _uiState.value.copy(
+                    testResults = results,
+                    snackBarMessage = "多通道独立出口诊断已完成"
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(snackBarMessage = "诊断异常: ${e.message}")
+            } finally {
+                _uiState.value = _uiState.value.copy(isTesting = false)
             }
-            val results = NetworkUtils.testChannelsConcurrently(
-                context = getApplication(),
-                channels = currentChannels,
-                config = _uiState.value.testServerConfig
-            )
-            _uiState.value = _uiState.value.copy(
-                isTesting = false,
-                testResults = results,
-                snackBarMessage = "多通道独立出口诊断已完成"
-            )
             refreshEnvironment()
         }
     }

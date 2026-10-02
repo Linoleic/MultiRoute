@@ -52,16 +52,8 @@ object SuHelper {
     }
 
     suspend fun isRootAvailable(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val line = reader.readLine()
-            process.waitFor()
-            line != null && line.contains("uid=0")
-        } catch (e: Exception) {
-            Log.w(TAG, "Root check failed", e)
-            false
-        }
+        val lines = executeShellWithOutput("id", timeoutSeconds = 3)
+        lines.firstOrNull()?.contains("uid=0") == true
     }
 
     fun hasWriteSecureSettings(context: Context): Boolean {
@@ -91,6 +83,27 @@ object SuHelper {
         }.getOrDefault(false)
         if (direct) return@withContext true
         executeCommand("settings put global mobile_data_always_on 0")
+    }
+
+    /**
+     * Checks which network interfaces currently have active default routes in their kernel routing tables.
+     * Prevents traffic blackholes when an interface is assigned but temporarily disconnected or has no route.
+     */
+    fun getInterfacesWithDefaultRoute(candidateIfaces: Collection<String>): Set<String> {
+        val safeIfaces = candidateIfaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }
+        if (safeIfaces.isEmpty()) return emptySet()
+        val cmd = safeIfaces.joinToString(" ") { iface ->
+            "ip route show table $iface 2>/dev/null | grep -m1 '^default' && echo 'ONLINE_V4:$iface'; " +
+            "ip -6 route show table $iface 2>/dev/null | grep -m1 '^default' && echo 'ONLINE_V6:$iface';"
+        }
+        val lines = executeShellWithOutput(cmd, timeoutSeconds = 3)
+        val online = mutableSetOf<String>()
+        for (line in lines) {
+            if (line.startsWith("ONLINE_V4:") || line.startsWith("ONLINE_V6:")) {
+                online.add(line.substringAfter(":").trim())
+            }
+        }
+        return online
     }
 
     /**
@@ -126,8 +139,19 @@ object SuHelper {
             executeCommand("settings put secure mobile_data_preferred_uids \"$uidStr\"")
         }
 
-        // 2. Sync Linux kernel policy routing dynamically for every assigned interface (dual-stack + LAN bypass)
-        val script = RouteRuleBuilder.buildFullSyncScript(channelToUidsMap)
+        // 2. Validate interface route tables: filter out channels that have no default route to prevent blackholing
+        val candidateChannels = channelToUidsMap.keys
+        val onlineChannels = getInterfacesWithDefaultRoute(candidateChannels)
+        val activeChannelMap = channelToUidsMap.filterKeys { iface ->
+            val isOnline = onlineChannels.contains(iface)
+            if (!isOnline) {
+                Log.w(TAG, "Interface $iface has no default route in kernel table; skipping to prevent traffic blackholing")
+            }
+            isOnline
+        }
+
+        // 3. Sync Linux kernel policy routing dynamically for active interfaces (dual-stack + LAN bypass)
+        val script = RouteRuleBuilder.buildFullSyncScript(activeChannelMap)
         executeCommand(script)
     }
 
@@ -144,31 +168,24 @@ object SuHelper {
      */
     fun checkModuleActivated(): Boolean {
         // 1. Root check for marker file written by system_server (/data/system/multiroute_active)
-        // Must verify that the recorded PID is currently running and belongs to system_server
-        val rootFileCheck = runCatching {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /data/system/multiroute_active"))
-            val text = p.inputStream.bufferedReader().use { it.readText() }.trim()
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
-            val pid = text.substringBefore(":").toIntOrNull()
-            if (pid != null) {
-                val cmdProc = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/cmdline"))
-                val cmdline = cmdProc.inputStream.bufferedReader().use { it.readText() }
-                cmdProc.errorStream.bufferedReader().use { it.readText() }
-                cmdProc.waitFor()
-                cmdline.contains("system_server")
-            } else false
-        }.getOrDefault(false)
-        if (rootFileCheck) return true
+        val catLines = executeShellWithOutput("cat /data/system/multiroute_active", timeoutSeconds = 2)
+        val text = catLines.firstOrNull()?.trim() ?: ""
+        val pid = text.substringBefore(":").toIntOrNull()
+        if (pid != null) {
+            val cmdLines = executeShellWithOutput("cat /proc/$pid/cmdline", timeoutSeconds = 2)
+            if (cmdLines.any { it.contains("system_server") }) {
+                return true
+            }
+        }
 
         // 2. Direct marker file check (if permissions allow unprivileged read)
         val fileCheck = runCatching {
             val f = java.io.File("/data/system/multiroute_active")
             if (f.exists()) {
                 val content = f.readText().trim()
-                val pid = content.substringBefore(":").toIntOrNull()
-                if (pid != null) {
-                    val cmdline = java.io.File("/proc/$pid/cmdline").readText()
+                val fPid = content.substringBefore(":").toIntOrNull()
+                if (fPid != null) {
+                    val cmdline = java.io.File("/proc/$fPid/cmdline").readText()
                     cmdline.contains("system_server")
                 } else false
             } else false
@@ -185,14 +202,8 @@ object SuHelper {
         }.getOrDefault(false)
         if (prop) return true
 
-        val rootProp = runCatching {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "getprop sys.multiroute.active"))
-            val line = p.inputStream.bufferedReader().use { it.readLine() }?.trim()
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
-            line == "1"
-        }.getOrDefault(false)
-        if (rootProp) return true
+        val rootProp = executeShellWithOutput("getprop sys.multiroute.active", timeoutSeconds = 2)
+        if (rootProp.firstOrNull()?.trim() == "1") return true
 
         return false
     }
@@ -207,11 +218,7 @@ object SuHelper {
         val activeTables = mutableListOf<String>()
 
         try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id; su -v; ip rule show pref 14500; ip -6 rule show pref 14500"))
-            val lines = p.inputStream.bufferedReader().use { it.readLines() }
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
-
+            val lines = executeShellWithOutput("id; su -v; ip rule show pref 14500; ip -6 rule show pref 14500", timeoutSeconds = 4)
             if (lines.isNotEmpty() && lines[0].contains("uid=0")) {
                 isRoot = true
             }
@@ -222,7 +229,7 @@ object SuHelper {
                 val line = lines[i].trim()
                 if (line.isNotEmpty() && line.contains("14500")) {
                     kernelRules.add(line)
-                    val table = line.substringAfter("lookup ").trim()
+                    val table = line.substringAfter("lookup ").substringBefore(";").trim()
                     if (table.isNotEmpty() && !activeTables.contains(table)) {
                         activeTables.add(table)
                     }
@@ -300,10 +307,7 @@ object SuHelper {
         // 4. 当前活动的网络接口与 IP
         sb.appendLine("[4. 网络接口与路由表概要]")
         try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "ip -br addr; echo '---'; ip rule show | head -n 25"))
-            val lines = p.inputStream.bufferedReader().use { it.readLines() }
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
+            val lines = executeShellWithOutput("ip -br addr; echo '---'; ip rule show | head -n 25", timeoutSeconds = 3)
             lines.forEach { sb.appendLine(it) }
         } catch (e: Exception) {
             sb.appendLine("读取网络接口失败: ${e.message}")
@@ -313,10 +317,7 @@ object SuHelper {
         // 5. 最近 Logcat 相关日志
         sb.appendLine("[5. Logcat 系统日志 (最近)]")
         try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "logcat -d -t 60 | grep -E 'MultiRoute|ConnectivityService|netd' | tail -n 25"))
-            val lines = p.inputStream.bufferedReader().use { it.readLines() }
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
+            val lines = executeShellWithOutput("logcat -d -t 60 | grep -E 'MultiRoute|ConnectivityService|netd' | tail -n 25", timeoutSeconds = 3)
             if (lines.isEmpty()) {
                 sb.appendLine("• 暂无相关日志记录")
             } else {
@@ -329,15 +330,60 @@ object SuHelper {
         sb.toString()
     }
 
-    private fun executeCommand(cmd: String): Boolean {
+    /**
+     * Executes a command as root with safety timeout and drained buffer to avoid deadlocks.
+     */
+    fun executeCommand(cmd: String, timeoutSeconds: Long = 5): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-            process.inputStream.bufferedReader().use { it.readText() }
-            process.errorStream.bufferedReader().use { it.readText() }
-            process.waitFor() == 0
+            val pb = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true)
+            val process = pb.start()
+            val drainThread = Thread {
+                runCatching { process.inputStream.bufferedReader().use { it.readText() } }
+            }
+            drainThread.start()
+            val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                Log.e(TAG, "Command timed out after ${timeoutSeconds}s: $cmd")
+                false
+            } else {
+                drainThread.join(500)
+                process.exitValue() == 0
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to exec: $cmd", e)
             false
+        }
+    }
+
+    /**
+     * Executes a shell command as root and reads all output lines safely with timeout.
+     */
+    fun executeShellWithOutput(cmd: String, timeoutSeconds: Long = 5): List<String> {
+        return try {
+            val pb = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true)
+            val process = pb.start()
+            val lines = mutableListOf<String>()
+            val readThread = Thread {
+                runCatching {
+                    process.inputStream.bufferedReader().useLines { seq ->
+                        lines.addAll(seq.toList())
+                    }
+                }
+            }
+            readThread.start()
+            val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                Log.e(TAG, "Command with output timed out after ${timeoutSeconds}s: $cmd")
+                emptyList()
+            } else {
+                readThread.join(500)
+                lines
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to exec with output: $cmd", e)
+            emptyList()
         }
     }
 }

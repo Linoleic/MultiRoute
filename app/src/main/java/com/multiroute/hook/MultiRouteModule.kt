@@ -7,6 +7,7 @@ import android.util.SparseArray
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.Field
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Modern LibXposed module implementation for MultiRoute.
@@ -292,13 +293,56 @@ class MultiRouteModule : XposedModule() {
     }
 
     /**
+     * Traverses the class hierarchy to collect all declared fields including superclasses.
+     */
+    private fun getAllFields(clazz: Class<*>): List<Field> {
+        val fields = mutableListOf<Field>()
+        var current: Class<*>? = clazz
+        while (current != null && current != Any::class.java) {
+            fields.addAll(current.declaredFields)
+            current = current.superclass
+        }
+        return fields
+    }
+
+    private val networkMapFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private fun findNetworkMapField(csClass: Class<*>): Field? {
+        return networkMapFieldCache.getOrPut(csClass) {
+            val all = getAllFields(csClass)
+            all.firstOrNull { it.name == "mNetworkForNetId" }
+                ?: all.firstOrNull {
+                    it.type == SparseArray::class.java &&
+                            (it.name.contains("Network", ignoreCase = true) || it.name.contains("NetId", ignoreCase = true))
+                }
+        }
+    }
+
+    private val linkPropertiesFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private fun findLinkPropertiesField(naiClass: Class<*>): Field? {
+        return linkPropertiesFieldCache.getOrPut(naiClass) {
+            getAllFields(naiClass).firstOrNull { it.name == "linkProperties" || it.type == android.net.LinkProperties::class.java }
+        }
+    }
+
+    private val networkCapabilitiesFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private fun findNetworkCapabilitiesField(naiClass: Class<*>): Field? {
+        return networkCapabilitiesFieldCache.getOrPut(naiClass) {
+            getAllFields(naiClass).firstOrNull { it.name == "networkCapabilities" || it.type == NetworkCapabilities::class.java }
+        }
+    }
+
+    private val networkFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private fun findNetworkField(naiClass: Class<*>): Field? {
+        return networkFieldCache.getOrPut(naiClass) {
+            getAllFields(naiClass).firstOrNull { it.type == Network::class.java || it.name == "network" }
+        }
+    }
+
+    /**
      * Dynamically finds the NetworkAgentInfo whose interfaceName matches targetChannel (e.g. wlan0, wlan1, rmnet_data*, eth0).
      */
     private fun findNetworkAgentForChannel(csClass: Class<*>, csInstance: Any, targetChannel: String): Any? {
-        val networkMapField = csClass.declaredFields.firstOrNull {
-            it.name == "mNetworkForNetId" || it.type == SparseArray::class.java
-        } ?: return null
-
+        val networkMapField = findNetworkMapField(csClass) ?: return null
         networkMapField.isAccessible = true
         val sparseArray = networkMapField.get(csInstance) as? SparseArray<*> ?: return null
 
@@ -306,7 +350,7 @@ class MultiRouteModule : XposedModule() {
             val nai = sparseArray.valueAt(i) ?: continue
             val naiClass = nai.javaClass
 
-            val lpField = naiClass.declaredFields.firstOrNull { it.name == "linkProperties" }
+            val lpField = findLinkPropertiesField(naiClass)
             lpField?.isAccessible = true
             val lp = lpField?.get(nai) as? android.net.LinkProperties
             val iface = lp?.interfaceName ?: ""
@@ -318,7 +362,7 @@ class MultiRouteModule : XposedModule() {
 
             // Fallback for generic cellular iface matching
             if ((targetChannel.startsWith("rmnet") || targetChannel == "cellular") && iface.startsWith("rmnet")) {
-                val ncField = naiClass.declaredFields.firstOrNull { it.name == "networkCapabilities" }
+                val ncField = findNetworkCapabilitiesField(naiClass)
                 ncField?.isAccessible = true
                 val nc = ncField?.get(nai) as? NetworkCapabilities
                 if (nc?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) {
@@ -329,36 +373,56 @@ class MultiRouteModule : XposedModule() {
         return null
     }
 
-    private var cachedNetworkField: Field? = null
-    private fun findNetworkField(naiClass: Class<*>): Field? {
-        if (cachedNetworkField != null) return cachedNetworkField
-        val field = naiClass.declaredFields.firstOrNull { it.type == Network::class.java || it.name == "network" }
-        field?.isAccessible = true
-        cachedNetworkField = field
-        return field
+    // High-frequency in-memory preference caching in system_server (1.5s TTL)
+    private val prefCacheLock = Any()
+    @Volatile private var lastPrefCacheTime: Long = 0L
+    private val cachedUidRoutes = ConcurrentHashMap<Int, String>()
+    @Volatile private var cachedCellularUids: Set<Int> = emptySet()
+    private val PREF_CACHE_TTL_MS = 1500L
+
+    private fun reloadPreferencesCacheIfNeeded() {
+        val now = System.currentTimeMillis()
+        if (now - lastPrefCacheTime < PREF_CACHE_TTL_MS) return
+
+        synchronized(prefCacheLock) {
+            if (now - lastPrefCacheTime < PREF_CACHE_TTL_MS) return
+            try {
+                val prefs = getRemotePreferences(PREF_NAME)
+                val newUidRoutes = mutableMapOf<Int, String>()
+                val newCellularUids = mutableSetOf<Int>()
+
+                for ((key, value) in prefs.all) {
+                    val channelStr = value as? String ?: continue
+                    val uid = if (key.startsWith("uid_")) {
+                        key.removePrefix("uid_").toIntOrNull()
+                    } else {
+                        key.toIntOrNull()
+                    }
+                    if (uid != null) {
+                        newUidRoutes[uid] = channelStr
+                        if (channelStr.startsWith("rmnet") || channelStr.startsWith("ccmni") || channelStr == "cellular") {
+                            newCellularUids.add(uid)
+                        }
+                    }
+                }
+                cachedUidRoutes.clear()
+                cachedUidRoutes.putAll(newUidRoutes)
+                cachedCellularUids = newCellularUids
+                lastPrefCacheTime = now
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "Failed to reload remote preferences in system_server: ${t.message}")
+            }
+        }
     }
 
     private fun getTargetChannelForUid(uid: Int): String? {
-        val prefs = runCatching { getRemotePreferences(PREF_NAME) }.getOrNull() ?: return null
-        val channel = prefs.getString("uid_$uid", null) ?: prefs.getString(uid.toString(), null)
-        return channel
+        reloadPreferencesCacheIfNeeded()
+        return cachedUidRoutes[uid]
     }
 
     private fun getCellularConfiguredUids(): Set<Int> {
-        val prefs = runCatching { getRemotePreferences(PREF_NAME) }.getOrNull() ?: return emptySet()
-        val uids = mutableSetOf<Int>()
-
-        for ((key, value) in prefs.all) {
-            val channelStr = value as? String ?: continue
-            if (channelStr.startsWith("rmnet") || channelStr.startsWith("ccmni") || channelStr == "cellular") {
-                if (key.startsWith("uid_")) {
-                    key.removePrefix("uid_").toIntOrNull()?.let { uids.add(it) }
-                } else {
-                    key.toIntOrNull()?.let { uids.add(it) }
-                }
-            }
-        }
-        return uids
+        reloadPreferencesCacheIfNeeded()
+        return cachedCellularUids
     }
 
     // =========================================================================
