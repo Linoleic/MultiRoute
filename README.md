@@ -134,7 +134,10 @@ secondary Wi-Fi link alive through screen-off.
 
 **Boot recovery.** Rules live in the kernel, so they must be restored after a reboot. Three mechanisms
 cover each other: a generated `service.d` script (applied as soon as the interfaces are ready), a
-wake-up broadcast sent by the module to the app, and the app's own network callback.
+wake-up broadcast sent by the module to the app, and the app's own network callback. On a device that is
+still locked after a reboot the app cannot run yet — its credential-encrypted storage is unavailable and
+broadcasts are not delivered before the first unlock — so the root `service.d` script is then the only
+path that restores rules. That is why it is treated as the primary mechanism rather than a fallback.
 
 **Rule cache.** Until the app has been started, LSPosed's remote preferences cannot be read. The app
 therefore publishes a UID→interface cache so the hooks know the rules from the first second of a boot.
