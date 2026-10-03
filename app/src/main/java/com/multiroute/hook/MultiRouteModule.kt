@@ -449,21 +449,10 @@ class MultiRouteModule : XposedModule() {
     private fun hookDualWifiScreenOff(classLoader: ClassLoader) {
         log(Log.INFO, TAG, "Setting up Dual STA / Secondary Wi-Fi screen-off prevention hooks...")
 
-        // 1. Direct lookup in base ClassLoader
-        hookSlaveWifiFromClassLoader(classLoader)
+        // 1. Check if SlaveWifiService is already registered in ServiceManager
+        tryHookFromServiceManager(classLoader)
 
-        // 2. Direct lookup in /system_ext/framework/miui-wifi-service.jar if present
-        try {
-            val jarFile = java.io.File("/system_ext/framework/miui-wifi-service.jar")
-            if (jarFile.exists()) {
-                val pathLoader = dalvik.system.PathClassLoader(jarFile.absolutePath, classLoader)
-                hookSlaveWifiFromClassLoader(pathLoader)
-            }
-        } catch (t: Throwable) {
-            log(Log.WARN, TAG, "Direct miui-wifi-service.jar loader failed: ${t.message}")
-        }
-
-        // 3. Hook android.os.ServiceManager.addService to capture runtime SlaveWifiService registration
+        // 2. Hook android.os.ServiceManager.addService to capture runtime SlaveWifiService registration
         try {
             val smClass = Class.forName("android.os.ServiceManager", false, classLoader)
             val addMethods = smClass.declaredMethods.filter { it.name == "addService" }
@@ -487,20 +476,13 @@ class MultiRouteModule : XposedModule() {
             log(Log.WARN, TAG, "Could not hook ServiceManager.addService: ${t.message}")
         }
 
-        // 4. Background polling watchdog: check ServiceManager.checkService("SlaveWifiService") periodically
+        // 3. Background polling watchdog: check ServiceManager.checkService("SlaveWifiService") periodically
         Thread {
             for (i in 1..15) {
                 if (isSlaveWifiHooked.get() && isDualStaHooked.get()) break
                 try {
                     Thread.sleep(2000)
-                    val smClass = Class.forName("android.os.ServiceManager", false, classLoader)
-                    val checkMethod = smClass.getMethod("checkService", String::class.java)
-                    val binder = checkMethod.invoke(null, "SlaveWifiService")
-                    if (binder != null) {
-                        binder.javaClass.classLoader?.let { loader ->
-                            hookSlaveWifiFromClassLoader(loader)
-                        }
-                    }
+                    tryHookFromServiceManager(classLoader)
                 } catch (_: Throwable) {}
             }
         }.apply {
@@ -510,32 +492,57 @@ class MultiRouteModule : XposedModule() {
         }
     }
 
-    private fun hookSlaveWifiFromClassLoader(loader: ClassLoader) {
-        // A. Resolve SlaveWifiService
-        if (!isSlaveWifiHooked.get()) {
-            try {
-                val slaveClass = Class.forName("com.android.server.wifi.SlaveWifiService", false, loader)
-                hookSlaveWifiService(slaveClass)
-            } catch (_: ClassNotFoundException) {
-            } catch (t: Throwable) {
-                log(Log.WARN, TAG, "Error loading SlaveWifiService: ${t.message}")
+    private fun tryHookFromServiceManager(classLoader: ClassLoader) {
+        if (isSlaveWifiHooked.get() && isDualStaHooked.get()) return
+        try {
+            val smClass = Class.forName("android.os.ServiceManager", false, classLoader)
+            val checkMethod = smClass.getMethod("checkService", String::class.java)
+            val binder = checkMethod.invoke(null, "SlaveWifiService")
+            if (binder != null) {
+                binder.javaClass.classLoader?.let { loader ->
+                    hookSlaveWifiFromClassLoader(loader)
+                }
             }
-        }
+        } catch (_: Throwable) {}
+    }
 
-        // B. Resolve DualStaImpl
-        if (!isDualStaHooked.get()) {
-            try {
-                val implClass = Class.forName("com.android.server.wifi.DualStaImpl", false, loader)
-                hookDualStaImpl(implClass)
-            } catch (_: ClassNotFoundException) {
-            } catch (t: Throwable) {
-                log(Log.WARN, TAG, "Error loading DualStaImpl: ${t.message}")
+    private fun hookSlaveWifiFromClassLoader(loader: ClassLoader) {
+        // Resolve ClassLoader candidates (direct loader, and chained with miui-wifi-service.jar)
+        val candidateLoaders = mutableListOf(loader)
+        try {
+            val jar = java.io.File("/system_ext/framework/miui-wifi-service.jar")
+            if (jar.exists()) {
+                candidateLoaders.add(dalvik.system.PathClassLoader(jar.absolutePath, loader))
+            }
+        } catch (_: Throwable) {}
+
+        for (cl in candidateLoaders) {
+            // A. Resolve SlaveWifiService
+            if (!isSlaveWifiHooked.get()) {
+                try {
+                    val slaveClass = Class.forName("com.android.server.wifi.SlaveWifiService", false, cl)
+                    hookSlaveWifiService(slaveClass)
+                } catch (_: ClassNotFoundException) {
+                } catch (t: Throwable) {
+                    log(Log.WARN, TAG, "Error resolving SlaveWifiService: ${t.message}")
+                }
+            }
+
+            // B. Resolve DualStaImpl
+            if (!isDualStaHooked.get()) {
+                try {
+                    val implClass = Class.forName("com.android.server.wifi.DualStaImpl", false, cl)
+                    hookDualStaImpl(implClass)
+                } catch (_: ClassNotFoundException) {
+                } catch (t: Throwable) {
+                    log(Log.WARN, TAG, "Error resolving DualStaImpl: ${t.message}")
+                }
             }
         }
     }
 
     private fun hookSlaveWifiService(serviceClass: Class<*>) {
-        if (!isSlaveWifiHooked.compareAndSet(false, true)) return
+        if (isSlaveWifiHooked.get()) return
         log(Log.INFO, TAG, "Installing keepalive hooks on ${serviceClass.name}...")
 
         var hookedMethods = 0
@@ -609,8 +616,14 @@ class MultiRouteModule : XposedModule() {
             }
         }
 
-        log(Log.INFO, TAG, "SlaveWifiService keepalive hooks installed successfully ($hookedMethods methods hooked)")
+        if (hookedMethods > 0) {
+            isSlaveWifiHooked.set(true)
+            log(Log.INFO, TAG, "SlaveWifiService keepalive hooks installed successfully ($hookedMethods methods hooked)")
+        } else {
+            log(Log.WARN, TAG, "SlaveWifiService: 0 methods hooked, will retry on subsequent loader events")
+        }
     }
+
 
     private fun hookDualStaImpl(implClass: Class<*>) {
         if (!isDualStaHooked.compareAndSet(false, true)) return
