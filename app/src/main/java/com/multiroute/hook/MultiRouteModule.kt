@@ -4,11 +4,15 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import android.util.SparseArray
+import com.multiroute.BuildConfig
+import com.multiroute.util.ModuleStateParser
+import com.multiroute.util.RouteRuleBuilder
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -25,6 +29,15 @@ class MultiRouteModule : XposedModule() {
         private const val PREF_NAME = "multiroute_rules"
         private const val CHANNEL_DEFAULT = "default"
 
+        /** Action and explicit receiver component used to wake the app up for rule restoration. */
+        private const val ACTION_RESTORE_RULES = "com.multiroute.ACTION_RESTORE_RULES"
+        private const val RESTORE_PACKAGE = "com.multiroute"
+        private const val RESTORE_RECEIVER_CLASS = "com.multiroute.receiver.BootCompletedReceiver"
+        private const val RESTORE_RECEIVER = "$RESTORE_PACKAGE/.receiver.BootCompletedReceiver"
+
+        /** Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND (hidden constant, needed to wake a stopped app). */
+        private const val FLAG_RECEIVER_INCLUDE_BACKGROUND = 0x01000000
+
         private val CS_CLASS_CANDIDATES = listOf(
             "android.net.connectivity.com.android.server.ConnectivityService",
             "com.android.server.ConnectivityService"
@@ -35,26 +48,90 @@ class MultiRouteModule : XposedModule() {
     private val isSlaveWifiHooked = AtomicBoolean(false)
     private val isDualStaHooked = AtomicBoolean(false)
 
-    private fun markActive(source: String) {
+    @Volatile private var connectivityHookCount = 0
+    @Volatile private var slaveWifiHookCount = 0
+    @Volatile private var dualStaHookCount = 0
+
+    /**
+     * Publishes a structured state beacon so the app can tell "module code loaded" apart from
+     * "hooks actually installed", and can detect that system_server still executes an older module
+     * build (a System Framework scoped module cannot be hot-reloaded, so hook updates need a reboot).
+     *
+     * Channels, in order of usefulness: Settings.Global (readable by the app without root or su)
+     * -> marker file (root-based diagnostics) -> legacy system property flag.
+     */
+    private fun publishState(source: String, stage: String) {
+        val beacon = ModuleStateParser.buildBeacon(
+            pid = android.os.Process.myPid(),
+            moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            buildId = BuildConfig.HOOK_BUILD_ID,
+            bootElapsedMs = android.os.SystemClock.elapsedRealtime(),
+            writtenAtMs = System.currentTimeMillis(),
+            connectivityHooks = connectivityHookCount,
+            slaveWifiHooks = slaveWifiHookCount,
+            dualStaHooks = dualStaHookCount,
+            stage = stage
+        )
+
         try {
-            val pid = android.os.Process.myPid()
-            val markerFile = java.io.File("/data/system/multiroute_active")
-            markerFile.writeText("$pid:${System.currentTimeMillis()}")
+            // NOTE: ActivityThread.getSystemContext() is an INSTANCE method, so the current
+            // ActivityThread must be obtained first - invoking it with a null receiver throws
+            // NullPointerException("null receiver") and silently loses this channel.
+            val activityThreadClass = Class.forName("android.app.ActivityThread")
+            val currentThread = activityThreadClass.getMethod("currentActivityThread").invoke(null)
+            val systemContext = currentThread?.let {
+                activityThreadClass.getMethod("getSystemContext").invoke(it) as? android.content.Context
+            }
+            if (systemContext != null) {
+                android.provider.Settings.Global.putString(
+                    systemContext.contentResolver,
+                    ModuleStateParser.STATE_KEY,
+                    beacon
+                )
+            } else {
+                log(Log.WARN, TAG, "[$source] System context not ready; Settings.Global channel skipped")
+            }
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "[$source] Could not publish state to Settings.Global: ${t.message}")
+        }
+
+        // Compact beacon in a system property: readable by any process without root, a settings
+        // provider round trip or a ContentResolver (property values are capped at 92 bytes).
+        try {
+            val compact = ModuleStateParser.buildCompactBeacon(
+                pid = android.os.Process.myPid(),
+                moduleVersionCode = BuildConfig.VERSION_CODE.toLong(),
+                buildId = BuildConfig.HOOK_BUILD_ID,
+                bootElapsedMs = android.os.SystemClock.elapsedRealtime(),
+                connectivityHooks = connectivityHookCount,
+                slaveWifiHooks = slaveWifiHookCount,
+                dualStaHooks = dualStaHookCount,
+                stage = stage
+            )
+            val spClass = Class.forName("android.os.SystemProperties")
+            spClass.getMethod("set", String::class.java, String::class.java)
+                .invoke(null, ModuleStateParser.STATE_PROPERTY, compact)
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "[$source] Could not publish state property: ${t.message}")
+        }
+
+        try {
+            val markerFile = java.io.File(ModuleStateParser.MARKER_PATH)
+            markerFile.writeText(beacon)
             markerFile.setReadable(true, false)
             markerFile.setWritable(true, false)
-            log(Log.INFO, TAG, "[$source] Marked /data/system/multiroute_active with PID $pid")
         } catch (t: Throwable) {
-            log(Log.WARN, TAG, "[$source] Could not write /data/system/multiroute_active: ${t.message}")
+            log(Log.WARN, TAG, "[$source] Could not write ${ModuleStateParser.MARKER_PATH}: ${t.message}")
         }
 
         try {
             val spClass = Class.forName("android.os.SystemProperties")
-            val setMethod = spClass.getMethod("set", String::class.java, String::class.java)
-            setMethod.invoke(null, "sys.multiroute.active", "1")
-            log(Log.INFO, TAG, "[$source] Marked sys.multiroute.active = 1")
-        } catch (t: Throwable) {
-            log(Log.WARN, TAG, "[$source] Could not set sys.multiroute.active: ${t.message}")
+            spClass.getMethod("set", String::class.java, String::class.java)
+                .invoke(null, "sys.multiroute.active", "1")
+        } catch (_: Throwable) {
         }
+
+        log(Log.INFO, TAG, "[$source] Published module state ($stage): $beacon")
     }
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
@@ -65,7 +142,7 @@ class MultiRouteModule : XposedModule() {
             "MultiRoute onModuleLoaded: process=${param.processName}, isSystemServer=${param.isSystemServer}"
         )
         if (param.isSystemServer) {
-            markActive("onModuleLoaded(system)")
+            publishState("onModuleLoaded(system)", "loaded")
         }
         if (param.processName == "com.multiroute") {
             try {
@@ -102,7 +179,7 @@ class MultiRouteModule : XposedModule() {
         log(Log.INFO, TAG, "System server starting up, preparing Dynamic Multi-Channel hooks...")
 
         // 1. Mark module active immediately at system_server startup
-        markActive("onSystemServerStarting")
+        publishState("onSystemServerStarting", "loaded")
 
         // 2. Hook secondary Wi-Fi screen-off keepalive with multi-stage resolution
         hookDualWifiScreenOff(classLoader)
@@ -207,7 +284,9 @@ class MultiRouteModule : XposedModule() {
 
         if (hookedCount > 0) {
             isConnectivityHooked = true
+            connectivityHookCount = hookedCount
             log(Log.INFO, TAG, "ConnectivityService dynamic hooks installed successfully ($hookedCount hooked)")
+            publishState("hookConnectivityService", "hooks")
         } else {
             log(Log.WARN, TAG, "No methods could be hooked on ${csClass.name}")
         }
@@ -397,16 +476,22 @@ class MultiRouteModule : XposedModule() {
     @Volatile private var cachedCellularUids: Set<Int> = emptySet()
     private val PREF_CACHE_TTL_MS = 1500L
 
+    /** While the app has not started yet, poll less often and stay quiet unless the cache changes. */
+    private val FALLBACK_CACHE_TTL_MS = 10_000L
+    @Volatile private var cacheFallbackActive = false
+    private var lastCacheFileStamp = -1L
+    private var lastWrittenCacheText: String? = null
+
     private fun reloadPreferencesCacheIfNeeded() {
         val now = System.currentTimeMillis()
-        if (now - lastPrefCacheTime < PREF_CACHE_TTL_MS) return
+        val ttl = if (cacheFallbackActive) FALLBACK_CACHE_TTL_MS else PREF_CACHE_TTL_MS
+        if (now - lastPrefCacheTime < ttl) return
 
         synchronized(prefCacheLock) {
-            if (now - lastPrefCacheTime < PREF_CACHE_TTL_MS) return
+            if (now - lastPrefCacheTime < ttl) return
             try {
                 val prefs = getRemotePreferences(PREF_NAME)
                 val newUidRoutes = mutableMapOf<Int, String>()
-                val newCellularUids = mutableSetOf<Int>()
 
                 for ((key, value) in prefs.all) {
                     val channelStr = value as? String ?: continue
@@ -415,20 +500,82 @@ class MultiRouteModule : XposedModule() {
                     } else {
                         key.toIntOrNull()
                     }
-                    if (uid != null) {
+                    if (uid != null && RouteRuleBuilder.isValidInterfaceName(channelStr)) {
                         newUidRoutes[uid] = channelStr
-                        if (channelStr.startsWith("rmnet") || channelStr.startsWith("ccmni") || channelStr == "cellular") {
-                            newCellularUids.add(uid)
-                        }
                     }
                 }
+
+                // Routes actually handed to the hooks: the preferences, or the cached copy while the
+                // app has not been started in this boot.
+                var effectiveRoutes: Map<Int, String> = newUidRoutes
+
+                if (newUidRoutes.isEmpty()) {
+                    // Start of a boot: the module app has not been started yet, and LSPosed then returns
+                    // an empty map rather than failing. Fall back to the cache the app publishes on
+                    // every sync, otherwise the hooks would not know any rule for the first ~90s.
+                    //
+                    // This runs on a hot path (every getDefaultNetworkForUid call), so the file is only
+                    // re-read when it actually changed and the transition is logged exactly once -
+                    // otherwise the fallback produced ~50 identical log lines per boot.
+                    val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
+                    val stamp = if (file.canRead()) file.lastModified() else -1L
+                    effectiveRoutes = if (cacheFallbackActive && stamp == lastCacheFileStamp) {
+                        HashMap(cachedUidRoutes)
+                    } else {
+                        lastCacheFileStamp = stamp
+                        val cached = readRuleCache()
+                        if (cached.isNotEmpty()) {
+                            log(Log.INFO, TAG, "Preferences empty (app not started yet); using cached rule map (${cached.size} entries)")
+                        } else {
+                            log(Log.INFO, TAG, "Preferences empty and no rule cache available yet")
+                        }
+                        cached
+                    }
+                    cacheFallbackActive = true
+                } else {
+                    if (cacheFallbackActive) {
+                        log(Log.INFO, TAG, "Preferences readable again; dropping the cached-rule fallback")
+                    }
+                    cacheFallbackActive = false
+                    lastCacheFileStamp = -1L
+                    writeRuleCacheIfChanged(newUidRoutes)
+                }
+
                 cachedUidRoutes.clear()
-                cachedUidRoutes.putAll(newUidRoutes)
-                cachedCellularUids = newCellularUids
+                cachedUidRoutes.putAll(effectiveRoutes)
+                cachedCellularUids = effectiveRoutes.filterValues { isCellularChannel(it) }.keys.toSet()
                 lastPrefCacheTime = now
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "Failed to reload remote preferences in system_server: ${t.message}")
             }
+        }
+    }
+
+    /** Cellular channels are the ones the platform tracks in `mobile_data_preferred_uids`. */
+    private fun isCellularChannel(iface: String): Boolean =
+        iface.startsWith("rmnet") || iface.startsWith("ccmni") || iface == "cellular"
+
+    /** Reads the app-published uid→interface cache; see [RouteRuleBuilder.RULE_CACHE_PATH]. */
+    private fun readRuleCache(): Map<Int, String> = try {
+        val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
+        if (file.canRead()) RouteRuleBuilder.parseRuleCache(file.readText()) else emptyMap()
+    } catch (t: Throwable) {
+        log(Log.WARN, TAG, "Could not read rule cache: ${t.message}")
+        emptyMap()
+    }
+
+    /** Self-heals the cache whenever the preferences were readable and non-empty (only on change). */
+    private fun writeRuleCacheIfChanged(uidToIface: Map<Int, String>) {
+        val text = RouteRuleBuilder.buildRuleCacheText(uidToIface)
+        if (text == lastWrittenCacheText) return
+        try {
+            val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
+            file.writeText(text)
+            file.setReadable(true, false)
+            lastWrittenCacheText = text
+            lastCacheFileStamp = file.lastModified()
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "Could not write rule cache: ${t.message}")
         }
     }
 
@@ -618,7 +765,9 @@ class MultiRouteModule : XposedModule() {
 
         if (hookedMethods > 0) {
             isSlaveWifiHooked.set(true)
+            slaveWifiHookCount = hookedMethods
             log(Log.INFO, TAG, "SlaveWifiService keepalive hooks installed successfully ($hookedMethods methods hooked)")
+            publishState("hookSlaveWifiService", "hooks")
         } else {
             log(Log.WARN, TAG, "SlaveWifiService: 0 methods hooked, will retry on subsequent loader events")
         }
@@ -626,7 +775,7 @@ class MultiRouteModule : XposedModule() {
 
 
     private fun hookDualStaImpl(implClass: Class<*>) {
-        if (!isDualStaHooked.compareAndSet(false, true)) return
+        if (isDualStaHooked.get()) return
         log(Log.INFO, TAG, "Installing keepalive hooks on ${implClass.name}...")
 
         var hookedMethods = 0
@@ -652,26 +801,48 @@ class MultiRouteModule : XposedModule() {
             }
         }
 
-        log(Log.INFO, TAG, "DualStaImpl keepalive hooks installed successfully ($hookedMethods methods hooked)")
+        if (hookedMethods > 0) {
+            // Latch only on real success so a failed attempt can be retried on the next loader event,
+            // and so the published beacon never claims hooks that were not installed.
+            isDualStaHooked.set(true)
+            dualStaHookCount = hookedMethods
+            log(Log.INFO, TAG, "DualStaImpl keepalive hooks installed successfully ($hookedMethods methods hooked)")
+            publishState("hookDualStaImpl", "hooks")
+        } else {
+            log(Log.WARN, TAG, "DualStaImpl: 0 methods hooked, will retry on subsequent loader events")
+        }
     }
 
     private fun isKeepSlaveWifiScreenOff(): Boolean {
-        // 1. Transient system property (immediate cross-process IPC)
-        try {
-            val spClass = Class.forName("android.os.SystemProperties")
-            val getMethod = spClass.getMethod("get", String::class.java, String::class.java)
-            val prop = getMethod.invoke(null, "sys.multiroute.keep_slave_wifi", "") as String
-            if (prop == "1") return true
-            if (prop == "0") return false
-        } catch (_: Throwable) {}
+        // 1. Transient system property (immediate cross-process IPC while the app is alive)
+        when (readSystemProperty("sys.multiroute.keep_slave_wifi")) {
+            "1" -> return true
+            "0" -> return false
+        }
 
-        // 2. SharedPreferences fallback via LibXposed RemotePreferences
+        // 2. Persistent twin of the flag: survives reboots, so the keep-alive is honoured from the
+        // very start of a boot instead of only after the app has been started.
+        when (readSystemProperty("persist.multiroute.keep_slave_wifi")) {
+            "1" -> return true
+            "0" -> return false
+        }
+
+        // 3. SharedPreferences fallback via LibXposed RemotePreferences (authoritative when readable)
         val prefs = runCatching { getRemotePreferences(PREF_NAME) }.getOrNull()
         if (prefs != null && prefs.contains("keep_slave_wifi_screen_off")) {
             return prefs.getBoolean("keep_slave_wifi_screen_off", false)
         }
 
         return false
+    }
+
+    /** Reads a system property, or null when it is unset/unreadable. */
+    private fun readSystemProperty(name: String): String? = try {
+        val spClass = Class.forName("android.os.SystemProperties")
+        val getMethod = spClass.getMethod("get", String::class.java, String::class.java)
+        (getMethod.invoke(null, name, "") as? String)?.takeIf { it.isNotEmpty() }
+    } catch (_: Throwable) {
+        null
     }
 
     private fun isScreenInteractive(): Boolean {
@@ -698,24 +869,38 @@ class MultiRouteModule : XposedModule() {
             try {
                 // Wait 12 seconds for system server and activity manager to stabilize
                 Thread.sleep(12000)
-                val prefs = runCatching { getRemotePreferences(PREF_NAME) }.getOrNull()
-                val hasRules = prefs?.all?.any { (k, v) ->
-                    v is String && v != CHANNEL_DEFAULT && (k.startsWith("uid_") || k.toIntOrNull() != null)
-                } ?: false
 
-                if (hasRules) {
-                    log(Log.INFO, TAG, "[BootRestore] Routing rules configured. Dispatching system broadcast ACTION_RESTORE_RULES to MultiRoute...")
-                    val cmd = arrayOf(
-                        "am", "broadcast",
-                        "-a", "com.multiroute.ACTION_RESTORE_RULES",
-                        "-p", "com.multiroute",
-                        "-f", "0x01000000" // FLAG_RECEIVER_INCLUDE_BACKGROUND
-                    )
-                    Runtime.getRuntime().exec(cmd).waitFor()
-                    log(Log.INFO, TAG, "[BootRestore] System broadcast sent successfully.")
-                } else {
-                    log(Log.INFO, TAG, "[BootRestore] No active rules configured; skipping boot broadcast.")
+                // Final state refresh: by now the Wi-Fi keep-alive hooks (which resolve via the
+                // SystemServiceManager interception) have either installed or failed, so the beacon
+                // published here is the authoritative one for this boot.
+                publishState("bootRestoreWatchdog", "ready")
+
+                // Wake the app so it re-applies its own routing rules.
+                //
+                // There used to be a remote-preferences gate here ("skip when no rules"). On-device
+                // evidence removed it: while the module app is not running, getRemotePreferences()
+                // does not throw but silently returns an EMPTY map, so the gate skipped the restore on
+                // every boot. The app owns the preferences and its sync is idempotent (it just cleans
+                // up when nothing is configured), so waking it unconditionally is correct and cheap -
+                // and once awake, its NetworkCallback covers interfaces that only come up later.
+                val prefs = runCatching { getRemotePreferences(PREF_NAME) }.getOrNull()
+                val visibleRuleKeys = prefs?.all?.count { (k, v) ->
+                    v is String && v != CHANNEL_DEFAULT && (k.startsWith("uid_") || k.toIntOrNull() != null)
                 }
+                log(
+                    Log.INFO,
+                    TAG,
+                    "[BootRestore] Waking MultiRoute to restore routing rules " +
+                            "(visible rule keys: ${visibleRuleKeys ?: "unknown"})."
+                )
+
+                dispatchRestoreBroadcast()
+
+                // One retry: the first wake-up can race with app/AMS startup, and the interface set is
+                // still settling this early in boot.
+                Thread.sleep(90_000)
+                log(Log.INFO, TAG, "[BootRestore] Retrying restore broadcast once.")
+                dispatchRestoreBroadcast()
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "[BootRestore] Watchdog encountered error: ${t.message}")
             }
@@ -724,5 +909,78 @@ class MultiRouteModule : XposedModule() {
             name = "MultiRoute-BootRestoreWatchdog"
             start()
         }
+    }
+
+    /**
+     * Wakes the MultiRoute app with an explicit-component broadcast so it re-applies its rules.
+     *
+     * The preferred route is an **in-process** broadcast from the system context. Spawning `am` from
+     * system_server fails on this platform with `EACCES` ("Cannot run program \"am\": error=13,
+     * Permission denied"), which silently disabled the whole boot restore until it was observed on
+     * device. The shell route is retained only as a fallback for platforms that permit it.
+     */
+    private fun dispatchRestoreBroadcast() {
+        if (sendRestoreBroadcastInProcess()) return
+        sendRestoreBroadcastViaShell()
+    }
+
+    /** Returns true when the broadcast was handed to ActivityManager in-process. */
+    private fun sendRestoreBroadcastInProcess(): Boolean {
+        return try {
+            val activityThreadClass = Class.forName("android.app.ActivityThread")
+            val currentThread = activityThreadClass.getMethod("currentActivityThread").invoke(null)
+            val context = currentThread?.let {
+                activityThreadClass.getMethod("getSystemContext").invoke(it) as? android.content.Context
+            } ?: return false
+
+            val intent = android.content.Intent(ACTION_RESTORE_RULES).apply {
+                // Explicit component: an implicit broadcast is dropped when the app is not running,
+                // which is exactly the boot-time case this exists for.
+                component = android.content.ComponentName(RESTORE_PACKAGE, RESTORE_RECEIVER_CLASS)
+                addFlags(FLAG_RECEIVER_INCLUDE_BACKGROUND)
+            }
+            context.sendBroadcast(intent)
+            log(Log.INFO, TAG, "[BootRestore] Restore broadcast sent in-process.")
+            true
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "[BootRestore] In-process broadcast failed: ${t.message}")
+            false
+        }
+    }
+
+    /** Fallback: shell out to `am` (only works where system_server may exec system binaries). */
+    private fun sendRestoreBroadcastViaShell() {
+        try {
+            // An EXPLICIT component (-n) is mandatory here: a package-only (-p) implicit broadcast
+            // is dropped when the target process is not running, which is exactly the boot-time case.
+            val cmd = arrayOf(
+                "am", "broadcast",
+                "-a", ACTION_RESTORE_RULES,
+                "-n", RESTORE_RECEIVER,
+                "-f", "0x01000000" // FLAG_RECEIVER_INCLUDE_BACKGROUND
+            )
+            val proc = ProcessBuilder(*cmd).redirectErrorStream(true).start()
+                    val output = StringBuilder()
+                    val drain = Thread {
+                        runCatching {
+                            proc.inputStream.bufferedReader().useLines { lines ->
+                                lines.forEach { line -> synchronized(output) { output.appendLine(line) } }
+                            }
+                        }
+                    }
+                    drain.isDaemon = true
+                    drain.start()
+                    val finished = proc.waitFor(10, TimeUnit.SECONDS)
+                    if (finished) {
+                        drain.join(500)
+                        val tail = synchronized(output) { output.toString().trim().takeLast(200) }
+                        log(Log.INFO, TAG, "[BootRestore] Broadcast dispatched (rc=${proc.exitValue()}): $tail")
+                    } else {
+                        proc.destroyForcibly()
+                        log(Log.WARN, TAG, "[BootRestore] am broadcast timed out after 10s; aborting.")
+                    }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "[BootRestore] Failed to dispatch restore broadcast: ${t.message}")
+            }
     }
 }

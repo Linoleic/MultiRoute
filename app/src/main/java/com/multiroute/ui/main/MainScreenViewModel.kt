@@ -12,6 +12,7 @@ import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.data.RuleTarget
 import com.multiroute.data.TestServerManager
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
@@ -55,7 +56,7 @@ data class MainUiState(
     val logsContent: String = "",
     // 批量通道分配多选状态
     val isSelectionMode: Boolean = false,
-    val selectedPackageNames: Set<String> = emptySet(),
+    val selectedRuleKeys: Set<String> = emptySet(),
     val showBatchAssignSheet: Boolean = false
 )
 
@@ -140,7 +141,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.value = _uiState.value.copy(
             selectedTab = index,
             isSelectionMode = if (index != 0) false else _uiState.value.isSelectionMode,
-            selectedPackageNames = if (index != 0) emptySet() else _uiState.value.selectedPackageNames,
+            selectedRuleKeys = if (index != 0) emptySet() else _uiState.value.selectedRuleKeys,
             showBatchAssignSheet = if (index != 0) false else _uiState.value.showBatchAssignSheet
         )
         if (index == 2) {
@@ -152,42 +153,42 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val selected = if (initialPackage != null) setOf(initialPackage) else emptySet()
         _uiState.value = _uiState.value.copy(
             isSelectionMode = true,
-            selectedPackageNames = selected
+            selectedRuleKeys = selected
         )
     }
 
     fun exitSelectionMode() {
         _uiState.value = _uiState.value.copy(
             isSelectionMode = false,
-            selectedPackageNames = emptySet(),
+            selectedRuleKeys = emptySet(),
             showBatchAssignSheet = false
         )
     }
 
-    fun toggleSelectApp(packageName: String) {
-        val current = _uiState.value.selectedPackageNames.toMutableSet()
-        if (current.contains(packageName)) {
-            current.remove(packageName)
+    fun toggleSelectApp(ruleKey: String) {
+        val current = _uiState.value.selectedRuleKeys.toMutableSet()
+        if (current.contains(ruleKey)) {
+            current.remove(ruleKey)
         } else {
-            current.add(packageName)
+            current.add(ruleKey)
         }
-        _uiState.value = _uiState.value.copy(selectedPackageNames = current)
+        _uiState.value = _uiState.value.copy(selectedRuleKeys = current)
     }
 
     fun selectAllFilteredApps() {
-        val currentFiltered = _uiState.value.apps.map { it.packageName }.toSet()
-        val currentSelected = _uiState.value.selectedPackageNames
+        val currentFiltered = _uiState.value.apps.map { it.ruleKey }.toSet()
+        val currentSelected = _uiState.value.selectedRuleKeys
         val allSelected = currentFiltered.isNotEmpty() && currentFiltered.all { it in currentSelected }
         val newSelected = if (allSelected) {
             currentSelected - currentFiltered
         } else {
             currentSelected + currentFiltered
         }
-        _uiState.value = _uiState.value.copy(selectedPackageNames = newSelected)
+        _uiState.value = _uiState.value.copy(selectedRuleKeys = newSelected)
     }
 
     fun openBatchAssignSheet() {
-        if (_uiState.value.selectedPackageNames.isEmpty()) return
+        if (_uiState.value.selectedRuleKeys.isEmpty()) return
         _uiState.value = _uiState.value.copy(showBatchAssignSheet = true)
     }
 
@@ -196,15 +197,18 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun batchAssignChannel(channelId: String) {
-        val packages = _uiState.value.selectedPackageNames
-        if (packages.isEmpty()) return
+        // Selection is keyed by rule key (`pkg` or `pkg@userId`), so a clone-space install and the
+        // primary install of the same package can be assigned independently.
+        val keys = _uiState.value.selectedRuleKeys
+        if (keys.isEmpty()) return
 
         val context = getApplication<Application>()
-        RouteConfigProvider.setTargetChannels(context, packages, channelId)
+        val targets = allApps.filter { it.ruleKey in keys }
+            .map { RuleTarget(it.ruleKey, it.uid) }
+        RouteConfigProvider.setTargetChannels(context, targets, channelId)
 
-        val packageSet = packages.toSet()
         allApps = allApps.map {
-            if (it.packageName in packageSet) it.copy(targetChannelId = channelId) else it
+            if (it.ruleKey in keys) it.copy(targetChannelId = channelId) else it
         }
 
         val channelName = when {
@@ -212,10 +216,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             else -> _uiState.value.channels.firstOrNull { it.id == channelId }?.displayName ?: channelId
         }
 
-        val count = packages.size
+        val count = targets.size
         _uiState.value = _uiState.value.copy(
             isSelectionMode = false,
-            selectedPackageNames = emptySet(),
+            selectedRuleKeys = emptySet(),
             showBatchAssignSheet = false,
             snackBarMessage = "已为 $count 个应用批量分配至: $channelName"
         )
@@ -384,15 +388,19 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         filterApps()
     }
 
-    fun updateRouteChannel(packageName: String, channelId: String) {
+    fun updateRouteChannel(app: AppItem, channelId: String) {
         val context = getApplication<Application>()
-        RouteConfigProvider.setTargetChannel(context, packageName, channelId)
+        RouteConfigProvider.setTargetChannel(
+            context,
+            RuleTarget(app.ruleKey, app.uid),
+            channelId
+        )
 
         allApps = allApps.map {
-            if (it.packageName == packageName) it.copy(targetChannelId = channelId) else it
+            if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
         }
 
-        if (_uiState.value.selectedAppForSheet?.packageName == packageName) {
+        if (_uiState.value.selectedAppForSheet?.ruleKey == app.ruleKey) {
             _uiState.value = _uiState.value.copy(
                 selectedAppForSheet = _uiState.value.selectedAppForSheet?.copy(targetChannelId = channelId)
             )
@@ -494,6 +502,30 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 } catch (_: Exception) {}
 
+                // OEM clone spaces (Xiaomi XSpace = user 999) and work profiles: list them as their own
+                // entries so the clone can be routed independently from the primary install.
+                try {
+                    for (installs in SuHelper.listSecondaryUserInstalls()) {
+                        for ((pkg, uid) in installs.packageUids) {
+                            if (pkg == context.packageName) continue
+                            val key = com.multiroute.util.RouteRuleBuilder.ruleKey(pkg, installs.userId)
+                            if (packageMap.containsKey(key)) continue
+                            val base = packageMap[pkg]
+                            packageMap[key] = AppItem(
+                                packageName = pkg,
+                                // The numeric space id is shown instead of the user name: XSpace is "999"
+                                // internally, which is unambiguous and needs no name parsing.
+                                appName = "${base?.appName ?: pkg} (${installs.userId})",
+                                icon = base?.icon,
+                                uid = uid,
+                                targetChannelId = currentRules[key] ?: CHANNEL_DEFAULT,
+                                isSystemApp = base?.isSystemApp ?: false,
+                                userId = installs.userId
+                            )
+                        }
+                    }
+                } catch (_: Exception) {}
+
                 packageMap.values.sortedWith(
                     compareByDescending<AppItem> { it.targetChannelId != CHANNEL_DEFAULT }
                         .thenBy { it.isSystemApp }
@@ -515,7 +547,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val filtered = allApps.filter { app ->
             val matchesQuery = query.isEmpty() ||
                     app.appName.lowercase().contains(query) ||
-                    app.packageName.lowercase().contains(query)
+                    app.packageName.lowercase().contains(query) ||
+                    app.ruleKey.lowercase().contains(query)
             val matchesSys = showSys || !app.isSystemApp
             val matchesChannel = when (filterChannel) {
                 null -> true

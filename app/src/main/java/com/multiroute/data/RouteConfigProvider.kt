@@ -8,6 +8,13 @@ import android.net.Uri
 import android.os.Bundle
 import com.multiroute.model.CHANNEL_DEFAULT
 
+/**
+ * A rule target: the display key (`pkg` for the primary user, `pkg@<userId>` for an OEM clone space
+ * or work profile) plus the UID the kernel rule is built from. Carrying the UID explicitly is what
+ * lets a clone install and the primary install of the same package be configured independently.
+ */
+data class RuleTarget(val key: String, val uid: Int)
+
 class RouteConfigProvider : ContentProvider() {
 
     companion object {
@@ -39,34 +46,56 @@ class RouteConfigProvider : ContentProvider() {
             sp.edit().putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, enabled).apply()
         }
 
-        fun getTargetChannel(context: Context, packageName: String): String {
-            if (!isValidPackageName(packageName)) return CHANNEL_DEFAULT
+        fun getTargetChannel(context: Context, ruleKey: String): String {
+            if (!isValidRuleKey(ruleKey)) return CHANNEL_DEFAULT
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            return sp.getString(packageName, null) ?: CHANNEL_DEFAULT
+            return sp.getString(ruleKey, null) ?: CHANNEL_DEFAULT
         }
 
-        fun setTargetChannel(context: Context, packageName: String, channelId: String) {
-            setTargetChannels(context, listOf(packageName), channelId)
+        /**
+         * A rule target: the display key (`pkg` for the primary user, `pkg@<userId>` for a clone space
+         * or work profile) plus the UID the kernel rule is built from.
+         */
+        fun isValidRuleKey(key: String): Boolean {
+            val (pkg, userId) = com.multiroute.util.RouteRuleBuilder.parseRuleKey(key)
+            return isValidPackageName(pkg) && userId in 0..999
         }
 
-        fun setTargetChannels(context: Context, packageNames: Collection<String>, channelId: String) {
-            if (packageNames.isEmpty()) return
+        fun setTargetChannel(context: Context, target: RuleTarget, channelId: String) {
+            setTargetChannels(context, listOf(target), channelId)
+        }
+
+        fun setTargetChannels(context: Context, targets: Collection<RuleTarget>, channelId: String) {
+            if (targets.isEmpty()) return
             val sanitizedChannel = if (isValidChannelId(channelId)) channelId else CHANNEL_DEFAULT
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val pm = context.packageManager
             val editor = sp.edit()
-            for (packageName in packageNames) {
-                if (!isValidPackageName(packageName)) continue
-                val uid = runCatching { pm.getPackageUid(packageName, 0) }.getOrDefault(-1)
+            for (target in targets) {
+                if (!isValidRuleKey(target.key)) continue
                 if (sanitizedChannel == CHANNEL_DEFAULT || sanitizedChannel.isEmpty()) {
-                    editor.remove(packageName)
-                    if (uid != -1) editor.remove("uid_$uid")
+                    editor.remove(target.key)
+                    if (target.uid > 0) editor.remove("uid_${target.uid}")
                 } else {
-                    editor.putString(packageName, sanitizedChannel)
-                    if (uid != -1) editor.putString("uid_$uid", sanitizedChannel)
+                    editor.putString(target.key, sanitizedChannel)
+                    if (target.uid > 0) editor.putString("uid_${target.uid}", sanitizedChannel)
                 }
             }
             editor.apply()
+        }
+
+        /**
+         * UID→channel map, i.e. exactly the `uid_<n>` keys the injected module reads. This is the single
+         * source of truth for kernel rules, so clone-space UIDs are routed like any other UID.
+         */
+        fun getUidRules(context: Context): Map<Int, String> {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            val result = mutableMapOf<Int, String>()
+            sp.all.forEach { (key, value) ->
+                if (key.startsWith("uid_") && value is String) {
+                    key.removePrefix("uid_").toIntOrNull()?.let { result[it] = value }
+                }
+            }
+            return result
         }
 
         fun getAllRules(context: Context): Map<String, String> {
@@ -95,18 +124,25 @@ class RouteConfigProvider : ContentProvider() {
 
         when (method) {
             METHOD_GET_ROUTE -> {
-                val packageName = arg ?: return null
-                if (!isValidPackageName(packageName)) return null
-                val channelId = getTargetChannel(ctx, packageName)
-                bundle.putString(KEY_CHANNEL_ID, channelId)
+                val ruleKey = arg ?: return null
+                if (!isValidRuleKey(ruleKey)) return null
+                bundle.putString(KEY_CHANNEL_ID, getTargetChannel(ctx, ruleKey))
                 return bundle
             }
             METHOD_SET_ROUTE -> {
-                val packageName = arg ?: return null
-                if (!isValidPackageName(packageName)) return null
+                val ruleKey = arg ?: return null
+                if (!isValidRuleKey(ruleKey)) return null
                 val channelId = extras?.getString(KEY_CHANNEL_ID, CHANNEL_DEFAULT) ?: CHANNEL_DEFAULT
                 if (!isValidChannelId(channelId)) return null
-                setTargetChannel(ctx, packageName, channelId)
+                // Legacy entry point: only the primary-user UID can be resolved here; the app itself
+                // resolves clone-space UIDs and writes them via setTargetChannel(RuleTarget).
+                val (pkg, userId) = com.multiroute.util.RouteRuleBuilder.parseRuleKey(ruleKey)
+                val uid = if (userId == 0) {
+                    runCatching { ctx.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
+                } else {
+                    -1
+                }
+                setTargetChannel(ctx, RuleTarget(ruleKey, uid), channelId)
                 bundle.putBoolean("success", true)
                 return bundle
             }

@@ -46,6 +46,8 @@ import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.TestServerConfig
 import com.multiroute.model.TestServerPreset
+import com.multiroute.util.ModuleStatus
+import com.multiroute.util.SuHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,7 +84,7 @@ fun MainScreen(
                         )
                         Text(
                             text = if (uiState.isSelectionMode) {
-                                "已选中 ${uiState.selectedPackageNames.size} 个应用"
+                                "已选中 ${uiState.selectedRuleKeys.size} 个应用"
                             } else {
                                 when (uiState.selectedTab) {
                                     0 -> "共 ${uiState.totalAppsCount} 个应用 · 已分流 ${uiState.configuredAppsCount} 个"
@@ -170,7 +172,7 @@ fun MainScreen(
                     app = app,
                     channels = uiState.channels,
                     onSelectChannel = { channelId ->
-                        viewModel.updateRouteChannel(app.packageName, channelId)
+                        viewModel.updateRouteChannel(app, channelId)
                         viewModel.closeAppSheet()
                     },
                     onDismiss = { viewModel.closeAppSheet() }
@@ -180,7 +182,7 @@ fun MainScreen(
             // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet)
             if (uiState.showBatchAssignSheet) {
                 BatchChannelSelectBottomSheet(
-                    selectedCount = uiState.selectedPackageNames.size,
+                    selectedCount = uiState.selectedRuleKeys.size,
                     channels = uiState.channels,
                     onSelectChannel = { channelId ->
                         viewModel.batchAssignChannel(channelId)
@@ -356,7 +358,7 @@ fun AppRulesTab(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                val allFilteredSelected = uiState.apps.isNotEmpty() && uiState.apps.all { it.packageName in uiState.selectedPackageNames }
+                                val allFilteredSelected = uiState.apps.isNotEmpty() && uiState.apps.all { it.ruleKey in uiState.selectedRuleKeys }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -368,7 +370,7 @@ fun AppRulesTab(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
-                                        text = "已选 ${uiState.selectedPackageNames.size} 项",
+                                        text = "已选 ${uiState.selectedRuleKeys.size} 项",
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -473,25 +475,25 @@ fun AppRulesTab(
                     }
                 }
                 else -> {
-                    items(uiState.apps, key = { it.packageName }) { app ->
+                    items(uiState.apps, key = { it.ruleKey }) { app ->
                         AppItemRow(
                             app = app,
                             channels = uiState.channels,
                             isSelectionMode = uiState.isSelectionMode,
-                            isSelected = uiState.selectedPackageNames.contains(app.packageName),
-                            onToggleSelect = { viewModel.toggleSelectApp(app.packageName) },
+                            isSelected = uiState.selectedRuleKeys.contains(app.ruleKey),
+                            onToggleSelect = { viewModel.toggleSelectApp(app.ruleKey) },
                             onClick = {
                                 if (uiState.isSelectionMode) {
-                                    viewModel.toggleSelectApp(app.packageName)
+                                    viewModel.toggleSelectApp(app.ruleKey)
                                 } else {
                                     viewModel.openAppSheet(app)
                                 }
                             },
                             onLongClick = {
                                 if (!uiState.isSelectionMode) {
-                                    viewModel.enterSelectionMode(app.packageName)
+                                    viewModel.enterSelectionMode(app.ruleKey)
                                 } else {
-                                    viewModel.toggleSelectApp(app.packageName)
+                                    viewModel.toggleSelectApp(app.ruleKey)
                                 }
                             }
                         )
@@ -533,7 +535,7 @@ fun AppRulesTab(
                     Button(
                         onClick = { viewModel.openBatchAssignSheet() },
                         modifier = Modifier.weight(2f),
-                        enabled = uiState.selectedPackageNames.isNotEmpty(),
+                        enabled = uiState.selectedRuleKeys.isNotEmpty(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
@@ -543,8 +545,8 @@ fun AppRulesTab(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (uiState.selectedPackageNames.isEmpty()) "选择应用以分配"
-                            else "分配通道 (${uiState.selectedPackageNames.size})"
+                            if (uiState.selectedRuleKeys.isEmpty()) "选择应用以分配"
+                            else "分配通道 (${uiState.selectedRuleKeys.size})"
                         )
                     }
                 }
@@ -741,7 +743,7 @@ fun SettingsTab(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                    // 1. LSPosed 模块实际激活检测
+                    // 1. LSPosed 模块状态（精确：区分未激活 / hook 未就绪 / 旧版本待重启 / 记录过期）
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -751,23 +753,46 @@ fun SettingsTab(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
+                        val moduleStatus = diag?.moduleStatus
+                        val isHealthy = moduleStatus == ModuleStatus.ACTIVE
+                        val isBlocking = moduleStatus == null ||
+                                moduleStatus == ModuleStatus.PARTIAL ||
+                                moduleStatus == ModuleStatus.OUTDATED ||
+                                moduleStatus == ModuleStatus.STALE ||
+                                moduleStatus == ModuleStatus.NOT_ACTIVE
+                        val statusTint = when {
+                            isHealthy -> MaterialTheme.colorScheme.primary
+                            isBlocking -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.tertiary
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            val isActive = diag?.isModuleActive == true
                             Icon(
-                                imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                imageVector = if (isHealthy) Icons.Default.CheckCircle else Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                tint = statusTint,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (isActive) "已激活 (system_server 运行中)" else "未激活 (请在 LSPosed 中勾选并重启手机)",
+                                text = if (moduleStatus != null) {
+                                    SuHelper.moduleStatusLabel(moduleStatus)
+                                } else {
+                                    "正在检测模块状态…"
+                                },
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                    color = statusTint
                                 )
+                            )
+                        }
+                        val statusDetail = diag?.moduleStatusDetail
+                        if (!statusDetail.isNullOrEmpty()) {
+                            Text(
+                                text = statusDetail,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
                             )
                         }
                     }

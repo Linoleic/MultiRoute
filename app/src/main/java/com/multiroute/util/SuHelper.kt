@@ -3,6 +3,7 @@ package com.multiroute.util
 import android.content.Context
 import android.provider.Settings
 import android.util.Log
+import com.multiroute.BuildConfig
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.model.CHANNEL_DEFAULT
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,9 @@ data class DiagnosticInfo(
     val isRootGranted: Boolean = false,
     val suVersion: String = "",
     val isModuleActive: Boolean = false,
+    /** Precise module state; [isModuleActive] is kept as the coarse "loaded in system_server" flag. */
+    val moduleStatus: ModuleStatus = ModuleStatus.NOT_ACTIVE,
+    val moduleStatusDetail: String = "",
     val kernelRulesCount: Int = 0,
     val kernelRules: List<String> = emptyList(),
     val mobileDataAlwaysOn: Boolean = false,
@@ -29,6 +33,9 @@ data class DiagnosticInfo(
 object SuHelper {
     private const val TAG = "MultiRoute-SU"
 
+    /** Pseudo PID used when a legacy flag proves the module ran but recorded no process. */
+    private const val UNKNOWN_PID = -1
+
     fun isKeepSlaveWifiScreenOff(context: Context): Boolean {
         return RouteConfigProvider.isKeepSlaveWifiScreenOff(context)
     }
@@ -39,6 +46,11 @@ object SuHelper {
         // 1. Transient system property for instantaneous system_server hook access
         val propVal = if (enabled) "1" else "0"
         executeCommand("setprop sys.multiroute.keep_slave_wifi $propVal")
+
+        // 1b. Persistent twin of the same flag. `sys.*` is wiped on reboot and RemotePreferences are
+        // unreadable until this app has been started, so without this the keep-alive silently judged
+        // itself "off" for the first ~90s of every boot (verified on device).
+        executeCommand("setprop persist.multiroute.keep_slave_wifi $propVal")
 
         // 2. Xiaomi system setting: 0 = disable auto teardown, 1 = enable auto teardown
         val autoDisableVal = if (enabled) 0 else 1
@@ -158,34 +170,43 @@ object SuHelper {
     }
 
     /**
-     * Deploys an automated boot restore script to KernelSU/Magisk service.d directory.
-     * Guarantees rule persistence across reboots even if OEM kills background receivers.
+     * Deploys a dynamic boot restore script to the KernelSU/Magisk `service.d` directory.
+     *
+     * The script no longer replays a static snapshot: `service.d` runs during `late_start`, before
+     * Wi-Fi/cellular routing tables exist, so it first waits for those tables to appear, applies the
+     * rules, then keeps re-applying whenever a channel's readiness changes. That keeps recovery
+     * working even when the OEM blocks background broadcasts, and leaves a trace in
+     * [RouteRuleBuilder.BOOT_LOG_PATH].
      */
-    fun updateBootRestoreScript(script: String) {
+    fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>) {
         try {
-            val scriptContent = """
-#!/system/bin/sh
-# MultiRoute boot-time policy routing recovery
-LOG="/data/adb/multiroute/last_boot_sync.log"
-mkdir -p /data/adb/multiroute
-echo "[${'$'}(date)] MultiRoute service.d restoring kernel rules..." > "${'$'}LOG"
-# Wait briefly for netd and routing tables to initialize
-sleep 5
-$script
-RET=${'$'}?
-echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
-""".trimIndent()
+            val scriptContent = RouteRuleBuilder.buildBootRestoreScript(applyScript, interfaces)
 
             val cmd = "mkdir -p /data/adb/service.d /data/adb/multiroute && " +
-                    "cat << 'EOF' > /data/adb/service.d/00-multiroute-restore.sh\n" +
+                    "cat << 'MCROUTE_EOF' > /data/adb/service.d/00-multiroute-restore.sh\n" +
                     "$scriptContent\n" +
-                    "EOF\n" +
+                    "MCROUTE_EOF\n" +
                     "chmod 755 /data/adb/service.d/00-multiroute-restore.sh"
 
-            executeCommand(cmd)
+            if (!executeCommand(cmd)) {
+                Log.w(TAG, "Boot restore script deployment returned a non-zero exit code")
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to update boot restore script: ${t.message}")
         }
+    }
+
+    /**
+     * Enumerates OEM clone-space / work-profile installs so the UI can list and configure them
+     * separately from the primary-user installs of the same packages.
+     */
+    fun listSecondaryUserInstalls(): List<RouteRuleBuilder.SecondaryUserInstalls> {
+        val lines = executeShellWithOutput(RouteRuleBuilder.buildSecondaryUserListingQuery(), timeoutSeconds = 6)
+        if (lines.isEmpty()) {
+            Log.w(TAG, "Secondary-user listing returned nothing; clone apps will not be listed")
+            return emptyList()
+        }
+        return RouteRuleBuilder.parseSecondaryUserListing(lines)
     }
 
     /**
@@ -193,36 +214,28 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
      * to the kernel policy routing table and system settings.
      */
     suspend fun syncAllRouteRules(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val allRules = RouteConfigProvider.getAllRules(context)
-        val pm = context.packageManager
+        // Keep the persistent keep-alive flag aligned with the stored preference on every sync, so the
+        // module can honour it from the very first moment of a boot (its other two sources - the
+        // transient `sys.*` property and RemotePreferences - are unavailable at that point).
+        val keepAliveValue = if (RouteConfigProvider.isKeepSlaveWifiScreenOff(context)) "1" else "0"
+        executeCommand("setprop persist.multiroute.keep_slave_wifi $keepAliveValue")
+
+        // `uid_<n>` is the contract the injected module reads, so routing is driven purely by UID.
+        // That keeps primary installs, OEM clone spaces (Xiaomi XSpace = user 999) and work profiles
+        // uniformly routable - and lets each of them be configured to a different channel.
+        val uidRules = RouteConfigProvider.getUidRules(context)
 
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
         val cellularUids = mutableSetOf<Int>()
 
-        for ((pkg, channelId) in allRules) {
+        for ((uid, channelId) in uidRules) {
             if (channelId == CHANNEL_DEFAULT) continue
-            val baseUid = runCatching { pm.getPackageUid(pkg, 0) }.getOrNull() ?: continue
-            if (baseUid < 10000) continue
+            if (!RouteRuleBuilder.isValidUid(uid)) continue
+            if (!RouteRuleBuilder.isValidInterfaceName(channelId)) continue
 
-            val uids = mutableListOf(baseUid)
-
-            // Check for Dual Apps / App Clone (User 999 on Xiaomi / MIUI)
-            val appId = baseUid % 100000
-            val dualAppUid = 999 * 100000 + appId
-            val hasDualApp = runCatching {
-                val method = pm.javaClass.getMethod("getPackageUidAsUser", String::class.java, Int::class.javaPrimitiveType)
-                (method.invoke(pm, pkg, 999) as? Int) == dualAppUid
-            }.getOrDefault(false)
-
-            if (hasDualApp) {
-                uids.add(dualAppUid)
-            }
-
-            for (uid in uids) {
-                channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
-                if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {
-                    cellularUids.add(uid)
-                }
+            channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
+            if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {
+                cellularUids.add(uid)
             }
         }
 
@@ -252,10 +265,11 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
         // 2. Validate interface route tables
         val candidateChannels = channelToUidsMap.keys
         if (candidateChannels.isEmpty()) {
-            // User explicitly cleared all routing rules: clean up kernel rules and boot script
+            // User explicitly cleared all routing rules: clean up kernel rules, boot script and cache
             val cleanupScript = RouteRuleBuilder.buildFullSyncScript(emptyMap())
             executeCommand(cleanupScript)
             executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
+            executeCommand("rm -f ${RouteRuleBuilder.RULE_CACHE_PATH}")
             return@withContext true
         }
 
@@ -282,10 +296,42 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
 
         // 5. Deploy / update Magisk/KernelSU boot-time service.d restore script
         if (success) {
-            updateBootRestoreScript(script)
+            updateBootRestoreScript(script, activeChannelMap.keys)
+            updateRuleCache(activeChannelMap)
         }
 
         success
+    }
+
+    /**
+     * Publishes the uid→interface map to [RouteRuleBuilder.RULE_CACHE_PATH].
+     *
+     * At the start of every boot, and until this app has been started, LSPosed's RemotePreferences
+     * return an empty map, so the ConnectivityService hooks cannot see any rule. This cache gives them
+     * a known-good fallback, and it is refreshed on every successful sync.
+     */
+    private fun updateRuleCache(channelToUidsMap: Map<String, List<Int>>) {
+        val uidToIface = mutableMapOf<Int, String>()
+        for ((iface, uids) in channelToUidsMap) {
+            if (!RouteRuleBuilder.isValidInterfaceName(iface)) continue
+            for (uid in uids) uidToIface[uid] = iface
+        }
+        val cacheText = RouteRuleBuilder.buildRuleCacheText(uidToIface)
+        if (cacheText.isEmpty()) {
+            executeCommand("rm -f ${RouteRuleBuilder.RULE_CACHE_PATH}")
+            return
+        }
+        try {
+            val cmd = "cat << 'MCROUTE_CACHE_EOF' > ${RouteRuleBuilder.RULE_CACHE_PATH}\n" +
+                    "$cacheText\n" +
+                    "MCROUTE_CACHE_EOF\n" +
+                    "chmod 644 ${RouteRuleBuilder.RULE_CACHE_PATH}"
+            if (!executeCommand(cmd)) {
+                Log.w(TAG, "Rule cache update returned a non-zero exit code")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to update rule cache: ${t.message}")
+        }
     }
 
     @androidx.annotation.Keep
@@ -295,50 +341,134 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
     }
 
     /**
-     * Dynamically detects whether the LSPosed MultiRoute module is actually activated in system_server.
-     * Prevents false positives by strictly verifying the marker file with system_server process validation
-     * and system properties, rather than relying on forgeable logs or in-process hook short-circuits.
+     * Human-readable label for a [ModuleStatus], shared by the diagnostics log and the settings UI so
+     * both stay consistent.
+     *
+     * Note: [isModuleActiveInLSPosed] above is only a legacy activation probe - it is hooked to return
+     * true whenever the module is injected into the app's own process, so it must never be used as the
+     * primary activation signal (it cannot see system_server or the hook state).
      */
-    fun checkModuleActivated(): Boolean {
-        // 1. Root check for marker file written by system_server (/data/system/multiroute_active)
-        val catLines = executeShellWithOutput("cat /data/system/multiroute_active", timeoutSeconds = 2)
-        val text = catLines.firstOrNull()?.trim() ?: ""
-        val pid = text.substringBefore(":").toIntOrNull()
-        if (pid != null) {
-            val cmdLines = executeShellWithOutput("cat /proc/$pid/cmdline", timeoutSeconds = 2)
-            if (cmdLines.any { it.contains("system_server") }) {
-                return true
-            }
+    fun moduleStatusLabel(status: ModuleStatus): String = when (status) {
+        ModuleStatus.ACTIVE -> "已激活 (system_server 运行中，hook 已就绪)"
+        ModuleStatus.PARTIAL -> "已加载但 hook 未就绪"
+        ModuleStatus.OUTDATED -> "已加载旧版本 (需软重启 system_server)"
+        ModuleStatus.LEGACY_UNVERIFIED -> "已加载 (旧版状态协议，hook 状态无法校验)"
+        ModuleStatus.STALE -> "状态记录已过期"
+        ModuleStatus.NOT_ACTIVE -> "未激活 (请在 LSPosed 中启用并勾选系统框架作用域)"
+    }
+
+    /**
+     * Resolves the precise LSPosed module state, cheapest evidence first:
+     *
+     *  1. `Settings.Global[multiroute_module_state]` - the structured beacon the module publishes from
+     *     system_server. Readable by an ordinary app, so the common case costs no `su` call at all.
+     *  2. The root-readable marker file (same beacon on new builds, legacy `pid:ts` on old ones).
+     *  3. The legacy `sys.multiroute.active` property flag.
+     *
+     * The beacon carries the version code *compiled into the loaded hook code*, so a mismatch with the
+     * installed APK is reported as [ModuleStatus.OUTDATED] instead of a misleading "activated"; and it
+     * carries the installed hook counts, so "loaded but hooks missing" is distinguishable from "ready".
+     */
+    fun getModuleState(context: Context): ModuleState {
+        val installedVersionCode = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        }.getOrDefault(0L)
+
+        // 1) Primary: structured beacon, no root required.
+        val globalRaw = runCatching {
+            Settings.Global.getString(context.contentResolver, ModuleStateParser.STATE_KEY)
+        }.getOrNull()
+        var beacon = ModuleStateParser.parseBeacon(globalRaw)
+        var legacyPid = ModuleStateParser.parseLegacyMarkerPid(globalRaw)
+
+        // 2) System property channel: no root, no ContentResolver round trip.
+        if (beacon == null && legacyPid == null) {
+            val propRaw = readStateProperty()
+            beacon = ModuleStateParser.parseBeacon(propRaw)
+            legacyPid = ModuleStateParser.parseLegacyMarkerPid(propRaw)
         }
 
-        // 2. Direct marker file check (if permissions allow unprivileged read)
-        val fileCheck = runCatching {
-            val f = java.io.File("/data/system/multiroute_active")
-            if (f.exists()) {
-                val content = f.readText().trim()
-                val fPid = content.substringBefore(":").toIntOrNull()
-                if (fPid != null) {
-                    val cmdline = java.io.File("/proc/$fPid/cmdline").readText()
-                    cmdline.contains("system_server")
-                } else false
-            } else false
-        }.getOrDefault(false)
-        if (fileCheck) return true
+        // 3) Fallback: marker file. Only read when the cheap channels are empty (older module build,
+        //    or the module could not publish), so steady-state diagnostics stay su-free.
+        if (beacon == null && legacyPid == null) {
+            val markerRaw = readMarkerRaw()
+            beacon = ModuleStateParser.parseBeacon(markerRaw)
+            legacyPid = ModuleStateParser.parseLegacyMarkerPid(markerRaw)
+        }
 
-        // 3. System property check (unprivileged + root)
-        val prop = runCatching {
+        // 4) Last resort: the legacy flag proves something ran, but says nothing about the hooks.
+        val legacyFlag = if (beacon == null && legacyPid == null) readLegacyActiveFlag() else false
+        val legacyMarkerPid = legacyPid ?: if (legacyFlag) UNKNOWN_PID else null
+
+        val pidToVerify = beacon?.systemServerPid ?: legacyPid
+        val ownerVerified = pidToVerify?.let { verifyIsSystemServer(it) }
+
+        return ModuleStateEvaluator.evaluate(
+            ModuleStateEvaluator.Inputs(
+                beacon = beacon,
+                legacyMarkerPid = legacyMarkerPid,
+                installedVersionCode = installedVersionCode,
+                installedBuildId = BuildConfig.HOOK_BUILD_ID,
+                nowElapsedMs = android.os.SystemClock.elapsedRealtime(),
+                ownerIsSystemServer = ownerVerified
+            )
+        )
+    }
+
+    /** Reads the compact property beacon without root (a plain `getprop`, ~10 ms). */
+    private fun readStateProperty(): String? = runCatching {
+        val p = Runtime.getRuntime().exec(arrayOf("getprop", ModuleStateParser.STATE_PROPERTY))
+        val line = p.inputStream.bufferedReader().use { it.readText() }.trim()
+        p.errorStream.bufferedReader().use { it.readText() }
+        p.waitFor()
+        line.ifEmpty { null }
+    }.getOrNull()
+
+    /** Reads the marker file unprivileged first, then through root; null when unreadable. */
+    private fun readMarkerRaw(): String? {
+        runCatching {
+            val f = java.io.File(ModuleStateParser.MARKER_PATH)
+            if (f.canRead()) return f.readText().trim()
+        }
+        return executeShellWithOutput("cat ${ModuleStateParser.MARKER_PATH}", timeoutSeconds = 2)
+            .firstOrNull()?.trim()
+    }
+
+    /**
+     * Verifies that [pid] really is system_server.
+     * Returns null when it cannot be determined (for example without root), so an unknown result is
+     * never turned into a false "stale" verdict.
+     */
+    private fun verifyIsSystemServer(pid: Int): Boolean? {
+        if (pid <= 0) return null
+
+        runCatching {
+            val cmdline = java.io.File("/proc/$pid/cmdline").readText().replace('\u0000', ' ')
+            return cmdline.contains("system_server")
+        }
+
+        val sentinel = ModuleStateParser.noProcessSentinel()
+        val lines = executeShellWithOutput(
+            "if [ -d /proc/$pid ]; then cat /proc/$pid/cmdline; else echo $sentinel; fi",
+            timeoutSeconds = 2
+        )
+        if (lines.isEmpty()) return null
+        if (lines.any { it.contains(sentinel) }) return false
+        return lines.any { it.contains("system_server") }
+    }
+
+    /** Legacy `sys.multiroute.active` flag; proves the module ran, nothing more. */
+    private fun readLegacyActiveFlag(): Boolean {
+        val direct = runCatching {
             val p = Runtime.getRuntime().exec(arrayOf("getprop", "sys.multiroute.active"))
             val line = p.inputStream.bufferedReader().use { it.readLine() }?.trim()
             p.errorStream.bufferedReader().use { it.readText() }
             p.waitFor()
             line == "1"
         }.getOrDefault(false)
-        if (prop) return true
-
-        val rootProp = executeShellWithOutput("getprop sys.multiroute.active", timeoutSeconds = 2)
-        if (rootProp.firstOrNull()?.trim() == "1") return true
-
-        return false
+        if (direct) return true
+        return executeShellWithOutput("getprop sys.multiroute.active", timeoutSeconds = 2)
+            .firstOrNull()?.trim() == "1"
     }
 
     /**
@@ -370,7 +500,7 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
             }
         } catch (_: Exception) {}
 
-        val isModuleActive = checkModuleActivated()
+        val moduleState = getModuleState(context)
         val mobileDataAlwaysOn = isMobileDataAlwaysOn(context)
         val mobileDataPreferredUids = runCatching {
             Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids") ?: ""
@@ -382,7 +512,9 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
         DiagnosticInfo(
             isRootGranted = isRoot,
             suVersion = suVer,
-            isModuleActive = isModuleActive,
+            isModuleActive = moduleState.isLoadedInSystemServer,
+            moduleStatus = moduleState.status,
+            moduleStatusDetail = moduleState.detail,
             kernelRulesCount = kernelRules.size,
             kernelRules = kernelRules,
             mobileDataAlwaysOn = mobileDataAlwaysOn,
@@ -409,7 +541,10 @@ echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
         val diag = getDiagnosticInfo(context)
         sb.appendLine("[1. 核心权限与模块状态]")
         sb.appendLine("• Root 状态: ${if (diag.isRootGranted) "已授权 (${diag.suVersion})" else "未授权"}")
-        sb.appendLine("• LSPosed 模块: ${if (diag.isModuleActive) "已激活 (system_server 正在运行)" else "未激活 (请在 LSPosed 管理器中启用模块)"}")
+        sb.appendLine("• LSPosed 模块: ${moduleStatusLabel(diag.moduleStatus)}")
+        if (diag.moduleStatusDetail.isNotEmpty()) {
+            sb.appendLine("  └ ${diag.moduleStatusDetail}")
+        }
         sb.appendLine("• 蜂窝数据常活: ${if (diag.mobileDataAlwaysOn) "已开启 (1)" else "未开启 (0)"}")
         sb.appendLine("• 副 Wi-Fi 息屏防断联: ${if (diag.isKeepSlaveWifiScreenOff) "已开启 (保持常活)" else "未开启 (跟随系统休眠)"}")
         sb.appendLine("• 系统首选蜂窝 UIDs: ${diag.mobileDataPreferredUids.ifEmpty { "(空)" }}")

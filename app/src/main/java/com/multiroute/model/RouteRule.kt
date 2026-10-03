@@ -30,5 +30,13 @@ data class AppItem(
     val icon: Drawable?,
     val uid: Int = -1,
     val targetChannelId: String,   // CHANNEL_DEFAULT or NetworkChannel.id
-    val isSystemApp: Boolean
-)
+    val isSystemApp: Boolean,
+    /** 0 = primary user; other values are OEM clone spaces / work profiles (Xiaomi XSpace = 999). */
+    val userId: Int = 0
+) {
+    /**
+     * Stable identity in the rule store. A clone-space install of the same package gets its own key
+     * (`pkg@999`), so the clone and the primary install can be routed to different channels.
+     */
+    val ruleKey: String get() = com.multiroute.util.RouteRuleBuilder.ruleKey(packageName, userId)
+}
