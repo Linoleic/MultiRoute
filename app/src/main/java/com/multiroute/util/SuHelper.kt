@@ -7,6 +7,8 @@ import com.multiroute.BuildConfig
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.model.CHANNEL_DEFAULT
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -32,6 +34,19 @@ data class DiagnosticInfo(
 
 object SuHelper {
     private const val TAG = "MultiRoute-SU"
+
+    /**
+     * Serializes [syncAllRouteRules]: applying rules is "delete all, then add the current set", so two
+     * overlapping runs would interleave and can leave a partial rule set (seen on device right after a
+     * soft reboot: one rule present, the second one only a minute later).
+     */
+    private val syncMutex = Mutex()
+
+    /**
+     * Budget for one full rule-application script. It contains 20-30 `ip` invocations, so it must not
+     * be judged with the 5s default used for single commands.
+     */
+    private const val RULE_SCRIPT_TIMEOUT_SECONDS = 30L
 
     /** Pseudo PID used when a legacy flag proves the module ran but recorded no process. */
     private const val UNKNOWN_PID = -1
@@ -212,8 +227,17 @@ object SuHelper {
     /**
      * Dynamically synchronizes routing rules for any interface (wlan0, wlan1, rmnet_data*, eth0, etc.)
      * to the kernel policy routing table and system settings.
+     *
+     * Applying rules means "delete every rule at our preferences, then add the current set", so two
+     * overlapping syncs (module boot wake-up, network callback, UI action) can interleave and leave a
+     * partial rule set - observed on device as one rule right after a soft reboot and the second one a
+     * minute later. A process-wide mutex serializes them.
      */
     suspend fun syncAllRouteRules(context: Context): Boolean = withContext(Dispatchers.IO) {
+        syncMutex.withLock { syncAllRouteRulesInternal(context) }
+    }
+
+    private fun syncAllRouteRulesInternal(context: Context): Boolean {
         // Keep the persistent keep-alive flag aligned with the stored preference on every sync, so the
         // module can honour it from the very first moment of a boot (its other two sources - the
         // transient `sys.*` property and RemotePreferences - are unavailable at that point).
@@ -267,16 +291,24 @@ object SuHelper {
         if (candidateChannels.isEmpty()) {
             // User explicitly cleared all routing rules: clean up kernel rules, boot script and cache
             val cleanupScript = RouteRuleBuilder.buildFullSyncScript(emptyMap())
-            executeCommand(cleanupScript)
+            executeCommand(cleanupScript, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
             executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
             executeCommand("rm -f ${RouteRuleBuilder.RULE_CACHE_PATH}")
-            return@withContext true
+            return true
         }
 
+        // A rule whose table has no default route does not blackhole traffic - the kernel falls through
+        // to the next rule and the app silently keeps using the default network. Keeping such stale
+        // rules around is therefore pure confusion (observed on device while a Wi-Fi link was
+        // re-registering: rules pointed at table 1056 after its default route was gone), so the kernel
+        // is always rewritten from the channels that are usable right now.
         val onlineChannels = getInterfacesWithDefaultRoute(candidateChannels)
         if (onlineChannels.isEmpty()) {
-            Log.e(TAG, "All candidate channels $candidateChannels appear offline or probe timed out. Keeping existing rules intact to prevent network drop.")
-            return@withContext false
+            Log.w(
+                TAG,
+                "None of $candidateChannels has a default route right now; clearing their kernel rules " +
+                        "(traffic falls back to the default network in that state anyway)"
+            )
         }
 
         val activeChannelMap = channelToUidsMap.filterKeys { iface ->
@@ -292,15 +324,28 @@ object SuHelper {
 
         // 4. Sync Linux kernel policy routing dynamically for active interfaces (dual-stack + LAN bypass)
         val script = RouteRuleBuilder.buildFullSyncScript(activeChannelMap, connectedPrefixes)
-        val success = executeCommand(script)
+        // The script spawns one `ip` process per rule (20-30 of them). 5s is enough on an idle device
+        // but not on a busy one: right after a soft reboot the app reported "Command timed out after 5s"
+        // and the sync returned false, leaving only part of the rules applied - which is exactly the
+        // "half rule set" that was observed on device.
+        val success = executeCommand(script, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
 
         // 5. Deploy / update Magisk/KernelSU boot-time service.d restore script
         if (success) {
-            updateBootRestoreScript(script, activeChannelMap.keys)
-            updateRuleCache(activeChannelMap)
+            if (activeChannelMap.isEmpty()) {
+                // Every configured channel is unusable right now. The kernel rules were just cleared
+                // (they would have been inert anyway), but the boot script is kept untouched: it is the
+                // only place that still carries the user's intent and it re-applies everything on the
+                // next boot. The hook cache is emptied so the app-visible state matches the kernel.
+                updateRuleCache(emptyMap())
+                Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script preserved")
+            } else {
+                updateBootRestoreScript(script, activeChannelMap.keys)
+                updateRuleCache(activeChannelMap)
+            }
         }
 
-        success
+        return success
     }
 
     /**

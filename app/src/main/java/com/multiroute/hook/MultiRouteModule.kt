@@ -894,13 +894,20 @@ class MultiRouteModule : XposedModule() {
                             "(visible rule keys: ${visibleRuleKeys ?: "unknown"})."
                 )
 
+                // Do not broadcast before the framework considers the boot complete, otherwise the
+                // broadcast is dropped outright (especially after a soft reboot).
+                awaitBootCompleted(maxWaitMs = 240_000)
+
                 dispatchRestoreBroadcast()
 
-                // One retry: the first wake-up can race with app/AMS startup, and the interface set is
-                // still settling this early in boot.
-                Thread.sleep(90_000)
-                log(Log.INFO, TAG, "[BootRestore] Retrying restore broadcast once.")
-                dispatchRestoreBroadcast()
+                // Retries, spread out: the first wake-up can still race with app/AMS startup, and the
+                // interface set keeps settling. A late secondary Wi-Fi or cellular link is covered by the
+                // later attempts.
+                for (delayMs in longArrayOf(15_000L, 60_000L, 180_000L)) {
+                    Thread.sleep(delayMs)
+                    log(Log.INFO, TAG, "[BootRestore] Retrying restore broadcast (+${delayMs / 1000}s).")
+                    dispatchRestoreBroadcast()
+                }
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "[BootRestore] Watchdog encountered error: ${t.message}")
             }
@@ -909,6 +916,24 @@ class MultiRouteModule : XposedModule() {
             name = "MultiRoute-BootRestoreWatchdog"
             start()
         }
+    }
+
+    /**
+     * Blocks (bounded) until the framework reports the boot as completed.
+     *
+     * This matters for a **soft** reboot (`setprop ctl.restart zygote`), which is the standard way to
+     * apply a module update: `service.d` does not run again and `BOOT_COMPLETED` is not re-broadcast, so
+     * this wake-up is the only restore path - and a broadcast sent before boot completion is dropped
+     * ("Cannot broadcast before boot completed", observed on device), which left the rules missing for
+     * minutes. Hardware reboots are unaffected: the property is already set by the time we look.
+     */
+    private fun awaitBootCompleted(maxWaitMs: Long) {
+        val deadline = System.currentTimeMillis() + maxWaitMs
+        while (System.currentTimeMillis() < deadline) {
+            if (readSystemProperty("sys.boot_completed") == "1") return
+            Thread.sleep(2_000)
+        }
+        log(Log.WARN, TAG, "[BootRestore] sys.boot_completed still unset after ${maxWaitMs / 1000}s; waking anyway")
     }
 
     /**
