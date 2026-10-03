@@ -78,7 +78,8 @@ MultiRoute lifts that restriction per app:
 | Android version | Status |
 | :-- | :-- |
 | **Android 17 / HyperOS** | ✅ Verified on a Xiaomi HyperOS phone with KernelSU and LSPosed: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
-| Android 11 – 16 | ⚠️ Expected to work (same hook targets and rule layout), not yet verified |
+| **Android 16 / HyperOS** | ✅ Verified on a Xiaomi HyperOS tablet with KernelSU and the official LSPosed build: dual Wi-Fi per-app routing (IPv4 + IPv6), clone-space separation, real-traffic egress, recovery after a soft reboot, module status. The tablet has no cellular interface, so cellular routing was not exercised there |
+| Android 11 – 15 | ⚠️ Expected to work (same hook targets and rule layout), not yet verified |
 | Android 7 – 10 | ⚠️ Builds (`minSdk` 24) but is untested; policy-routing behaviour differs |
 
 > [!IMPORTANT]

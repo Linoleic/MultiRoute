@@ -72,7 +72,8 @@ MultiRoute 按应用解开这个限制：
 | Android 版本 | 状态 |
 | :-- | :-- |
 | **Android 17 / HyperOS** | ✅ 已在 Xiaomi HyperOS 手机 + KernelSU + LSPosed 上验证：双 WLAN 与蜂窝并发、IPv4/IPv6 规则、局域网放行、分身分流、开机恢复、模块状态、息屏保活 |
-| Android 11 – 16 | ⚠️ 预期可用（hook 目标与规则结构一致），尚未验证 |
+| **Android 16 / HyperOS** | ✅ 已在 Xiaomi HyperOS 平板 + KernelSU + 官方 LSPosed 上验证：双 WLAN 分应用分流（IPv4 + IPv6）、分身独立分流、真实流量出口、软重启后恢复、模块状态。该平板无蜂窝接口，蜂窝分流未在该设备上验证 |
+| Android 11 – 15 | ⚠️ 预期可用（hook 目标与规则结构一致），尚未验证 |
 | Android 7 – 10 | ⚠️ 可编译（`minSdk` 24），未测试；策略路由行为存在差异 |
 
 > [!IMPORTANT]
