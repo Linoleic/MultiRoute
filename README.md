@@ -3,136 +3,224 @@
 [English](README.md) | [简体中文](README_CN.md)
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Android](https://img.shields.io/badge/Android-10%20--%2017-green.svg)](https://developer.android.com)
-[![LibXposed](https://img.shields.io/badge/LibXposed-API%20v102-orange.svg)](https://github.com/libxposed)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org)
+[![Android](https://img.shields.io/badge/Android-11%2B%20(verified%20on%2017)-green.svg)](https://developer.android.com)
+[![LibXposed](https://img.shields.io/badge/LibXposed-API%20102-orange.svg)](https://github.com/libxposed)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg)](https://kotlinlang.org)
 
-MultiRoute is a multi-network concurrency and per-app policy routing management framework for Android. Combining Linux kernel policy routing (`ip rule` / `ip route`) with modern LibXposed system service interception (`ConnectivityService`), MultiRoute bypasses Android's default single-network restriction, enabling concurrent data transmission and per-app routing across Primary Wi-Fi, Secondary Wi-Fi (Dual Wi-Fi), Mobile Cellular, and Ethernet.
+**Per-app network channels for Android.** Assign each app to the link it should use — primary Wi-Fi,
+secondary Wi-Fi (dual Wi-Fi), cellular or Ethernet — and let them communicate **at the same time**.
+Egress is enforced with kernel policy routing (`ip rule`), not through a userspace VPN.
+
+> Requires **root** (KernelSU / Magisk / APatch) and **LSPosed**. The module is scoped to the system
+> framework (`system_server`). This project is not affiliated with LSPosed.
 
 ---
 
-## Architecture and Principles
+## Overview
 
-Android's default network stack operates on an exclusive "Default Network" model: even when multiple physical network links (such as dual Wi-Fi connections and mobile data) are simultaneously active, applications that do not explicitly invoke low-level network binding APIs are restricted to routing traffic through a single system-wide default network.
+Android routes every application through one system-wide *default network*. Even with dual Wi-Fi and
+mobile data connected at once, an app can only use the system's current default unless it calls
+low-level binding APIs itself.
 
-MultiRoute resolves this limitation using a two-layer collaborative architecture:
+MultiRoute lifts that restriction per app:
 
 ```
-+--------------------------------------------------------------------+
-|                         MultiRoute UI                              |
-|   (Material 3 / Dynamic Channels / Batch Assignment / IP Tester)   |
-+--------------------------------------------------------------------+
-                                  |
-            +---------------------+---------------------+
-            v                                           v
-+-------------------------------+       +-------------------------------+
-|     System Layer (LSPosed)    |       |     Kernel Layer (Linux SU)   |
-|     Scope: system_server      |       |       ip rule / ip route      |
-+-------------------------------+       +-------------------------------+
-| Hook ConnectivityService:     |       | Maintain isolated route       |
-| - Intercept                   |       | tables for each interface:    |
-|   getDefaultNetworkForUid     |       | - pref 14400 LAN direct bypass|
-| - Return matching NetworkAgent|       | - pref 14500 lookup <table>   |
-| - Hook secondary Wi-Fi        |       | - Bind app & clone (999) UIDs |
-|   screen-off keepalive        |       | - Auto boot recovery via      |
-| - System broadcast watchdog   |       |   service.d & boot receivers  |
-+-------------------------------+       +-------------------------------+
-                                  |
-                                  v
-+--------------------------------------------------------------------+
-|   Concurrent Carriers: Primary Wi-Fi | Secondary Wi-Fi | Cellular  |
-+--------------------------------------------------------------------+
+        ┌──────────────────────── MultiRoute (UI) ────────────────────────┐
+        │  per-app channel assignment · batch mode · egress diagnostics   │
+        └───────────────┬─────────────────────────────┬───────────────────┘
+                        │                             │
+        ┌───────────────▼──────────────┐   ┌──────────▼───────────────────┐
+        │  Framework layer (LSPosed)   │   │  Kernel layer (root)         │
+        │  system_server hooks         │   │  policy routing tables       │
+        │  · ConnectivityService       │   │  · pref 14500 per-UID egress │
+        │  · Xiaomi dual Wi-Fi keep-   │   │  · pref 14400 LAN bypass     │
+        │    alive (screen off)        │   │  · IPv4 + IPv6               │
+        └──────────────────────────────┘   └──────────┬───────────────────┘
+                                                      │
+        ┌─────────────────────────────────────────────▼───────────────────┐
+        │  Primary Wi-Fi  │  Secondary Wi-Fi  │  Cellular  │  Ethernet     │
+        └─────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Kernel Policy Routing Layer**:
-   - Maintains dedicated policy routing tables for each active network interface;
-   - Dynamically bypasses direct on-link LAN subnets (both IPv4 and IPv6) at `pref 14400` directly via their respective interface tables;
-   - Directs egress traffic of designated apps (including primary and dual/clone apps under User 999) at the kernel level via:
-     `ip rule add uidrange <uid>-<uid> lookup <table_id> pref 14500` (dual-stack IPv4 & IPv6);
-   - Deploys an automated boot recovery script to `/data/adb/service.d/00-multiroute-restore.sh` ensuring rules restore seamlessly across system reboots under KernelSU/Magisk/APatch.
-2. **System Framework Layer (Modern LibXposed Hook)**:
-   - Built on the modern LibXposed API v102 specification, scoped strictly to `system_server`;
-   - Intercepts `ConnectivityService.getDefaultNetworkForUid(int)` across both Mainline/APEX and standard framework implementations, returning the corresponding `Network` / `NetworkAgentInfo` to match application routing assignments;
-   - Hook vendor dual Wi-Fi management (`SlaveWifiService` on Xiaomi HyperOS / MIUI) to prevent background services from tearing down secondary Wi-Fi connections upon screen-off;
-   - Dispatches system-level boot recovery intents with background privileges to bypass OEM battery saver broadcast blocks.
+---
+
+## Features
+
+- **Per-app channel assignment** — pick a channel for any app; its traffic egresses through that link
+  while other apps keep using theirs.
+- **Independent configuration for cloned apps** — app-clone spaces (e.g. Xiaomi XSpace, user 999) and
+  work profiles are listed as separate entries (`WeChat (999)`), so a clone and its primary install can
+  use *different* channels.
+- **Dual-stack** — IPv4 and IPv6 rules are installed together.
+- **LAN bypass** — on-link subnets are pinned to the interface that owns them, so intranet devices
+  (NAS, printers, casting) stay reachable from apps assigned elsewhere.
+- **Automatic boot recovery** — rules survive reboots: a `service.d` script, a wake-up broadcast from
+  the module, and the app's own network callback cover each other.
+- **Screen-off secondary Wi-Fi keep-alive** — optional; prevents the OEM power policy from tearing the
+  secondary Wi-Fi link down when the screen turns off (Xiaomi dual Wi-Fi).
+- **Egress diagnostics** — per-channel public-IP probe with presets or a custom endpoint.
+- **Module status** — reports precisely whether the hooks are installed, whether `system_server` is
+  still running an older build, or whether the status record is stale.
+- **No VPN** — traffic is routed in the kernel; no userspace TCP/IP stack, so throughput and latency
+  stay close to native.
 
 ---
 
-## Key Features
+## Requirements & Compatibility
 
-- **Dynamic Interface Discovery**: Automatically discovers active network interfaces, displaying interface identifiers, local IP addresses, gateways, MAC addresses, and Wi-Fi SSIDs without hardcoded device assumptions.
-- **Per-App Policy Routing**: Assigns applications to dedicated network channels (e.g. download tools via Secondary Wi-Fi, chat apps via Primary Wi-Fi, latency-sensitive services via Mobile Cellular).
-- **Dual App & Work Profile Support**: Automatically identifies clone apps (User 999) and synchronizes routing rules for both main and cloned app instances.
-- **Dynamic LAN Subnet Bypass**: Detects connected on-link IPv4 and IPv6 subnets, routing LAN traffic directly to the corresponding adapter to prevent intranet disconnection.
-- **Batch Multi-Select Mode**: Long-press any application to enter multi-selection mode and migrate routing channels in bulk.
-- **Egress IP and Routing Diagnostics**: Built-in public IP query and connectivity tester supporting multiple presets and custom probe endpoints to verify egress paths.
-- **Secondary Wi-Fi Keep-Alive**: Prevents system power management from disconnecting secondary Wi-Fi links when the screen is turned off.
-- **Clean Architecture**: Injects only into `system_server` without modifying target application processes; configuration is distributed locally via a read-only ContentProvider.
+| Requirement | Details |
+| :-- | :-- |
+| Root | KernelSU, Magisk or APatch (policy routing tables need root) |
+| Xposed | LSPosed (or another framework implementing LibXposed API 102) |
+| Module scope | **System framework only** (`system` / `system_server`) |
+| Android | `minSdk` 24; the hook targets cover both APEX and legacy ConnectivityService layouts |
 
----
-
-## Requirements
-
-- **Operating System**: Android 10 - 17+ (Tested and verified on Android 17 / HyperOS 2, compatible with both APEX-based and legacy ConnectivityService architectures)
-- **Root Access**: KernelSU, APatch, or Magisk (Root privileges required to manage policy routing tables)
-- **Xposed Framework**: LSPosed (v1.9.3+ or any framework supporting the modern LibXposed API)
-  - **Module Scope**: Only select the System Framework (`system` / `system_server`).
-  - Includes embedded static scope metadata (`META-INF/xposed/scope.list`) automatically detected by modern LSPosed.
+| Android version | Status |
+| :-- | :-- |
+| **Android 17 / HyperOS** | ✅ Verified on Xiaomi 24129PN74C with KernelSU and LSPosed: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
+| Android 11 – 16 | ⚠️ Expected to work (same hook targets and rule layout), not yet verified |
+| Android 7 – 10 | ⚠️ Builds (`minSdk` 24) but is untested; policy-routing behaviour differs |
 
 > [!IMPORTANT]
-> **LSPosed Module Updates & Reboot Requirement**:
-> Because MultiRoute injects into the System Framework (`system_server`), **whenever the MultiRoute APK is installed, updated, or reloaded in LSPosed, a device reboot or soft reboot of `system_server` (`su -c 'setprop ctl.restart zygote'`) is required** for framework hook changes to take effect. System framework modules cannot be hot-reloaded due to LSPosed architecture.
-> **Daily Rule Changes Do NOT Require Reboot**: Adding, modifying, or removing routing rules in the MultiRoute UI takes effect immediately in real time without any reboot.
+> **Updating the module requires a reboot.** Because the module injects into the system framework,
+> LSPosed cannot hot-reload it: after installing or updating the APK, reboot the device or restart
+> `system_server` (`su -c 'setprop ctl.restart zygote'`). The UI reports this as
+> *loaded older build — soft reboot required* instead of pretending everything is fine.
 
 > [!NOTE]
-> **Routing Priority Note**:
-> MultiRoute rules operate at kernel priority `pref 14500` (and `pref 14400` for LAN bypass), which takes precedence over standard Android per-UID rules (`pref 15040`). If an app is assigned to a specific channel in MultiRoute, its egress traffic will follow MultiRoute policy over system-level default bindings or always-on VPN routing.
+> **Rule changes never need a reboot.** Adding, changing or removing app assignments applies
+> immediately.
 
 ---
 
-## Build Instructions
+## Installation
 
-MultiRoute is built with Gradle Kotlin DSL and supports keyless builds out of the box:
+1. Install `app-release.apk` (root and LSPosed required).
+2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and set the scope to **System Framework**
+   (`system`). Embedded `META-INF/xposed/scope.list` metadata already declares this.
+3. Reboot, or restart the system server: `su -c 'setprop ctl.restart zygote'`.
+4. Open MultiRoute and grant root. The **Settings** tab should report *activated (hooks ready)*.
+   If it reports *loaded older build*, restart the system server once more.
+5. Enable **Mobile data always on** (developer options) or the device's own "keep cellular active"
+   setting if you want to route apps over cellular while Wi-Fi is connected.
 
-### 1. Prerequisites
-- JDK 17
-- Android SDK Platform 36
-- Android Build Tools 34.0.0+
+---
 
-### 2. Signing Configuration (Optional)
-MultiRoute features automatic keystore detection with graceful fallback:
-- To sign release builds with your own keystore:
-  ```bash
-  cp keystore.properties.example keystore.properties
-  ```
-  Configure your keystore path, alias, and credentials in `keystore.properties`.
-- **Keyless Fallback**: If `keystore.properties` is absent, Gradle logs a warning and automatically falls back to `debug` signing, ensuring seamless local, CI, and fork builds.
+## Usage
 
-### 3. Build Command
-```bash
-# Build Debug APK
-./gradlew assembleDebug
+| Tab | What you do |
+| :-- | :-- |
+| **App routing** | Tap an app and choose a channel; a long press enters multi-select for batch assignment. Cloned apps appear as separate entries with their numeric space id. |
+| **Channels** | Inspect every active link (interface, IP, gateway, DNS, SSID) and run a per-channel public-IP probe. |
+| **Settings** | Module status, root status, current kernel rules, and the keep-alive switches. |
 
-# Build Release APK
-./gradlew assembleRelease
-```
-Output artifact: `app/build/outputs/apk/release/app-release.apk`.
+---
+
+## How it works
+
+**Kernel layer (root).** Each network interface has its own routing table maintained by Android's
+`netd`. MultiRoute installs:
+
+- `ip rule add uidrange <uid>-<uid> lookup <iface> pref 14500` — one rule per assigned UID, for IPv4
+  and IPv6;
+- `ip rule add to <on-link prefix> lookup <iface> pref 14400` — LAN bypass, generated from each
+  channel's own connected prefixes.
+
+**Framework layer (LSPosed).** Hooks inside `system_server` keep the *app-visible* network state
+consistent with the assignment (`ConnectivityService.getDefaultNetworkForUid`,
+`getActiveNetworkForUidInternal`, `getMobileDataPreferredUids`), and on Xiaomi ROMs also keep the
+secondary Wi-Fi link alive through screen-off.
+
+**Boot recovery.** Rules live in the kernel, so they must be restored after a reboot. Three mechanisms
+cover each other: a generated `service.d` script (applied as soon as the interfaces are ready), a
+wake-up broadcast sent by the module to the app, and the app's own network callback.
+
+**Rule cache.** Until the app has been started, LSPosed's remote preferences cannot be read. The app
+therefore publishes a UID→interface cache so the hooks know the rules from the first second of a boot.
+
+---
+
+## Module status
+
+The Settings tab shows one of:
+
+| Status | Meaning |
+| :-- | :-- |
+| Activated (hooks ready) | Hooks installed, loaded build matches the installed APK |
+| Loaded, hooks missing | Injection worked but `ConnectivityService` hooks were not installed |
+| Loaded older build | `system_server` still runs a previous build — restart required |
+| Loaded (legacy marker) | Module is present but reports no hook detail (older module build) |
+| Status record expired | The recorded owner process is no longer `system_server` |
+| Not activated | Module disabled, not scoped to the system framework, or not injected |
 
 ---
 
 ## Troubleshooting
 
-1. **LSPosed indicates "Module Not Activated"?**
-   - Ensure MultiRoute is enabled in LSPosed Manager and scoped to `system`.
-   - Perform a soft reboot (`su -c 'setprop ctl.restart zygote'`) or reboot the device.
-2. **Secondary Wi-Fi interface not displayed?**
-   - Verify that dual Wi-Fi acceleration is supported by the device hardware, enabled in system settings, and successfully connected to a secondary access point.
-   - MultiRoute will detect and populate the secondary interface once online.
-3. **Public IP probe times out?**
-   - In Settings, switch the diagnostic server preset to a reachable endpoint, or configure a custom query URL.
+- **Module shows "not activated"** — enable it in LSPosed Manager, scope it to the system framework,
+  then reboot or restart `system_server`.
+- **Secondary Wi-Fi channel is missing** — the hardware must support dual Wi-Fi and the ROM must have
+  it enabled and connected to a second access point.
+- **Rules disappeared after a reboot** — check `/data/adb/multiroute/last_boot_sync.log`. Also confirm
+  KernelSU/Magisk/APatch executes `service.d` scripts on this ROM.
+- **Public-IP probe times out** — switch the preset in Settings to a reachable endpoint or set a
+  custom URL.
+- **An assigned app lost connectivity** — the channel's interface may be down; assign it to another
+  channel or set it back to *System default*.
+
+---
+
+## Known limitations
+
+- **DNS is not managed.** Resolution still follows the platform resolver; only routing is redirected.
+  With different DNS servers per link (or Private DNS/DoT), name resolution may not follow the
+  assigned channel.
+- **Rules outrank the platform's per-UID bindings** (`pref 14400/14500` vs the platform's `15040+`), so
+  an assigned app can be pulled **outside an always-on VPN**. Do not assign apps that must stay inside
+  a VPN tunnel.
+- **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
+  space name; only ROMs whose clone spaces are real Android users are covered.
+- **Screen-off keep-alive targets Xiaomi's dual Wi-Fi classes** (`SlaveWifiService`, `DualStaImpl`). On
+  other ROMs the switch is inert.
+- **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
+- **The UI is Chinese-only for now**; English resources are incomplete.
+- Verified on a single device/ROM combination (see the compatibility table); other ROMs may differ.
+
+---
+
+## Building
+
+```bash
+# Debug / release APK
+./gradlew assembleDebug
+./gradlew assembleRelease
+
+# Unit tests (36 tests)
+./gradlew testDebugUnitTest
+```
+
+- JDK 17, Android SDK Platform 36.
+- Signing is optional: copy `keystore.properties.example` to `keystore.properties` and fill it in.
+  Without it, release builds fall back to debug signing (with a warning).
+- Artifact: `app/build/outputs/apk/release/app-release.apk`.
+
+---
+
+## Disclaimer
+
+This is a **root** networking module: it modifies kernel routing rules and injects into the system
+framework. Use it at your own risk. Sending traffic over cellular may incur **carrier charges**, and
+routing apps differently may conflict with your carrier's terms — you are responsible for how you use
+it. Keep a way to recover (recovery boot / disable the module) before experimenting.
 
 ---
 
 ## License
 
-MultiRoute is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
+[GNU General Public License v3.0](LICENSE).
+
+## Acknowledgements
+
+- [LibXposed API](https://github.com/libxposed) and [LSPosed](https://github.com/LSPosed/LSPosed) for the
+  framework interfaces this module builds on.
+- Jetpack Compose and Material 3 for the UI.
