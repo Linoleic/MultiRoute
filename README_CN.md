@@ -71,7 +71,7 @@ MultiRoute 按应用解开这个限制：
 
 | Android 版本 | 状态 |
 | :-- | :-- |
-| **Android 17 / HyperOS** | ✅ 已在 Xiaomi 24129PN74C + KernelSU + LSPosed 上验证：双 WLAN 与蜂窝并发、IPv4/IPv6 规则、局域网放行、分身分流、开机恢复、模块状态、息屏保活 |
+| **Android 17 / HyperOS** | ✅ 已在 Xiaomi HyperOS 手机 + KernelSU + LSPosed 上验证：双 WLAN 与蜂窝并发、IPv4/IPv6 规则、局域网放行、分身分流、开机恢复、模块状态、息屏保活 |
 | Android 11 – 16 | ⚠️ 预期可用（hook 目标与规则结构一致），尚未验证 |
 | Android 7 – 10 | ⚠️ 可编译（`minSdk` 24），未测试；策略路由行为存在差异 |
 
@@ -163,7 +163,7 @@ MultiRoute 按应用解开这个限制：
 - **息屏保活针对小米双 WLAN 私有类**（`SlaveWifiService`、`DualStaImpl`），其他 ROM 上该开关无效。
 - **蜂窝分流**取决于 ROM 是否遵循 `mobile_data_preferred_uids`。
 - **界面目前仅中文**，英文资源尚不完整。
-- 仅在单一机型/ROM 组合上验证过（见兼容性表），其他 ROM 可能存在差异。
+- 目前验证覆盖的机型与系统版本有限（见兼容性表），其他 ROM 可能存在差异。
 
 ---
 

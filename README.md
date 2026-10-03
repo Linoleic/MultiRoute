@@ -77,7 +77,7 @@ MultiRoute lifts that restriction per app:
 
 | Android version | Status |
 | :-- | :-- |
-| **Android 17 / HyperOS** | ✅ Verified on Xiaomi 24129PN74C with KernelSU and LSPosed: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
+| **Android 17 / HyperOS** | ✅ Verified on a Xiaomi HyperOS phone with KernelSU and LSPosed: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
 | Android 11 – 16 | ⚠️ Expected to work (same hook targets and rule layout), not yet verified |
 | Android 7 – 10 | ⚠️ Builds (`minSdk` 24) but is untested; policy-routing behaviour differs |
 
@@ -184,7 +184,8 @@ The Settings tab shows one of:
   other ROMs the switch is inert.
 - **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
 - **The UI is Chinese-only for now**; English resources are incomplete.
-- Verified on a single device/ROM combination (see the compatibility table); other ROMs may differ.
+- Verification so far covers a limited set of devices and ROM versions (see the compatibility
+  table); other ROMs may differ.
 
 ---
 
