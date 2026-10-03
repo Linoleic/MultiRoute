@@ -107,6 +107,88 @@ object SuHelper {
     }
 
     /**
+     * Extracts connected local subnet prefixes for given active interfaces.
+     * Uses ConnectivityManager LinkProperties routes, with shell fallback.
+     */
+    fun getConnectedSubnetPrefixes(context: Context, ifaces: Collection<String>): Map<String, List<String>> {
+        val result = mutableMapOf<String, MutableList<String>>()
+        val safeIfaces = ifaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
+        if (safeIfaces.isEmpty()) return emptyMap()
+
+        // 1. Android ConnectivityManager LinkProperties
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            if (cm != null) {
+                    @Suppress("DEPRECATION")
+                    val networks = cm.allNetworks
+                    for (network in networks) {
+                        val lp = cm.getLinkProperties(network) ?: continue
+                        val iface = lp.interfaceName ?: continue
+                        if (safeIfaces.contains(iface)) {
+                            for (route in lp.routes) {
+                                if (!route.isDefaultRoute) {
+                                    val dest = route.destination.toString()
+                                    if (RouteRuleBuilder.isValidPrefix(dest)) {
+                                        result.getOrPut(iface) { mutableListOf() }.add(dest)
+                                    }
+                                }
+                            }
+                        }
+                    }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Shell fallback for any interfaces missing from ConnectivityManager
+        for (iface in safeIfaces) {
+            if (result[iface].isNullOrEmpty()) {
+                val lines = executeShellWithOutput(
+                    "ip route show dev $iface proto kernel 2>/dev/null; ip -6 route show dev $iface proto kernel 2>/dev/null",
+                    timeoutSeconds = 2
+                )
+                for (line in lines) {
+                    val prefix = line.substringBefore(" ").trim()
+                    if (RouteRuleBuilder.isValidPrefix(prefix) && !prefix.startsWith("default")) {
+                        result.getOrPut(iface) { mutableListOf() }.add(prefix)
+                    }
+                }
+            }
+        }
+
+        return result
+    }
+
+    /**
+     * Deploys an automated boot restore script to KernelSU/Magisk service.d directory.
+     * Guarantees rule persistence across reboots even if OEM kills background receivers.
+     */
+    fun updateBootRestoreScript(script: String) {
+        try {
+            val scriptContent = """
+#!/system/bin/sh
+# MultiRoute boot-time policy routing recovery
+LOG="/data/adb/multiroute/last_boot_sync.log"
+mkdir -p /data/adb/multiroute
+echo "[${'$'}(date)] MultiRoute service.d restoring kernel rules..." > "${'$'}LOG"
+# Wait briefly for netd and routing tables to initialize
+sleep 5
+$script
+RET=${'$'}?
+echo "[${'$'}(date)] Sync completed with exit code: ${'$'}RET" >> "${'$'}LOG"
+""".trimIndent()
+
+            val cmd = "mkdir -p /data/adb/service.d /data/adb/multiroute && " +
+                    "cat << 'EOF' > /data/adb/service.d/00-multiroute-restore.sh\n" +
+                    "$scriptContent\n" +
+                    "EOF\n" +
+                    "chmod 755 /data/adb/service.d/00-multiroute-restore.sh"
+
+            executeCommand(cmd)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to update boot restore script: ${t.message}")
+        }
+    }
+
+    /**
      * Dynamically synchronizes routing rules for any interface (wlan0, wlan1, rmnet_data*, eth0, etc.)
      * to the kernel policy routing table and system settings.
      */
@@ -119,29 +201,70 @@ object SuHelper {
 
         for ((pkg, channelId) in allRules) {
             if (channelId == CHANNEL_DEFAULT) continue
-            val uid = runCatching { pm.getPackageUid(pkg, 0) }.getOrNull() ?: continue
-            if (uid < 10000) continue
+            val baseUid = runCatching { pm.getPackageUid(pkg, 0) }.getOrNull() ?: continue
+            if (baseUid < 10000) continue
 
-            channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
+            val uids = mutableListOf(baseUid)
 
-            // If channel is a cellular interface, register in mobile_data_preferred_uids
-            if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {
-                cellularUids.add(uid)
+            // Check for Dual Apps / App Clone (User 999 on Xiaomi / MIUI)
+            val appId = baseUid % 100000
+            val dualAppUid = 999 * 100000 + appId
+            val hasDualApp = runCatching {
+                val method = pm.javaClass.getMethod("getPackageUidAsUser", String::class.java, Int::class.javaPrimitiveType)
+                (method.invoke(pm, pkg, 999) as? Int) == dualAppUid
+            }.getOrDefault(false)
+
+            if (hasDualApp) {
+                uids.add(dualAppUid)
+            }
+
+            for (uid in uids) {
+                channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
+                if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {
+                    cellularUids.add(uid)
+                }
             }
         }
 
-        // 1. Sync Cellular UIDs via Android's native Settings.Secure
-        val uidStr = cellularUids.joinToString(";")
-        val direct = runCatching {
-            Settings.Secure.putString(context.contentResolver, "mobile_data_preferred_uids", uidStr)
-        }.getOrDefault(false)
-        if (!direct) {
-            executeCommand("settings put secure mobile_data_preferred_uids \"$uidStr\"")
+        // 1. Sync Cellular UIDs via Android's native Settings.Secure non-destructively
+        val currentSetting = runCatching {
+            Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids") ?: ""
+        }.getOrDefault("")
+
+        val existingUids = currentSetting.split(";")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it in 10000..Int.MAX_VALUE }
+            .toMutableSet()
+
+        if (cellularUids.isNotEmpty()) {
+            existingUids.addAll(cellularUids)
+            val updatedSetting = existingUids.sorted().joinToString(";")
+            if (updatedSetting != currentSetting) {
+                val direct = runCatching {
+                    Settings.Secure.putString(context.contentResolver, "mobile_data_preferred_uids", updatedSetting)
+                }.getOrDefault(false)
+                if (!direct) {
+                    executeCommand("settings put secure mobile_data_preferred_uids \"$updatedSetting\"")
+                }
+            }
         }
 
-        // 2. Validate interface route tables: filter out channels that have no default route to prevent blackholing
+        // 2. Validate interface route tables
         val candidateChannels = channelToUidsMap.keys
+        if (candidateChannels.isEmpty()) {
+            // User explicitly cleared all routing rules: clean up kernel rules and boot script
+            val cleanupScript = RouteRuleBuilder.buildFullSyncScript(emptyMap())
+            executeCommand(cleanupScript)
+            executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
+            return@withContext true
+        }
+
         val onlineChannels = getInterfacesWithDefaultRoute(candidateChannels)
+        if (onlineChannels.isEmpty()) {
+            Log.e(TAG, "All candidate channels $candidateChannels appear offline or probe timed out. Keeping existing rules intact to prevent network drop.")
+            return@withContext false
+        }
+
         val activeChannelMap = channelToUidsMap.filterKeys { iface ->
             val isOnline = onlineChannels.contains(iface)
             if (!isOnline) {
@@ -150,9 +273,19 @@ object SuHelper {
             isOnline
         }
 
-        // 3. Sync Linux kernel policy routing dynamically for active interfaces (dual-stack + LAN bypass)
-        val script = RouteRuleBuilder.buildFullSyncScript(activeChannelMap)
-        executeCommand(script)
+        // 3. Collect connected local subnet prefixes for active channels (LAN bypass)
+        val connectedPrefixes = getConnectedSubnetPrefixes(context, activeChannelMap.keys)
+
+        // 4. Sync Linux kernel policy routing dynamically for active interfaces (dual-stack + LAN bypass)
+        val script = RouteRuleBuilder.buildFullSyncScript(activeChannelMap, connectedPrefixes)
+        val success = executeCommand(script)
+
+        // 5. Deploy / update Magisk/KernelSU boot-time service.d restore script
+        if (success) {
+            updateBootRestoreScript(script)
+        }
+
+        success
     }
 
     @androidx.annotation.Keep
@@ -293,8 +426,8 @@ object SuHelper {
         }
         sb.appendLine()
 
-        // 3. 内核策略路由规则 (pref 14500)
-        sb.appendLine("[3. Linux 内核策略路由 (pref 14500)]")
+        // 3. 内核策略路由规则 (pref 14500 & pref 14400)
+        sb.appendLine("[3. Linux 内核策略路由 (pref 14500 / 14400)]")
         if (diag.kernelRules.isEmpty()) {
             sb.appendLine("• 当前内核无 pref 14500 规则 (尚未分配应用分流)")
         } else {

@@ -6,6 +6,9 @@ package com.multiroute.util
  */
 object RouteRuleBuilder {
     private val SAFE_IFACE_REGEX = Regex("^[a-zA-Z0-9_.]{1,15}$")
+    private val SAFE_IPV4_PREFIX_REGEX = Regex("""^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/(?:[0-9]|[1-2][0-9]|3[0-2])$""")
+    private val SAFE_IPV6_PREFIX_REGEX = Regex("""^[0-9a-fA-F:]+/(?:[0-9]|[1-9][0-9]|1[0-2][0-8])$""")
+
     const val DEFAULT_RULE_PREF = 14500
     const val LAN_BYPASS_PREF = 14400
 
@@ -15,6 +18,13 @@ object RouteRuleBuilder {
      */
     fun isValidInterfaceName(iface: String): Boolean {
         return SAFE_IFACE_REGEX.matches(iface)
+    }
+
+    /**
+     * Validates whether an IPv4 or IPv6 CIDR prefix is syntactically well-formed and safe.
+     */
+    fun isValidPrefix(prefix: String): Boolean {
+        return SAFE_IPV4_PREFIX_REGEX.matches(prefix) || SAFE_IPV6_PREFIX_REGEX.matches(prefix)
     }
 
     /**
@@ -38,19 +48,42 @@ object RouteRuleBuilder {
 
     /**
      * Builds local network (LAN) bypass rules at [lanBypassPref] priority.
-     * Ensures local RFC1918 subnets and IPv6 link-local / ULA subnets resolve
-     * via local routing before per-UID policy routing triggers, avoiding
-     * network unreachable errors for LAN resources (NAS, printers, gateways).
+     * Generates direct subnet rules for connected interfaces (IPv4 and IPv6) to route
+     * on-link traffic directly through the associated channel rather than misrouting across channels.
+     * Also retains RFC1918 and link-local ranges as fallbacks.
      */
-    fun buildLanBypassCommands(lanBypassPref: Int = LAN_BYPASS_PREF): List<String> {
-        return listOf(
-            "ip rule add to 192.168.0.0/16 lookup main pref $lanBypassPref;",
-            "ip rule add to 10.0.0.0/8 lookup main pref $lanBypassPref;",
-            "ip rule add to 172.16.0.0/12 lookup main pref $lanBypassPref;",
-            "ip rule add to 169.254.0.0/16 lookup main pref $lanBypassPref;",
-            "ip -6 rule add to fc00::/7 lookup local pref $lanBypassPref;",
-            "ip -6 rule add to fe80::/10 lookup local pref $lanBypassPref;"
-        )
+    fun buildLanBypassCommands(
+        connectedPrefixes: Map<String, List<String>> = emptyMap(),
+        lanBypassPref: Int = LAN_BYPASS_PREF
+    ): List<String> {
+        val commands = mutableListOf<String>()
+
+        // 1. Channel-specific direct on-link subnet bypass rules (IPv4 & IPv6)
+        val sortedIfaces = connectedPrefixes.keys.sorted()
+        for (iface in sortedIfaces) {
+            if (!isValidInterfaceName(iface)) continue
+            val prefixes = connectedPrefixes[iface]?.distinct()?.sorted() ?: continue
+            for (prefix in prefixes) {
+                if (isValidPrefix(prefix)) {
+                    if (prefix.contains(":")) {
+                        commands.add("ip -6 rule add to $prefix lookup $iface pref $lanBypassPref;")
+                    } else {
+                        commands.add("ip rule add to $prefix lookup $iface pref $lanBypassPref;")
+                    }
+                }
+            }
+        }
+
+        // 2. Global RFC1918 IPv4 private subnets via 'main' table
+        commands.add("ip rule add to 192.168.0.0/16 lookup main pref $lanBypassPref;")
+        commands.add("ip rule add to 10.0.0.0/8 lookup main pref $lanBypassPref;")
+        commands.add("ip rule add to 172.16.0.0/12 lookup main pref $lanBypassPref;")
+        commands.add("ip rule add to 169.254.0.0/16 lookup main pref $lanBypassPref;")
+
+        // 3. IPv6 link-local bypass
+        commands.add("ip -6 rule add to fe80::/10 lookup local pref $lanBypassPref;")
+
+        return commands
     }
 
     /**
@@ -79,6 +112,7 @@ object RouteRuleBuilder {
      */
     fun buildFullSyncScript(
         channelToUidsMap: Map<String, List<Int>>,
+        connectedPrefixes: Map<String, List<String>> = emptyMap(),
         pref: Int = DEFAULT_RULE_PREF,
         lanBypassPref: Int = LAN_BYPASS_PREF
     ): String {
@@ -87,7 +121,7 @@ object RouteRuleBuilder {
 
         val uidCmds = buildUidRoutingCommands(channelToUidsMap, pref)
         if (uidCmds.isNotEmpty()) {
-            commands.addAll(buildLanBypassCommands(lanBypassPref))
+            commands.addAll(buildLanBypassCommands(connectedPrefixes, lanBypassPref))
             commands.addAll(uidCmds)
         }
 

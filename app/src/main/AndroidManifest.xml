@@ -68,11 +68,11 @@
         <!-- Receiver to automatically restore routing rules on device reboot -->
         <receiver
             android:name=".receiver.BootCompletedReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.multiroute.ACTION_RESTORE_RULES" />
             </intent-filter>
         </receiver>
 

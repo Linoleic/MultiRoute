@@ -29,6 +29,28 @@ class RouteRuleBuilderTest {
     }
 
     @Test
+    fun testPrefixSanitization() {
+        // Valid IPv4 prefixes
+        assertTrue(RouteRuleBuilder.isValidPrefix("192.168.1.0/24"))
+        assertTrue(RouteRuleBuilder.isValidPrefix("10.0.0.0/8"))
+        assertTrue(RouteRuleBuilder.isValidPrefix("172.16.0.0/12"))
+        assertTrue(RouteRuleBuilder.isValidPrefix("192.168.124.0/24"))
+        assertTrue(RouteRuleBuilder.isValidPrefix("192.168.137.0/24"))
+
+        // Valid IPv6 prefixes
+        assertTrue(RouteRuleBuilder.isValidPrefix("240e:3b4:9244:af51::/64"))
+        assertTrue(RouteRuleBuilder.isValidPrefix("fe80::/64"))
+        assertTrue(RouteRuleBuilder.isValidPrefix("fc00::/7"))
+
+        // Malicious injection in prefix
+        assertFalse(RouteRuleBuilder.isValidPrefix("192.168.1.0/24; rm -rf /"))
+        assertFalse(RouteRuleBuilder.isValidPrefix("192.168.1.0/24\nid"))
+        assertFalse(RouteRuleBuilder.isValidPrefix("240e::/64 && reboot"))
+        assertFalse(RouteRuleBuilder.isValidPrefix("999.999.999.999/24"))
+        assertFalse(RouteRuleBuilder.isValidPrefix(""))
+    }
+
+    @Test
     fun testUidValidation() {
         // System and invalid UIDs
         assertFalse(RouteRuleBuilder.isValidUid(0)) // root
@@ -66,22 +88,21 @@ class RouteRuleBuilderTest {
     }
 
     @Test
-    fun testLanBypassCommandsIncludedInFullScript() {
+    fun testLanBypassWithConnectedPrefixes() {
         val rules = mapOf("wlan1" to listOf(10150))
-        val script = RouteRuleBuilder.buildFullSyncScript(rules, pref = 14500, lanBypassPref = 14400)
+        val prefixes = mapOf(
+            "wlan0" to listOf("192.168.124.0/24", "240e:3b4:9244:af51::/64"),
+            "wlan1" to listOf("192.168.137.0/24")
+        )
+        val script = RouteRuleBuilder.buildFullSyncScript(rules, connectedPrefixes = prefixes, pref = 14500, lanBypassPref = 14400)
 
-        // Verify cleanup exists
-        assertTrue(script.contains("while ip rule del pref 14500 2>/dev/null; do :; done;"))
-        assertTrue(script.contains("while ip -6 rule del pref 14500 2>/dev/null; do :; done;"))
-        assertTrue(script.contains("while ip rule del pref 14400 2>/dev/null; do :; done;"))
-        assertTrue(script.contains("while ip -6 rule del pref 14400 2>/dev/null; do :; done;"))
+        // Verify direct subnet bypass rules exist at pref 14400
+        assertTrue(script.contains("ip rule add to 192.168.124.0/24 lookup wlan0 pref 14400;"))
+        assertTrue(script.contains("ip -6 rule add to 240e:3b4:9244:af51::/64 lookup wlan0 pref 14400;"))
+        assertTrue(script.contains("ip rule add to 192.168.137.0/24 lookup wlan1 pref 14400;"))
 
-        // Verify LAN bypass rules exist at pref 14400
+        // Verify standard fallback rules exist at pref 14400
         assertTrue(script.contains("ip rule add to 192.168.0.0/16 lookup main pref 14400;"))
-        assertTrue(script.contains("ip rule add to 10.0.0.0/8 lookup main pref 14400;"))
-        assertTrue(script.contains("ip rule add to 172.16.0.0/12 lookup main pref 14400;"))
-        assertTrue(script.contains("ip rule add to 169.254.0.0/16 lookup main pref 14400;"))
-        assertTrue(script.contains("ip -6 rule add to fc00::/7 lookup local pref 14400;"))
         assertTrue(script.contains("ip -6 rule add to fe80::/10 lookup local pref 14400;"))
 
         // Verify UID rules exist at pref 14500

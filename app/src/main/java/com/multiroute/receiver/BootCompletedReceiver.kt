@@ -10,7 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * BroadcastReceiver triggered upon device boot or app upgrade.
+ * BroadcastReceiver triggered upon device boot, app upgrade, or module recovery signal.
  * Automatically restores Linux kernel policy routing rules (pref 14500 and LAN bypass pref 14400)
  * ensuring that routing rules persist across device reboots without requiring user interaction.
  */
@@ -20,12 +20,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         if (action != Intent.ACTION_BOOT_COMPLETED &&
             action != Intent.ACTION_MY_PACKAGE_REPLACED &&
-            action != "android.intent.action.QUICKBOOT_POWERON"
+            action != ACTION_RESTORE_RULES
         ) {
             return
         }
 
-        Log.i(TAG, "Received boot/upgrade broadcast: $action. Initiating route rules restoration...")
+        Log.i(TAG, "Received boot/upgrade/restore broadcast: $action. Initiating route rules restoration...")
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -42,5 +42,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "MultiRoute-BootReceiver"
+        const val ACTION_RESTORE_RULES = "com.multiroute.ACTION_RESTORE_RULES"
     }
 }

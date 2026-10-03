@@ -7,7 +7,7 @@
 [![LibXposed](https://img.shields.io/badge/LibXposed-API%20v102-orange.svg)](https://github.com/libxposed)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org)
 
-MultiRoute 是一款面向 Android 平台的高性能多网络并发与分应用策略路由管理模块。通过融合 Linux 内核策略路由 (`ip rule` / `ip route`) 与现代 LibXposed 系统服务注入 (`ConnectivityService`)，打破 Android 系统默认单网通信的限制，实现主 Wi-Fi、副 Wi-Fi（双 WLAN）、移动蜂窝数据及有线以太网的多网并发与分应用策略分流。
+MultiRoute 是一款面向 Android 平台的高性能多网络并发与分应用策略路由管理框架。通过融合 Linux 内核策略路由 (`ip rule` / `ip route`) 与现代 LibXposed 系统服务注入 (`ConnectivityService`)，打破 Android 系统默认单网通信的限制，实现主 Wi-Fi、副 Wi-Fi（双 WLAN）、移动蜂窝数据及有线以太网的多网并发与分应用策略分流。
 
 ---
 
@@ -30,9 +30,10 @@ MultiRoute 采用双层协同机制实现分应用多网并发：
 |    作用域: system_server      |       |    ip rule / ip route 策略    |
 +-------------------------------+       +-------------------------------+
 | 注入 ConnectivityService:     |       | 为各网络接口建立独立策略表:      |
-| - 拦截 getDefaultNetworkForUid|       | - pref 14500 lookup <table_id>|
-| - 按规则映射目标 NetworkAgent   |       | - 匹配应用 UID 绑定到专属接口  |
-| - 拦截副 WLAN 息屏断联服务      |       | - 维持底层 IP 数据包正确出路   |
+| - 拦截 getDefaultNetworkForUid|       | - pref 14400 直连网段局域网放行|
+| - 按规则映射目标 NetworkAgent   |       | - pref 14500 lookup <table_id>|
+| - 拦截副 WLAN 息屏断联服务      |       | - 匹配主应用与分身 (999) UID  |
+| - 系统级开机广播自愈看门狗      |       | - service.d 脚本开机持久化恢复  |
 +-------------------------------+       +-------------------------------+
                                   |
                                   v
@@ -43,11 +44,14 @@ MultiRoute 采用双层协同机制实现分应用多网并发：
 
 1. **内核策略路由层 (Kernel Policy Routing)**：
    - 动态识别并为各个活跃的物理网络接口维护独立路由表；
-   - 通过 `ip rule add uidrange <uid>-<uid> lookup <table_id> pref 14500` 将指定应用的底层 Socket 流量重定向至对应网络接口。
+   - 在 `pref 14400` 动态探测各网卡直连网段（IPv4 及 IPv6），直接通过对应网卡路由，避免局域网设备互访错路；
+   - 通过 `ip rule add uidrange <uid>-<uid> lookup <table_id> pref 14500`（双栈 IPv4 + IPv6）将指定应用（同时支持用户主应用与 999 应用分身）的底层流量重定向至对应网络接口；
+   - 自动在 `/data/adb/service.d/00-multiroute-restore.sh` 部署开机恢复脚本，配合 KernelSU/Magisk 在开机阶段完成自愈，不受 OEM 墓碑与自启限制影响。
 2. **系统服务框架层 (LibXposed Modern Hook)**：
    - 遵循现代 LibXposed API v102 规范，作用域精准收敛至 `system_server`；
    - 适配 Android Mainline/APEX 模块化与传统框架结构，拦截系统网络决策中枢 `ConnectivityService` 的 `getDefaultNetworkForUid(int)` 方法，向应用返回匹配通道的 `Network` / `NetworkAgentInfo`，保证应用层 DNS 解析、Socket 自动绑定及网络连通性判定完全一致；
-   - 适配系统底层双 WLAN 管理逻辑（如小米 HyperOS / MIUI 的 `SlaveWifiService`），拦截息屏状态下断开副 Wi-Fi 的行为，实现副 Wi-Fi 息屏常驻。
+   - 深度适配系统底层双 WLAN 管理逻辑（如小米 HyperOS / MIUI 的 `SlaveWifiService`），拦截息屏状态下断开副 Wi-Fi 的行为，实现副 Wi-Fi 息屏常驻；
+   - 模块内置开机广播看门狗，以系统特权触发规则恢复。
 
 ---
 
@@ -55,6 +59,8 @@ MultiRoute 采用双层协同机制实现分应用多网并发：
 
 - **动态接口感知**：自动枚举系统底层所有已激活的网络接口，动态呈现接口名称、内网 IP、网关、MAC 及 Wi-Fi SSID，不硬编码任何设备特异性网卡名。
 - **分应用策略分流**：支持将任意应用指派至指定通道（例如：网盘/下载工具走副 Wi-Fi，社交通讯走主 Wi-Fi，低延时业务走移动蜂窝网络）。
+- **应用分身与多用户支持**：自动适配小米及多用户双开分身应用（User 999），主应用与分身规则自动联动生效。
+- **动态直连网段局域网放行**：动态分析当前 Wi-Fi/蜂窝接口直连网段（IPv4 & IPv6），防止局域网设备互访被错误导流。
 - **多选批量配置**：长按进入多选模式，支持跨通道批量迁移应用规则。
 - **公网出口实时诊断**：内置多预设与自定义 URL 测速/公网 IP 查询工具，直观验证应用出口与网络延迟。
 - **副 Wi-Fi 息屏防断联**：针对支持双 WLAN 的设备，支持开启息屏常驻 Hook，避免息屏后副 Wi-Fi 自动断开。
@@ -69,7 +75,15 @@ MultiRoute 采用双层协同机制实现分应用多网并发：
 - **Xposed 框架**：LSPosed（v1.9.3+ 或基于现代 LibXposed 的实现）
   - **模块作用域**：仅需勾选 系统框架 / 核心服务 (`system`)。
   - 模块已内置静态作用域元数据 (`META-INF/xposed/scope.list`)，现代 LSPosed 载入时会自动识别。
-  - *注：初次激活模块后，建议软重启（重启系统界面或手机）以使 `system_server` 注入生效。*
+
+> [!IMPORTANT]
+> **LSPosed 模块更新与重启机制说明**：
+> 由于 MultiRoute 作用域包含系统框架 (`system_server`)，根据 LSPosed 核心架构设计，**每次安装、更新或重载 MultiRoute APK 时，必须重启系统服务（软重启 `su -c 'setprop ctl.restart zygote'`）或重启设备**，Hook 字节码更新方可生效。系统框架模块不适用于热重载。
+> **日常规则调整无需重启**：在 MultiRoute 界面中日常修改、增加或删除分流规则，通过跨进程 IPC 及 1.5s 快速缓存即时生效，**完全无需重启**。
+
+> [!NOTE]
+> **策略路由优先级提示**：
+> MultiRoute 的策略路由规则优先级为 `pref 14500`（直连网段局域网放行为 `pref 14400`），高于 Android 平台的默认按 UID 绑定规则（`pref 15040`）。如应用被指派通道，MultiRoute 规则将优先于系统的默认绑定及全局 VPN 出口。
 
 ---
 
@@ -107,7 +121,7 @@ MultiRoute 采用双层协同机制实现分应用多网并发：
 
 1. **LSPosed 提示“模块未激活”？**
    - 检查 LSPosed 管理器中是否已启用 MultiRoute 并勾选了 `system`（系统框架）作用域；
-   - 确保启用后已重启设备或通过 Root 执行了 `killall system_server`。
+   - 确保启用或更新后执行了软重启（`su -c 'setprop ctl.restart zygote'`）或整机重启。
 2. **副 Wi-Fi 接口未显示？**
    - 确认设备硬件支持双 WLAN，并在系统设置中已开启“双 WLAN 加速”并连接至第二热点；
    - MultiRoute 在检测到物理接口上线后会自动加载并更新通道选项。
