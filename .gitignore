@@ -1,18 +1,49 @@
-*.iml
-.gradle
-/local.properties
-/.idea/
-.idea/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-TODO.md
-ROADMAP.md
+# ---------------------------------------------------------------------------
+# Gradle / build output
+# ---------------------------------------------------------------------------
+.gradle/
+.kotlin/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
 
-# Signing & Keystore credentials
+# ---------------------------------------------------------------------------
+# Local configuration & signing credentials — never commit these
+# (keystore.properties.example is a template and must stay tracked)
+# ---------------------------------------------------------------------------
+local.properties
+keystore.properties
+keystore.properties.bak
 *.jks
 *.keystore
-keystore.properties
+
+# ---------------------------------------------------------------------------
+# IDE / tooling
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+*.hprof
+*.log
+
+# ---------------------------------------------------------------------------
+# Packaged artifacts — build them from source instead
+# ---------------------------------------------------------------------------
+*.apk
+*.aab
+*.ap_
+*.dex
+output.json
+
+# ---------------------------------------------------------------------------
+# OS noise
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Private notes / roadmap
+# ---------------------------------------------------------------------------
+TODO.md
+ROADMAP.md
