@@ -90,7 +90,10 @@ jobs:
           fi
 
       - name: Assemble release APK
-        run: ./gradlew --no-daemon assembleRelease
+        # The signing config is chosen at configuration time from whether keystore.properties exists,
+        # so a configuration cache entry recorded by an unsigned run must not be reused - it would keep
+        # using debug signing on a machine that does have the keystore.
+        run: ./gradlew --no-daemon --no-configuration-cache assembleRelease
 
       - name: Verify release signing
         if: env.RELEASE_KEYSTORE_BASE64 != ''
@@ -106,7 +109,7 @@ jobs:
           echo "APK signer certificate SHA-256 : $APK_SHA"
           echo "Keystore certificate SHA-256    : $KS_SHA"
           if [ -z "$APK_SHA" ] || [ "$APK_SHA" != "$KS_SHA" ]; then
-            echo "::error::Release APK is not signed by the release keystore."
+            echo "::error title=Signing mismatch::APK signer=$APK_SHA keystore=$KS_SHA"
             exit 1
           fi
           echo "Release APK is signed by the release keystore."
