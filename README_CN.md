@@ -2,6 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
+[![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-11%2B%20(已在%2017%20验证)-green.svg)](https://developer.android.com)
 [![LibXposed](https://img.shields.io/badge/LibXposed-API%20102-orange.svg)](https://github.com/libxposed)

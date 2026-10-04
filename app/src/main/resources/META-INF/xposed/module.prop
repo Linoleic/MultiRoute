@@ -2,3 +2,4 @@ minApiVersion=101
 targetApiVersion=102
 staticScope=false
 autoHotReload=true
+updateJson=https://raw.githubusercontent.com/Linoleic/MultiRoute/master/xposed_update.json
