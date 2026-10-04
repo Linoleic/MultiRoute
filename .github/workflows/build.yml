@@ -64,6 +64,23 @@ jobs:
           EOF
           echo "Release signing configured from repository secrets."
 
+      - name: Check release signing secrets
+        # Report which signing secrets are visible to this run. Only presence and length are shown,
+        # never the value; the annotations also make it obvious in the Actions UI why signing was
+        # skipped (e.g. a secret added as a variable, or under a different name).
+        run: |
+          missing=0
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            value="${!name}"
+            if [ -n "$value" ]; then
+              echo "::notice title=Signing secret::$name is available (${#value} characters)"
+            else
+              echo "::warning title=Signing secret::$name is MISSING"
+              missing=$((missing + 1))
+            fi
+          done
+          echo "Missing signing secrets: $missing"
+
       - name: Note signing mode
         run: |
           if [ -f keystore.properties ]; then
