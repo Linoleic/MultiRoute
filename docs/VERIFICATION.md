@@ -7,10 +7,12 @@ Everything below was observed on a device; nothing is inferred from the source a
 
 | Platform | Root | Xposed framework | Links present |
 | :-- | :-- | :-- | :-- |
-| Android 17 / HyperOS (phone) | KernelSU | LSPosed (IT build) | primary Wi-Fi + secondary Wi-Fi + cellular |
-| Android 16 / HyperOS (tablet) | KernelSU | official LSPosed v2.2.0 | primary Wi-Fi + secondary Wi-Fi (no modem) |
+| Android 17 / HyperOS (phone) | KernelSU | official LSPosed v2.2.0 (build 7906) | primary Wi-Fi + secondary Wi-Fi + cellular |
+| Android 16 / HyperOS (tablet) | KernelSU | official LSPosed v2.2.0 (build 7854) | primary Wi-Fi + secondary Wi-Fi (no modem) |
 
-Both platforms run the module against `system_server` only.
+Both devices run the same official LSPosed v2.2.0, differing only in build number, so the module's
+LibXposed API 102 usage is exercised against one consistent implementation on two Android versions. Both
+scope the module to `system_server` only.
 
 ## Results
 

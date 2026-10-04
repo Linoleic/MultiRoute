@@ -77,8 +77,8 @@ MultiRoute lifts that restriction per app:
 
 | Android version | Status |
 | :-- | :-- |
-| **Android 17 / HyperOS** | ✅ Verified on a Xiaomi HyperOS phone with KernelSU and LSPosed: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
-| **Android 16 / HyperOS** | ✅ Verified on a Xiaomi HyperOS tablet with KernelSU and the official LSPosed build: dual Wi-Fi per-app routing (IPv4 + IPv6), clone-space separation, real-traffic egress, recovery after a soft reboot, module status. The tablet has no cellular interface, so cellular routing was not exercised there |
+| **Android 17 / HyperOS** | ✅ Verified on a Xiaomi HyperOS phone with KernelSU and LSPosed v2.2.0: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
+| **Android 16 / HyperOS** | ✅ Verified on a Xiaomi HyperOS tablet with KernelSU and LSPosed v2.2.0: dual Wi-Fi per-app routing (IPv4 + IPv6), clone-space separation, real-traffic egress, recovery after a soft reboot, module status. The tablet has no cellular interface, so cellular routing was not exercised there |
 | Android 11 – 15 | ⚠️ Expected to work (same hook targets and rule layout), not yet verified |
 | Android 7 – 10 | ⚠️ Builds (`minSdk` 24) but is untested; policy-routing behaviour differs |
 
@@ -174,6 +174,26 @@ The Settings tab shows one of:
   custom URL.
 - **An assigned app lost connectivity** — the channel's interface may be down; assign it to another
   channel or set it back to *System default*.
+
+---
+
+## Privacy
+
+MultiRoute collects nothing and sends nothing. There is no telemetry, no analytics, no crash reporting,
+no advertising and no account of any kind — the dependency list is AndroidX/Compose plus the LibXposed
+API, nothing else.
+
+- **Everything stays on the device.** Assignments live in the app's private preferences and in the kernel
+  rules, with a small UID→interface cache for the hooks. None of it is uploaded anywhere.
+- **The only outbound request is one you start yourself.** The egress probe on the Channels screen queries
+  a public-IP endpoint that you choose — a built-in preset (all HTTPS) or your own URL. As with visiting
+  that endpoint in a browser, it necessarily sees the public IP you are probing *from*; it is not sent any
+  device identifier, app list or rule contents. **If you never run the probe, the app makes no network
+  requests at all.**
+- **Root access is scoped to routing.** `su` is used to add and remove policy-routing rules and to write
+  the boot-recovery script. Nothing is executed on behalf of anyone else and nothing is reported back.
+- **The app list is read, never reported.** `QUERY_ALL_PACKAGES` exists so the app can list installed apps
+  (and their clone-space instances) for assignment. That list never leaves the device.
 
 ---
 
