@@ -75,6 +75,25 @@ jobs:
       - name: Assemble release APK
         run: ./gradlew --no-daemon assembleRelease
 
+      - name: Verify release signing
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          # Fail loudly if the APK somehow ended up debug-signed instead of signed by the release
+          # keystore: compare the APK's signer digest with the certificate inside the keystore.
+          APK=app/build/outputs/apk/release/app-release.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
+          APK_SHA=$("$APKSIGNER" verify --print-certs "$APK" | awk '/SHA-256 digest/{print $NF; exit}' | tr 'A-Z' 'a-z')
+          KS_SHA=$("$JAVA_HOME/bin/keytool" -list -v -keystore "$RUNNER_TEMP/multiroute-release.jks" \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
+            | grep -iE 'SHA-?256:' | head -1 | sed 's/.*: *//' | tr -d ':' | tr 'A-Z' 'a-z')
+          echo "APK signer certificate SHA-256 : $APK_SHA"
+          echo "Keystore certificate SHA-256    : $KS_SHA"
+          if [ -z "$APK_SHA" ] || [ "$APK_SHA" != "$KS_SHA" ]; then
+            echo "::error::Release APK is not signed by the release keystore."
+            exit 1
+          fi
+          echo "Release APK is signed by the release keystore."
+
       - name: Report signer certificate
         run: |
           APK=app/build/outputs/apk/release/app-release.apk

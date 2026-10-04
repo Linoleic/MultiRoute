@@ -92,7 +92,8 @@ MultiRoute 按应用解开这个限制：
 
 ## 安装
 
-1. 安装 `app-release.apk`（需要 root 与 LSPosed）。
+1. 安装 `app-release.apk`（需要 root 与 LSPosed）。预编译包见
+   [Releases](https://github.com/Linoleic/MultiRoute/releases)；模块已声明更新清单，管理器可直接提示更新。
 2. 打开 **LSPosed 管理器 → 模块 → MultiRoute**，启用并将作用域设为**系统框架**（`system`）。
    模块已内置 `META-INF/xposed/scope.list` 元数据。
 3. 重启设备，或重启系统服务：`su -c 'setprop ctl.restart zygote'`。

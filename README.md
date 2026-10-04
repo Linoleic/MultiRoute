@@ -100,7 +100,9 @@ in [docs/VERIFICATION.md](docs/VERIFICATION.md), including what has *not* been v
 
 ## Installation
 
-1. Install `app-release.apk` (root and LSPosed required).
+1. Install `app-release.apk` (root and LSPosed required). Prebuilt APKs are attached to the
+   [releases page](https://github.com/Linoleic/MultiRoute/releases), and the module declares an update
+   manifest so the manager can offer updates in place.
 2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and set the scope to **System Framework**
    (`system`). Embedded `META-INF/xposed/scope.list` metadata already declares this.
 3. Reboot, or restart the system server: `su -c 'setprop ctl.restart zygote'`.
