@@ -169,6 +169,8 @@ MultiRoute 按应用解开这个限制：
 - **息屏保活针对小米双 WLAN 私有类**（`SlaveWifiService`、`DualStaImpl`），其他 ROM 上该开关无效。
 - **蜂窝分流**取决于 ROM 是否遵循 `mobile_data_preferred_uids`。
 - **界面目前仅中文**，英文资源尚不完整。
+- **出口探测允许明文 HTTP**：内置预设均为 HTTPS，但自定义地址可能是明文（例如路由器页面
+  `http://192.168.1.1/ip`），因此 `usesCleartextTraffic` 保持开启。
 - 目前验证覆盖的机型与系统版本有限（见兼容性表），其他 ROM 可能存在差异。
 
 ---

@@ -191,6 +191,9 @@ The Settings tab shows one of:
   other ROMs the switch is inert.
 - **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
 - **The UI is Chinese-only for now**; English resources are incomplete.
+- **Cleartext HTTP is permitted for the egress probe.** Built-in presets use HTTPS, but a custom endpoint
+  may be plain HTTP (for example a router page such as `http://192.168.1.1/ip`), which is why
+  `usesCleartextTraffic` remains enabled.
 - Verification so far covers a limited set of devices and ROM versions (see the compatibility
   table); other ROMs may differ.
 

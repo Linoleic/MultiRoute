@@ -27,13 +27,13 @@ data class TestServerConfig(
             TestServerPreset(
                 id = PRESET_IPIP,
                 name = "IPIP.net (推荐 / 含归属地)",
-                url = "http://myip.ipip.net",
+                url = "https://myip.ipip.net",
                 description = "国内响应极快，返回外网 IPv4 及省市运营商归属"
             ),
             TestServerPreset(
                 id = PRESET_CIP,
                 name = "cip.cc (含归属地)",
-                url = "http://cip.cc",
+                url = "https://cip.cc",
                 description = "轻量接口，包含公网 IP 及网络运营商与位置归属"
             ),
             TestServerPreset(
@@ -51,13 +51,13 @@ data class TestServerConfig(
             TestServerPreset(
                 id = PRESET_ICANHAZIP,
                 name = "icanhazip.com (纯公网 IP)",
-                url = "http://icanhazip.com",
+                url = "https://icanhazip.com",
                 description = "Cloudflare 托管，轻量且高可靠"
             )
         )
 
         const val DEFAULT_PRESET_ID = PRESET_IPIP
-        const val DEFAULT_URL = "http://myip.ipip.net"
+        const val DEFAULT_URL = "https://myip.ipip.net"
         const val DEFAULT_DISPLAY_NAME = "IPIP.net (推荐 / 含归属地)"
     }
 }

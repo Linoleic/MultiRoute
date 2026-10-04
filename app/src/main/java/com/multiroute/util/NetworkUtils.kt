@@ -312,7 +312,7 @@ object NetworkUtils {
         }
 
         // 2. 预设服务器容错回退机制（仅在非自定义模式或预设节点临时故障时触发）
-        val fallbackUrls = listOf("http://myip.ipip.net", "http://cip.cc", "https://api.ipify.org")
+        val fallbackUrls = listOf("https://myip.ipip.net", "https://cip.cc", "https://ifconfig.me/ip")
             .filter { it != targetUrl }
 
         for (fallbackUrl in fallbackUrls) {
