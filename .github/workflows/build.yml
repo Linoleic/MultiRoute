@@ -3,6 +3,7 @@ name: build
 on:
   push:
     branches: [ master, main ]
+    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
 
@@ -17,6 +18,13 @@ jobs:
   build:
     name: Unit tests + release APK
     runs-on: ubuntu-latest
+    env:
+      # Repository secrets with the release keystore. They are absent for pull requests from
+      # forks, in which case the build falls back to debug signing (see the signing step).
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,10 +51,35 @@ jobs:
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
+      - name: Configure release signing
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          # Keep the keystore outside the workspace so it can never be uploaded as an artifact.
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/multiroute-release.jks"
+          cat > keystore.properties <<EOF
+          storeFile=$RUNNER_TEMP/multiroute-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          echo "Release signing configured from repository secrets."
+
+      - name: Note signing mode
+        run: |
+          if [ -f keystore.properties ]; then
+            echo "Building a signed release APK."
+          else
+            echo "::warning::No release keystore secret available (fork or PR) - falling back to debug signing."
+          fi
+
       - name: Assemble release APK
-        # Without keystore.properties the build falls back to debug signing with a warning,
-        # so a plain checkout can always produce an installable APK.
         run: ./gradlew --no-daemon assembleRelease
+
+      - name: Report signer certificate
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep -E 'certificate DN|SHA-256 digest' || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
