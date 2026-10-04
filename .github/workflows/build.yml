@@ -21,7 +21,7 @@ jobs:
     env:
       # Repository secrets with the release keystore. They are absent for pull requests from
       # forks, in which case the build falls back to debug signing (see the signing step).
-      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
       KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -52,10 +52,10 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Configure release signing
-        if: env.KEYSTORE_BASE64 != ''
+        if: env.RELEASE_KEYSTORE_BASE64 != ''
         run: |
           # Keep the keystore outside the workspace so it can never be uploaded as an artifact.
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/multiroute-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/multiroute-release.jks"
           cat > keystore.properties <<EOF
           storeFile=$RUNNER_TEMP/multiroute-release.jks
           storePassword=$KEYSTORE_PASSWORD
@@ -70,7 +70,7 @@ jobs:
         # skipped (e.g. a secret added as a variable, or under a different name).
         run: |
           missing=0
-          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+          for name in RELEASE_KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
             value="${!name}"
             if [ -n "$value" ]; then
               echo "::notice title=Signing secret::$name is available (${#value} characters)"
@@ -93,7 +93,7 @@ jobs:
         run: ./gradlew --no-daemon assembleRelease
 
       - name: Verify release signing
-        if: env.KEYSTORE_BASE64 != ''
+        if: env.RELEASE_KEYSTORE_BASE64 != ''
         run: |
           # Fail loudly if the APK somehow ended up debug-signed instead of signed by the release
           # keystore: compare the APK's signer digest with the certificate inside the keystore.
