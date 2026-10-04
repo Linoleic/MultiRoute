@@ -42,9 +42,8 @@
 }
 
 # -------------------------------------------------------------
-# 5. Core Services, Utilities & ViewModel
+# 5. Core Components, Utilities & ViewModel
 # -------------------------------------------------------------
--keep class com.multiroute.service.KeepAliveService { *; }
 -keep class com.multiroute.MainActivity { *; }
 -keep class com.multiroute.ui.main.MainScreenViewModel { *; }
 
