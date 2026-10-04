@@ -103,9 +103,11 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
           APK_SHA=$("$APKSIGNER" verify --print-certs "$APK" | awk '/SHA-256 digest/{print $NF; exit}' | tr 'A-Z' 'a-z')
+          # The digest is the last whitespace-separated field ("SHA256: 17:BA:..."), so take $NF and
+          # strip the separators - a greedy `sed 's/.*: *//'` would leave only the final byte.
           KS_SHA=$("$JAVA_HOME/bin/keytool" -list -v -keystore "$RUNNER_TEMP/multiroute-release.jks" \
             -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
-            | grep -iE 'SHA-?256:' | head -1 | sed 's/.*: *//' | tr -d ':' | tr 'A-Z' 'a-z')
+            | grep -iE 'SHA-?256:' | head -1 | awk '{print $NF}' | tr -d ':' | tr 'A-Z' 'a-z')
           echo "APK signer certificate SHA-256 : $APK_SHA"
           echo "Keystore certificate SHA-256    : $KS_SHA"
           if [ -z "$APK_SHA" ] || [ "$APK_SHA" != "$KS_SHA" ]; then
