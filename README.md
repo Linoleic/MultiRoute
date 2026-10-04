@@ -92,6 +92,9 @@ MultiRoute lifts that restriction per app:
 > **Rule changes never need a reboot.** Adding, changing or removing app assignments applies
 > immediately.
 
+The on-device evidence behind the table above — the commands used and what they returned — is collected
+in [docs/VERIFICATION.md](docs/VERIFICATION.md), including what has *not* been verified yet.
+
 ---
 
 ## Installation

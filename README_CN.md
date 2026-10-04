@@ -84,6 +84,9 @@ MultiRoute 按应用解开这个限制：
 > [!NOTE]
 > **日常规则调整无需重启。** 增删改分应用规则立即生效。
 
+上表所依据的真机证据（使用的命令与实测输出，以及**尚未验证**的部分）整理在
+[docs/VERIFICATION.md](docs/VERIFICATION.md)。
+
 ---
 
 ## 安装
