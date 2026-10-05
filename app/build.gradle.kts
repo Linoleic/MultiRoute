@@ -1,4 +1,4 @@
-import java.io.FileInputStream
+import java.io.StringReader
 import java.util.Properties
 
 plugins {
@@ -7,16 +7,22 @@ plugins {
   alias(libs.plugins.kotlin.serialization)
 }
 
-val keystorePropertiesFile = rootProject.file("keystore.properties")
+// Signing credentials live in keystore.properties (untracked, see .gitignore). The contents are read
+// through a provider so the configuration cache tracks them as an input: adding, editing or removing
+// the file invalidates the cached configuration instead of silently reusing an earlier signing
+// decision - which is how a CI release once ended up debug-signed even though the keystore was there.
+val keystoreText = providers
+    .fileContents(rootProject.layout.projectDirectory.file("keystore.properties"))
+    .asText
+    .orNull
 val keystoreProperties = Properties()
-val hasReleaseKeystore = if (keystorePropertiesFile.exists()) {
-    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
-    val storeFilePath = keystoreProperties.getProperty("storeFile") ?: "multiroute-release.jks"
-    val storeFile = rootProject.file(storeFilePath)
-    storeFile.exists()
-} else {
-    false
-}
+keystoreText?.let { keystoreProperties.load(StringReader(it)) }
+val releaseStoreFile = rootProject.file(
+    keystoreProperties.getProperty("storeFile") ?: "multiroute-release.jks"
+)
+// The keystore binary itself can only be probed for existence here; in practice adding
+// keystore.properties is what enables signing, and that file is tracked by the provider above.
+val hasReleaseKeystore = keystoreText != null && releaseStoreFile.exists()
 
 fun getGitCommitCount(): Int {
     return try {
@@ -77,7 +83,7 @@ android {
     signingConfigs {
         create("release") {
             if (hasReleaseKeystore) {
-                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile") ?: "multiroute-release.jks")
+                storeFile = releaseStoreFile
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")

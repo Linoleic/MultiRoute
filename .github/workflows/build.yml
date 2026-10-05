@@ -90,10 +90,7 @@ jobs:
           fi
 
       - name: Assemble release APK
-        # The signing config is chosen at configuration time from whether keystore.properties exists,
-        # so a configuration cache entry recorded by an unsigned run must not be reused - it would keep
-        # using debug signing on a machine that does have the keystore.
-        run: ./gradlew --no-daemon --no-configuration-cache assembleRelease
+        run: ./gradlew --no-daemon assembleRelease
 
       - name: Verify release signing
         if: env.RELEASE_KEYSTORE_BASE64 != ''
