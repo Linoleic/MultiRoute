@@ -24,7 +24,7 @@ val releaseStoreFile = rootProject.file(
 // keystore.properties is what enables signing, and that file is tracked by the provider above.
 val hasReleaseKeystore = keystoreText != null && releaseStoreFile.exists()
 
-/** Latest git tag without the leading `v`, or [fallback] when the checkout carries no tags. */
+/** Most recent git tag reachable from HEAD, or [fallback] when the checkout carries no tags. */
 fun latestGitTag(fallback: String): String {
     val described = try {
         providers.exec {
@@ -34,8 +34,16 @@ fun latestGitTag(fallback: String): String {
     } catch (_: Throwable) {
         ""
     }
-    return described.removePrefix("v").ifEmpty { fallback }
+    return described.ifEmpty { fallback }
 }
+
+/**
+ * The version name a release tag refers to. Both the plain `v1.2.3` form and the
+ * `<versionCode>-<versionName>` form that the Xposed module repository indexes are accepted, so the
+ * same tag can be used here and there.
+ */
+fun versionNameFromTag(tag: String): String =
+    tag.substringAfter('-', tag).let { if (it == tag) tag.removePrefix("v") else it }
 
 /**
  * Commit count of the upstream branch, falling back to the local HEAD and finally to 1 when git
@@ -84,7 +92,7 @@ fun isWorkTreeDirty(): Boolean = try {
  */
 val versionCodeOffset = 10000
 val fallbackVersionName = "1.0.0"
-val releaseVersionName = latestGitTag(fallbackVersionName)
+val releaseVersionName = versionNameFromTag(latestGitTag(fallbackVersionName))
 val appVersionName = (findProperty("multiRouteVersionName") as String?)?.takeIf { it.isNotBlank() }
     ?: if (isWorkTreeDirty()) "$releaseVersionName-local" else releaseVersionName
 val appVersionCode = (findProperty("multiRouteVersionCode") as String?)?.toIntOrNull()
