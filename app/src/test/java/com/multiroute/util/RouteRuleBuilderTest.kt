@@ -408,4 +408,50 @@ class RouteRuleBuilderTest {
         )
         assertTrue(RouteRuleBuilder.parseKernelUidRules(emptyList()).isEmpty())
     }
+
+    @Test
+    fun testDnsRedirectCommands() {
+        // Nothing to redirect: the chain is flushed and the jump dropped, so the feature can be turned off
+        // without leaving NAT rules behind.
+        val empty = RouteRuleBuilder.buildDnsRedirectCommands(emptyMap())
+        assertTrue(empty.any { it.contains("nat -F ${RouteRuleBuilder.DNS_NAT_CHAIN}") })
+        assertTrue(empty.any { it.contains("nat -D OUTPUT -j ${RouteRuleBuilder.DNS_NAT_CHAIN}") })
+        assertFalse(empty.any { it.contains("DNAT") })
+
+        val cmds = RouteRuleBuilder.buildDnsRedirectCommands(
+            mapOf(
+                10530 to listOf("192.168.124.1"),
+                99910315 to listOf("192.168.137.1")
+            )
+        ).joinToString("\n")
+        assertTrue(cmds.contains("-m owner --uid-owner 10530 -p udp --dport 53 -j DNAT --to-destination 192.168.124.1:53"))
+        assertTrue(cmds.contains("-m owner --uid-owner 10530 -p tcp --dport 53 -j DNAT --to-destination 192.168.124.1:53"))
+        assertTrue(cmds.contains("--uid-owner 99910315 -p udp --dport 53 -j DNAT --to-destination 192.168.137.1:53"))
+        assertTrue(cmds.contains("nat -C OUTPUT -j ${RouteRuleBuilder.DNS_NAT_CHAIN}"))
+
+        // A useless resolver or a system UID must not produce a rule.
+        assertFalse(
+            RouteRuleBuilder.buildDnsRedirectCommands(mapOf(10530 to listOf("not-an-ip")))
+                .any { it.contains("DNAT") }
+        )
+        assertFalse(
+            RouteRuleBuilder.buildDnsRedirectCommands(mapOf(1000 to listOf("1.1.1.1")))
+                .any { it.contains("DNAT") }
+        )
+    }
+
+    @Test
+    fun testResolveUidResolvers() {
+        val resolvers = RouteRuleBuilder.resolveUidResolvers(
+            channelToUidsMap = mapOf("wlan1" to listOf(10530), "rmnet_data3" to listOf(10301)),
+            // IPv6 entries are dropped here: the redirect rule is an iptables rule.
+            channelResolvers = mapOf("wlan1" to listOf("192.168.124.1"), "rmnet_data3" to listOf("::1", "10.0.0.1"))
+        )
+        assertEquals(listOf("192.168.124.1"), resolvers[10530])
+        assertEquals(listOf("10.0.0.1"), resolvers[10301])
+
+        // A channel without a known resolver, or the feature being off, redirects nothing.
+        assertTrue(RouteRuleBuilder.resolveUidResolvers(mapOf("wlan9" to listOf(10530)), mapOf("wlan1" to listOf("1.1.1.1"))).isEmpty())
+        assertTrue(RouteRuleBuilder.resolveUidResolvers(mapOf("wlan1" to listOf(10530)), emptyMap()).isEmpty())
+    }
 }

@@ -198,6 +198,55 @@ object SuHelper {
     }
 
     /**
+     * DNS resolvers of the given interfaces, as the platform itself sees them (IPv4 only, because the
+     * redirect rule that consumes them is an `iptables` rule). Used to send an assigned app's queries to
+     * its own channel instead of whatever resolver the default network provides.
+     */
+    fun getChannelResolvers(context: Context, ifaces: Collection<String>): Map<String, List<String>> {
+        val safeIfaces = ifaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
+        if (safeIfaces.isEmpty()) return emptyMap()
+
+        // 1. ConnectivityManager, i.e. exactly what the platform resolves with.
+        val result = mutableMapOf<String, List<String>>()
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            if (cm != null) {
+                @Suppress("DEPRECATION")
+                for (network in cm.allNetworks) {
+                    val lp = cm.getLinkProperties(network) ?: continue
+                    val iface = lp.interfaceName ?: continue
+                    if (!safeIfaces.contains(iface)) continue
+                    val resolvers = lp.dnsServers.mapNotNull { it.hostAddress }
+                        .filter { it.isNotBlank() && !it.contains(':') }
+                    if (resolvers.isNotEmpty()) result[iface] = resolvers
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "ConnectivityManager resolver lookup failed: ${t.message}")
+        }
+        if (result.keys.containsAll(safeIfaces)) return result
+
+        // 2. Shell fallback: `dumpsys connectivity` exposes the same LinkProperties, and unlike the Java
+        // API it needs no app-visible network. Used only for the channels still missing, because the Java
+        // path returned nothing for them on a real device even though the data was present.
+        try {
+            val raw = executeShellWithOutput("/system/bin/dumpsys connectivity 2>/dev/null", timeoutSeconds = 6)
+                .joinToString(" ")
+            for (chunk in raw.split("InterfaceName: ").drop(1)) {
+                val iface = chunk.substringBefore(' ').trim()
+                if (!safeIfaces.contains(iface) || result.containsKey(iface)) continue
+                val dns = Regex("""DnsAddresses: \[([^\]]*)\]""").find(chunk)?.groupValues?.get(1).orEmpty()
+                val resolvers = dns.split(',', '/').map { it.trim() }
+                    .filter { it.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) }
+                if (resolvers.isNotEmpty()) result[iface] = resolvers
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Shell resolver fallback failed: ${t.message}")
+        }
+        return result
+    }
+
+    /**
      * Deploys a dynamic boot restore script to the KernelSU/Magisk `service.d` directory.
      *
      * The script no longer replays a static snapshot: `service.d` runs during `late_start`, before
@@ -337,8 +386,22 @@ object SuHelper {
         // 3. Collect connected local subnet prefixes for active channels (LAN bypass)
         val connectedPrefixes = getConnectedSubnetPrefixes(context, activeChannelMap.keys)
 
+        // 3b. Resolvers of the active channels, for the DNS redirect. Android picks the resolver from the
+        // default network, so without this an assigned app can query an address that is only reachable over
+        // a different link (or keep querying a VPN tunnel). On by default; can be switched off.
+        val channelResolvers = if (RouteConfigProvider.isDnsFollowsChannel(context)) {
+            getChannelResolvers(context, activeChannelMap.keys)
+        } else {
+            emptyMap()
+        }
+        Log.i(TAG, "DNS redirect: channelResolvers=$channelResolvers for ${activeChannelMap.keys}")
+
         // 4. Sync Linux kernel policy routing dynamically for active interfaces (dual-stack + LAN bypass)
-        val script = RouteRuleBuilder.buildFullSyncScript(activeChannelMap, connectedPrefixes)
+        val script = RouteRuleBuilder.buildFullSyncScript(
+            activeChannelMap,
+            connectedPrefixes,
+            channelResolvers = channelResolvers
+        )
         // The script spawns one `ip` process per rule (20-30 of them). 5s is enough on an idle device
         // but not on a busy one: right after a soft reboot the app reported "Command timed out after 5s"
         // and the sync returned false, leaving only part of the rules applied - which is exactly the
@@ -355,7 +418,11 @@ object SuHelper {
                 updateRuleCache(emptyMap())
                 Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script preserved")
             } else {
-                updateBootRestoreScript(script, activeChannelMap.keys)
+                // The boot script deliberately carries no DNS resolvers: they can change between boots
+                // (different network), and a stale one would break resolution. It flushes the NAT chain
+                // instead, and the app re-applies the redirect with fresh resolvers once it runs.
+                val bootScript = RouteRuleBuilder.buildFullSyncScript(activeChannelMap, connectedPrefixes)
+                updateBootRestoreScript(bootScript, activeChannelMap.keys)
                 updateRuleCache(activeChannelMap)
             }
         }

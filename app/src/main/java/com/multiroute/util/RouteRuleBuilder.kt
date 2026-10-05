@@ -36,6 +36,15 @@ object RouteRuleBuilder {
     const val IP_BIN = "/system/bin/ip"
 
     /**
+     * Absolute path to the platform `iptables` binary, for the same reason as [IP_BIN]: the boot script
+     * runs with busybox first in PATH, and only the platform binary is guaranteed to exist.
+     */
+    const val IPTABLES_BIN = "/system/bin/iptables"
+
+    /** Dedicated NAT chain for the DNS redirect, so it can be flushed without touching anything else. */
+    const val DNS_NAT_CHAIN = "MULTIROUTE_DNS"
+
+    /**
      * Validates whether an interface name consists strictly of alphanumeric and safe chars.
      * Prevents shell command injection vulnerabilities.
      */
@@ -137,7 +146,8 @@ object RouteRuleBuilder {
         channelToUidsMap: Map<String, List<Int>>,
         connectedPrefixes: Map<String, List<String>> = emptyMap(),
         pref: Int = DEFAULT_RULE_PREF,
-        lanBypassPref: Int = LAN_BYPASS_PREF
+        lanBypassPref: Int = LAN_BYPASS_PREF,
+        channelResolvers: Map<String, List<String>> = emptyMap()
     ): String {
         val commands = mutableListOf<String>()
         commands.addAll(buildCleanupCommands(listOf(pref, lanBypassPref)))
@@ -147,8 +157,69 @@ object RouteRuleBuilder {
             commands.addAll(buildLanBypassCommands(connectedPrefixes, lanBypassPref))
             commands.addAll(uidCmds)
         }
+        // DNS redirection is applied together with the routing rules so both are atomic and both are
+        // replayed by the boot script. An empty [channelResolvers] flushes the chain and drops the jump.
+        commands.addAll(buildDnsRedirectCommands(resolveUidResolvers(channelToUidsMap, channelResolvers)))
 
         return commands.joinToString(" ")
+    }
+
+    /** Maps every assigned UID to the resolvers of the channel it was assigned to. */
+    fun resolveUidResolvers(
+        channelToUidsMap: Map<String, List<Int>>,
+        channelResolvers: Map<String, List<String>>
+    ): Map<Int, List<String>> {
+        if (channelResolvers.isEmpty()) return emptyMap()
+        val result = mutableMapOf<Int, List<String>>()
+        for ((iface, uids) in channelToUidsMap) {
+            // Only IPv4 resolvers for now: the redirect below is an iptables (not ip6tables) rule.
+            val resolvers = channelResolvers[iface].orEmpty().filter { it.isNotBlank() && !it.contains(':') }
+            if (resolvers.isEmpty()) continue
+            for (uid in uids) result[uid] = resolvers
+        }
+        return result
+    }
+
+    /**
+     * Builds the NAT rules that send an assigned app's DNS queries to its channel's own resolver.
+     *
+     * Android chooses the resolver from the *default* network, independently of where the kernel routes
+     * the packets, so an assigned app would otherwise query an address that may only be reachable over a
+     * different link (or keep querying the resolver of a VPN tunnel). DNAT rewrites the destination before
+     * the reroute, and the reroute then follows the same per-UID rule as the app's other traffic.
+     *
+     * A dedicated chain is used so this can be flushed atomically and never touches NAT rules that belong
+     * to the ROM or another module.
+     */
+    fun buildDnsRedirectCommands(uidResolvers: Map<Int, List<String>>): List<String> {
+        // Every command ends with `;`: the whole sync script is joined with spaces, so a missing separator
+        // makes the shell treat the next command as an argument of this one (that silently produced an
+        // empty chain containing nothing but the flush).
+        val commands = mutableListOf<String>()
+        commands.add("$IPTABLES_BIN -t nat -N $DNS_NAT_CHAIN 2>/dev/null || true;")
+        commands.add("$IPTABLES_BIN -t nat -F $DNS_NAT_CHAIN;")
+
+        val usable = uidResolvers.filterKeys { isValidUid(it) }
+            .mapValues { (_, resolvers) -> resolvers.firstOrNull { isValidPrefix("$it/32") } }
+            .filterValues { it != null }
+
+        if (usable.isEmpty()) {
+            commands.add("$IPTABLES_BIN -t nat -D OUTPUT -j $DNS_NAT_CHAIN 2>/dev/null || true;")
+            return commands
+        }
+        commands.add(
+            "$IPTABLES_BIN -t nat -C OUTPUT -j $DNS_NAT_CHAIN 2>/dev/null || " +
+                    "$IPTABLES_BIN -t nat -A OUTPUT -j $DNS_NAT_CHAIN;"
+        )
+        for ((uid, resolver) in usable.toSortedMap()) {
+            for (proto in listOf("udp", "tcp")) {
+                commands.add(
+                    "$IPTABLES_BIN -t nat -A $DNS_NAT_CHAIN -m owner --uid-owner $uid " +
+                            "-p $proto --dport 53 -j DNAT --to-destination $resolver:53;"
+                )
+            }
+        }
+        return commands
     }
 
     /**

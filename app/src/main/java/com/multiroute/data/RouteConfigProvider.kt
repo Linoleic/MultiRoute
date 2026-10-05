@@ -33,6 +33,23 @@ class RouteConfigProvider : ContentProvider() {
          */
         const val KEY_MERGED_CELLULAR_UIDS = "merged_cellular_uids"
 
+        /**
+         * Whether an assigned app resolves DNS through its assigned channel. On by default: without it an
+         * app can query a resolver that is only reachable over a different link, which is a real failure
+         * mode rather than a preference.
+         */
+        const val KEY_DNS_FOLLOWS_CHANNEL = "dns_follows_channel"
+
+        fun isDnsFollowsChannel(context: Context): Boolean {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getBoolean(KEY_DNS_FOLLOWS_CHANNEL, true)
+        }
+
+        fun setDnsFollowsChannel(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_DNS_FOLLOWS_CHANNEL, enabled).apply()
+        }
+
         private val SAFE_PKG_REGEX = Regex("^[a-zA-Z0-9_.]+$")
         private val SAFE_CHANNEL_REGEX = Regex("^[a-zA-Z0-9_.]{1,15}$")
 
@@ -137,7 +154,11 @@ class RouteConfigProvider : ContentProvider() {
         fun clearAllRules(context: Context) {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val keepScreenOff = sp.getBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, false)
-            sp.edit().clear().putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, keepScreenOff).apply()
+            val keepDnsFollows = sp.getBoolean(KEY_DNS_FOLLOWS_CHANNEL, true)
+            sp.edit().clear()
+                .putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, keepScreenOff)
+                .putBoolean(KEY_DNS_FOLLOWS_CHANNEL, keepDnsFollows)
+                .apply()
         }
     }
 
