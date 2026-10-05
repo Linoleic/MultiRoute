@@ -210,6 +210,21 @@ MultiRoute 不收集、不上传任何数据：没有统计、没有埋点、没
   警告并降级为 debug 签名，保证 CI 与外部开发者可直接编译。
 - 产物：`app/build/outputs/apk/release/app-release.apk`。
 
+### 版本号规则
+
+采用 LSPosed 自身发布所用的方案：`versionName` 取自最近的 git 标签（工作区有未提交改动时标记 `-local`），
+`versionCode` = **上游分支的提交数 + 固定偏移**。统计的是 `origin/master` 而非本地 HEAD，因此 CI、全新
+克隆、以及多了若干本地提交的 fork，在同一上游状态下**得到同一个版本号**。
+
+需要自己的编号时可覆盖两者：
+
+```bash
+./gradlew assembleRelease -PmultiRouteVersionName=1.0.0-fork -PmultiRouteVersionCode=19999
+```
+
+注意：自建包用的是你自己的签名（与官方发布包不同），Android 会拒绝覆盖安装——请先卸载已发布的版本，或
+使用同一签名密钥。
+
 ---
 
 ## 免责声明

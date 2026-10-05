@@ -24,26 +24,78 @@ val releaseStoreFile = rootProject.file(
 // keystore.properties is what enables signing, and that file is tracked by the provider above.
 val hasReleaseKeystore = keystoreText != null && releaseStoreFile.exists()
 
-fun getGitCommitCount(): Int {
-    return try {
+/** Latest git tag without the leading `v`, or [fallback] when the checkout carries no tags. */
+fun latestGitTag(fallback: String): String {
+    val described = try {
         providers.exec {
-            commandLine("git", "rev-list", "--count", "HEAD")
+            commandLine("git", "describe", "--tags", "--abbrev=0")
             isIgnoreExitValue = true
-        }.standardOutput.asText.map { text ->
-            val count = text.trim().toIntOrNull()
-            if (count != null && count > 0) count else 1
-        }.getOrElse(1)
+        }.standardOutput.asText.getOrElse("").trim()
     } catch (_: Throwable) {
-        1
+        ""
     }
+    return described.removePrefix("v").ifEmpty { fallback }
 }
+
+/**
+ * Commit count of the upstream branch, falling back to the local HEAD and finally to 1 when git
+ * metadata is unavailable (a source archive, for example).
+ *
+ * The higher of the two is used: a clone, CI and a fork at the upstream tip therefore agree, while a
+ * commit that has not been pushed yet is already reflected locally instead of lagging one behind.
+ */
+fun upstreamCommitCount(): Int {
+    val counts = listOf("origin/master", "HEAD").mapNotNull { ref ->
+        try {
+            providers.exec {
+                commandLine("git", "rev-list", "--count", ref)
+                isIgnoreExitValue = true
+            }.standardOutput.asText.getOrElse("").trim().toIntOrNull()?.takeIf { it > 0 }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+    return counts.maxOrNull() ?: 1
+}
+
+fun isWorkTreeDirty(): Boolean = try {
+    providers.exec {
+        commandLine("git", "status", "--porcelain")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.getOrElse("").trim().isNotEmpty()
+} catch (_: Throwable) {
+    false
+}
+
+/**
+ * Version identity, using the scheme LSPosed applies to its own releases: the code is the upstream
+ * commit count plus a fixed offset, and the name comes from the latest tag.
+ *
+ * - Counting `origin/master` instead of the local HEAD means CI, a fresh clone and a fork that added
+ *   its own commits all produce the same code for the same upstream state, which is what makes a
+ *   self-built APK comparable with an official one.
+ * - The offset keeps the code above every number this project has shipped under any earlier scheme, so
+ *   an update is never mistaken for a downgrade.
+ * - A working tree with uncommitted changes is named `-local`, and both fields can be overridden for
+ *   builds that need their own numbering:
+ *       ./gradlew assembleRelease -PmultiRouteVersionName=1.0.0-fork -PmultiRouteVersionCode=19999
+ *
+ * The exact revision is additionally identified by `HOOK_BUILD_ID` below.
+ */
+val versionCodeOffset = 10000
+val fallbackVersionName = "1.0.0"
+val releaseVersionName = latestGitTag(fallbackVersionName)
+val appVersionName = (findProperty("multiRouteVersionName") as String?)?.takeIf { it.isNotBlank() }
+    ?: if (isWorkTreeDirty()) "$releaseVersionName-local" else releaseVersionName
+val appVersionCode = (findProperty("multiRouteVersionCode") as String?)?.toIntOrNull()
+    ?: (versionCodeOffset + upstreamCommitCount())
 
 /**
  * Short source fingerprint of this build: `<git-sha>[-dirty]`.
  *
  * Used to detect that system_server still executes an older module build: a System Framework scoped
  * module cannot be hot-reloaded, so after installing an APK the running hook code may silently lag
- * behind. `versionCode` (commit count) cannot see uncommitted local changes, hence the separate field.
+ * behind. Unlike the version fields this reflects the exact revision, including uncommitted changes.
  */
 fun getGitBuildId(): String {
     val sha = try {
@@ -72,8 +124,8 @@ android {
         applicationId = "com.multiroute"
         minSdk = 24
         targetSdk = 36
-        versionCode = getGitCommitCount()
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         // Baked into BuildConfig so the hook code can publish the identity of the code that is actually
         // loaded inside system_server. Unlike versionCode this also changes for local uncommitted builds,
         // which is what makes "an update has not been applied yet" detectable during development.

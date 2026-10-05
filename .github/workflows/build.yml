@@ -29,8 +29,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # versionCode and the embedded build id are derived from the git history.
+          # The version name comes from tags; the version code and the embedded build id from the history.
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -91,6 +92,27 @@ jobs:
 
       - name: Assemble release APK
         run: ./gradlew --no-daemon assembleRelease
+
+      - name: Report version
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          LINE=$("$AAPT2" dump badging app/build/outputs/apk/release/app-release.apk | head -1)
+          VERSION=$(echo "$LINE" | grep -oE "versionCode='[0-9]+' versionName='[^']+'" | head -1)
+          echo "::notice title=Build version::$VERSION"
+
+      - name: Check update manifest
+        # The in-manager update check reads xposed_update.json, so it has to describe the released build.
+        # Other commits legitimately differ; publishing one is what needs the manifest updated.
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          APK_CODE=$("$AAPT2" dump badging app/build/outputs/apk/release/app-release.apk | head -1 \
+            | grep -oE "versionCode='[0-9]+'" | tr -dc '0-9')
+          MANIFEST_CODE=$(grep -oE '"versionCode": *[0-9]+' xposed_update.json | tr -dc '0-9')
+          if [ "$APK_CODE" = "$MANIFEST_CODE" ]; then
+            echo "::notice title=Update manifest::xposed_update.json matches this build (versionCode $APK_CODE)"
+          else
+            echo "::warning title=Update manifest::xposed_update.json declares $MANIFEST_CODE but this build is $APK_CODE - update the manifest before publishing it"
+          fi
 
       - name: Verify release signing
         if: env.RELEASE_KEYSTORE_BASE64 != ''

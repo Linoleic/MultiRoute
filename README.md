@@ -238,6 +238,22 @@ API, nothing else.
   Without it, release builds fall back to debug signing (with a warning).
 - Artifact: `app/build/outputs/apk/release/app-release.apk`.
 
+### Versions
+
+Builds follow the scheme LSPosed uses for its own releases: `versionName` comes from the latest git tag
+(a working tree with uncommitted changes is marked `-local`) and `versionCode` is the commit count of the
+upstream branch plus a fixed offset. Counting `origin/master` rather than the local HEAD means CI, a fresh
+clone and a fork with extra commits all produce the same version for the same upstream state.
+
+Override both if you want your own numbering:
+
+```bash
+./gradlew assembleRelease -PmultiRouteVersionName=1.0.0-fork -PmultiRouteVersionCode=19999
+```
+
+A self-built APK is signed with your own key rather than the project's, so Android refuses to install it
+on top of a published release — uninstall the released version first, or sign with the same key.
+
 ---
 
 ## Disclaimer
