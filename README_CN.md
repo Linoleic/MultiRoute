@@ -181,8 +181,12 @@ MultiRoute 不收集、不上传任何数据：没有统计、没有埋点、没
 
 - **不管理 DNS**：只重定向路由，域名解析仍走平台解析器；各链路 DNS 不同（或启用 Private DNS/DoT）
   时，解析结果可能不随指派通道变化。
-- **规则优先级高于平台的按 UID 绑定**（`pref 14400/14500` vs 平台 `15040+`），因此被指派的应用可能
-  **绕过 always-on VPN**。需要留在 VPN 内的应用请勿指派。
+- **VPN 规则优先于 MultiRoute**：Android 的 VPN 规则优先级更低（`12000` VPN 输出本地、`13000` 安全 VPN、
+  `14000` 禁止非 VPN），都排在 MultiRoute 的 `14400`/`14500` 之前。因此被 VPN 定向或阻断的应用仍完全
+  跟随 VPN——MultiRoute 既无法把它拉出隧道，也无法为被 VPN 阻断的应用恢复连通性。若想让应用走指定链路
+  **同时**绕过 VPN，请在 VPN 客户端里把该应用**排除**：一旦该 UID 不再有 VPN 规则，分配即生效。已在真机
+  验证，见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
+- **平台自己的按 UID 网络选择低于 MultiRoute**（`15040` 一带），所以通道分配会覆盖它。
 - **分身识别依赖 root 包列表**：界面显示数字空间号而非空间名称；仅覆盖"分身空间是真实 Android
   用户"的 ROM。
 - **息屏保活针对小米双 WLAN 私有类**（`SlaveWifiService`、`DualStaImpl`），其他 ROM 上该开关无效。

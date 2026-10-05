@@ -29,6 +29,7 @@ scope the module to `system_server` only.
 | Screen-off secondary Wi-Fi keep-alive | enabled OEM auto-teardown, cleared the transient property, ensured the app was **not** running (so preferences were unreadable), turned the screen off for 45s | ✅ teardown suppressed twice, secondary link stayed up; with the transient property and preferences both unavailable, the persistent flag is what made it work |
 | Offline channel handling | pointed a rule at a non-existent interface and synced | ✅ the offline channel is skipped, its stale rules are removed, the boot script matches |
 | Concurrent sync | fired two restore broadcasts back to back | ✅ the resulting rule set was complete (a full script is applied under a mutex, with a 30s budget) |
+| **VPN precedence** | added synthetic per-UID rules at the priorities netd uses for VPNs (`12000` output-to-local, `13000` secure VPN, `14000` prohibit non-VPN — from `system/netd/server/RouteController.h`) alongside MultiRoute's `14500`, then queried `ip route get 8.8.8.8 uid 10130` | ✅ the VPN-priority rules win every time; a rule at the platform's per-UID selection priority (`15040`) loses to MultiRoute. A block implemented as `unreachable default` in the VPN's table is **not** leaked (`No route to host`), while an empty table falls through by construction |
 
 ## Findings that changed the implementation
 
@@ -53,8 +54,10 @@ scope the module to `system_server` only.
 - **LAN reachability from an assigned app** — the bypass rules are generated and installed, but no
   intranet round trip was measured.
 - **DNS behaviour** — routing is redirected; name resolution is not managed (see “Known limitations”).
-- **VPN interaction** — the precedence over the platform's per-UID bindings is understood from rule
-  priorities, not measured against an active always-on VPN.
+- **VPN interaction** — measured as rule precedence (see the table above) rather than against a running
+  VPN client: the client installed on the test device would have routed the device's traffic through the
+  user's own servers, so it was deliberately left alone. Starting one would additionally verify the
+  hooks' app-visible state while a tunnel is active.
 - **One ROM family** — both devices are Xiaomi HyperOS.
 
 ## Investigated, not a MultiRoute defect

@@ -205,9 +205,14 @@ API, nothing else.
 - **DNS is not managed.** Resolution still follows the platform resolver; only routing is redirected.
   With different DNS servers per link (or Private DNS/DoT), name resolution may not follow the
   assigned channel.
-- **Rules outrank the platform's per-UID bindings** (`pref 14400/14500` vs the platform's `15040+`), so
-  an assigned app can be pulled **outside an always-on VPN**. Do not assign apps that must stay inside
-  a VPN tunnel.
+- **VPN rules take precedence over MultiRoute.** Android installs its VPN rules at lower priorities
+  (`12000` VPN output-to-local, `13000` secure VPN, `14000` prohibit non-VPN) than MultiRoute's
+  `14400`/`14500`, so an app that a VPN directs or blocks keeps following the VPN: MultiRoute can neither
+  pull an app out of a tunnel nor restore connectivity to an app the VPN blocks. To send an app over a
+  specific channel *and* outside the VPN, exclude it from the VPN in the VPN client — once no VPN rules
+  exist for that UID, the assignment applies. Verified on device, see [docs/VERIFICATION.md](docs/VERIFICATION.md).
+- **The platform's per-UID network selection is below MultiRoute** (`15040`-range), so a channel
+  assignment does override that.
 - **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
   space name; only ROMs whose clone spaces are real Android users are covered.
 - **Screen-off keep-alive targets Xiaomi's dual Wi-Fi classes** (`SlaveWifiService`, `DualStaImpl`). On
