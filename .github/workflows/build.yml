@@ -1,9 +1,9 @@
 name: build
 
+# Branch and pull-request checks. Releases are owned by release.yml, which is triggered by a tag.
 on:
   push:
     branches: [ master, main ]
-    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
 
