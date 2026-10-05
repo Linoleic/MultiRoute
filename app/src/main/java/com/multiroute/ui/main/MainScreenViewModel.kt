@@ -133,7 +133,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.value = _uiState.value.copy(
             testServerConfig = newConfig,
             showTestServerDialog = false,
-            snackBarMessage = "测试节点已配置为: ${newConfig.activeDisplayName}"
+            snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_test_node_set, newConfig.activeDisplayName)
         )
     }
 
@@ -212,7 +212,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val channelName = when {
-            channelId == CHANNEL_DEFAULT -> "系统默认"
+            channelId == CHANNEL_DEFAULT -> getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_system_default)
             else -> _uiState.value.channels.firstOrNull { it.id == channelId }?.displayName ?: channelId
         }
 
@@ -221,7 +221,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             isSelectionMode = false,
             selectedRuleKeys = emptySet(),
             showBatchAssignSheet = false,
-            snackBarMessage = "已为 $count 个应用批量分配至: $channelName"
+            snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_batch_assigned, count, channelName)
         )
 
         filterApps()
@@ -231,7 +231,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val ok = SuHelper.syncAllRouteRules(context)
             _uiState.value = _uiState.value.copy(
                 isSyncing = false,
-                snackBarMessage = if (ok) "已为 $count 个应用批量生效并同步规则" else "已保存 $count 条规则 (等待提权同步)"
+                snackBarMessage = if (ok) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_batch_ok, count) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_batch_pending, count)
             )
             refreshEnvironment()
         }
@@ -266,10 +266,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 updated[channel.id] = result
                 _uiState.value = _uiState.value.copy(
                     testResults = updated,
-                    snackBarMessage = "${channel.interfaceName} 出口测试完成"
+                    snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_egress_done, channel.interfaceName)
                 )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(snackBarMessage = "${channel.interfaceName} 测试失败: ${e.message}")
+                _uiState.value = _uiState.value.copy(snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_egress_failed, channel.interfaceName, e.message ?: ""))
             } finally {
                 _uiState.value = _uiState.value.copy(isTestingSingleChannel = false)
             }
@@ -301,13 +301,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun openLogsDialog() {
-        _uiState.value = _uiState.value.copy(showLogsDialog = true, isLoadingLogs = true, logsContent = "正在读取系统运行与诊断日志...")
+        _uiState.value = _uiState.value.copy(showLogsDialog = true, isLoadingLogs = true, logsContent = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_log_loading))
         viewModelScope.launch {
             try {
                 val logs = withContext(Dispatchers.IO) { SuHelper.getDiagnosticLogs(getApplication()) }
                 _uiState.value = _uiState.value.copy(isLoadingLogs = false, logsContent = logs)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoadingLogs = false, logsContent = "读取日志失败: ${e.message}")
+                _uiState.value = _uiState.value.copy(isLoadingLogs = false, logsContent = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_log_failed, e.message ?: ""))
             }
         }
     }
@@ -324,7 +324,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             SuHelper.setKeepSlaveWifiScreenOff(context, next)
             _uiState.value = _uiState.value.copy(
                 isKeepSlaveWifiScreenOff = next,
-                snackBarMessage = if (next) "副 Wi-Fi 息屏防断联已开启 (息屏常驻保持)" else "副 Wi-Fi 息屏防断联已关闭 (跟随系统休眠)"
+                snackBarMessage = if (next) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_keep_on) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_keep_off)
             )
             refreshEnvironment()
         }
@@ -342,7 +342,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             if (success) {
                 refreshEnvironment()
                 _uiState.value = _uiState.value.copy(
-                    snackBarMessage = if (!current) "蜂窝常活已开启" else "蜂窝常活已关闭"
+                    snackBarMessage = if (!current) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_cellular_on) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_cellular_off)
                 )
             }
         }
@@ -362,10 +362,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 )
                 _uiState.value = _uiState.value.copy(
                     testResults = results,
-                    snackBarMessage = "多通道独立出口诊断已完成"
+                    snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_diag_done)
                 )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(snackBarMessage = "诊断异常: ${e.message}")
+                _uiState.value = _uiState.value.copy(snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_diag_failed, e.message ?: ""))
             } finally {
                 _uiState.value = _uiState.value.copy(isTesting = false)
             }
@@ -413,7 +413,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val ok = SuHelper.syncAllRouteRules(context)
             _uiState.value = _uiState.value.copy(
                 isSyncing = false,
-                snackBarMessage = if (ok) "已同步路由规则至内核" else "规则已保存 (等待提权同步)"
+                snackBarMessage = if (ok) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_sync_ok) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_sync_pending)
             )
             refreshEnvironment()
         }
@@ -426,7 +426,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val ok = SuHelper.syncAllRouteRules(context)
             _uiState.value = _uiState.value.copy(
                 isSyncing = false,
-                snackBarMessage = if (ok) "内核路由策略已全部同步" else "同步失败，请检查 Root 授权"
+                snackBarMessage = if (ok) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_kernel_ok) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_sync_failed)
             )
             refreshEnvironment()
         }
@@ -439,7 +439,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             allApps = allApps.map { it.copy(targetChannelId = CHANNEL_DEFAULT) }
             filterApps()
             SuHelper.syncAllRouteRules(context)
-            _uiState.value = _uiState.value.copy(snackBarMessage = "已清空所有应用分流规则")
+            _uiState.value = _uiState.value.copy(snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_cleared))
             refreshEnvironment()
         }
     }

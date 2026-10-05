@@ -86,11 +86,11 @@ fun MainScreen(
                         )
                         Text(
                             text = if (uiState.isSelectionMode) {
-                                "已选中 ${uiState.selectedRuleKeys.size} 个应用"
+                                stringResource(com.multiroute.R.string.ui_selected_apps_count, uiState.selectedRuleKeys.size)
                             } else {
                                 when (uiState.selectedTab) {
-                                    0 -> "共 ${uiState.totalAppsCount} 个应用 · 已分流 ${uiState.configuredAppsCount} 个"
-                                    1 -> "在线接口: ${uiState.channels.size} 个"
+                                    0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
+                                    1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
                                     else -> "模块与策略路由状态"
                                 }
                             },
@@ -104,14 +104,14 @@ fun MainScreen(
                         IconButton(onClick = { viewModel.exitSelectionMode() }) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "退出多选"
+                                contentDescription = stringResource(com.multiroute.R.string.cd_exit_multi)
                             )
                         }
                     } else {
                         IconButton(onClick = { viewModel.refreshEnvironment() }) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = "刷新状态"
+                                contentDescription = stringResource(com.multiroute.R.string.cd_refresh)
                             )
                         }
                     }
@@ -128,19 +128,19 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = uiState.selectedTab == 0,
                     onClick = { viewModel.setSelectedTab(0) },
-                    icon = { Icon(Icons.Default.Apps, contentDescription = "分流规则") },
+                    icon = { Icon(Icons.Default.Apps, contentDescription = stringResource(com.multiroute.R.string.cd_routing)) },
                     label = { Text(stringResource(com.multiroute.R.string.tab_routing)) }
                 )
                 NavigationBarItem(
                     selected = uiState.selectedTab == 1,
                     onClick = { viewModel.setSelectedTab(1) },
-                    icon = { Icon(Icons.Default.Hub, contentDescription = "网络通道") },
+                    icon = { Icon(Icons.Default.Hub, contentDescription = stringResource(com.multiroute.R.string.cd_channels)) },
                     label = { Text(stringResource(com.multiroute.R.string.tab_channels)) }
                 )
                 NavigationBarItem(
                     selected = uiState.selectedTab == 2,
                     onClick = { viewModel.setSelectedTab(2) },
-                    icon = { Icon(Icons.Default.Tune, contentDescription = "设置") },
+                    icon = { Icon(Icons.Default.Tune, contentDescription = stringResource(com.multiroute.R.string.cd_settings)) },
                     label = { Text(stringResource(com.multiroute.R.string.tab_settings)) }
                 )
             }
@@ -269,7 +269,7 @@ fun AppRulesTab(
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
-                                contentDescription = "搜索",
+                                contentDescription = stringResource(com.multiroute.R.string.cd_search),
                                 tint = MaterialTheme.colorScheme.outline
                             )
                         },
@@ -278,7 +278,7 @@ fun AppRulesTab(
                                 IconButton(onClick = { viewModel.setSearchQuery("") }) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "清空搜索"
+                                        contentDescription = stringResource(com.multiroute.R.string.cd_clear_search)
                                     )
                                 }
                             }
@@ -372,7 +372,7 @@ fun AppRulesTab(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
-                                        text = "已选 ${uiState.selectedRuleKeys.size} 项",
+                                        text = stringResource(com.multiroute.R.string.ui_selected_items, uiState.selectedRuleKeys.size),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -386,7 +386,7 @@ fun AppRulesTab(
                                         onClick = { viewModel.selectAllFilteredApps() },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Text(if (allFilteredSelected) "取消全选" else "全选当前")
+                                        Text(if (allFilteredSelected) stringResource(com.multiroute.R.string.ui_deselect_all) else stringResource(com.multiroute.R.string.ui_select_all))
                                     }
                                     TextButton(
                                         onClick = { viewModel.exitSelectionMode() },
@@ -406,7 +406,7 @@ fun AppRulesTab(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "应用列表 (${uiState.apps.size})",
+                                text = stringResource(com.multiroute.R.string.ui_app_list, uiState.apps.size),
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -468,7 +468,7 @@ fun AppRulesTab(
                                     tint = MaterialTheme.colorScheme.outline
                                 )
                                 Text(
-                                    text = "未找到符合条件的应用",
+                                    text = stringResource(com.multiroute.R.string.ui_no_matching_apps),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.outline
                                 )
@@ -547,8 +547,8 @@ fun AppRulesTab(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (uiState.selectedRuleKeys.isEmpty()) "选择应用以分配"
-                            else "分配通道 (${uiState.selectedRuleKeys.size})"
+                            if (uiState.selectedRuleKeys.isEmpty()) stringResource(com.multiroute.R.string.ui_select_apps_to_assign)
+                            else stringResource(com.multiroute.R.string.ui_assign_channel_n, uiState.selectedRuleKeys.size)
                         )
                     }
                 }
@@ -599,7 +599,7 @@ fun ChannelsTab(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "未检测到活跃的网络连接，请检查 Wi-Fi 或蜂窝数据连接",
+                                text = stringResource(com.multiroute.R.string.ui_no_active_network),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error
                             )
@@ -659,7 +659,7 @@ fun ChannelsTab(
                                 tint = MaterialTheme.colorScheme.outline
                             )
                             Text(
-                                text = "测试节点: ${uiState.testServerConfig.activeDisplayName}",
+                                text = stringResource(com.multiroute.R.string.ui_test_node_2, uiState.testServerConfig.activeDisplayName),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 maxLines = 1,
@@ -738,7 +738,7 @@ fun SettingsTab(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "模块与路由状态",
+                            text = stringResource(com.multiroute.R.string.ui_module_channel_state),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                     }
@@ -751,7 +751,7 @@ fun SettingsTab(
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
-                            text = "LSPosed 模块状态",
+                            text = stringResource(com.multiroute.R.string.ui_module_state),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -781,7 +781,7 @@ fun SettingsTab(
                                 text = if (moduleStatus != null) {
                                     SuHelper.moduleStatusLabel(moduleStatus)
                                 } else {
-                                    "正在检测模块状态…"
+                                    stringResource(com.multiroute.R.string.ui_checking_module)
                                 },
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
