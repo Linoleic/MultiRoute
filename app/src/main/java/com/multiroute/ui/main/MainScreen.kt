@@ -780,7 +780,7 @@ fun SettingsTab(
                             )
                             Text(
                                 text = if (moduleStatus != null) {
-                                    SuHelper.moduleStatusLabel(moduleStatus)
+                                    SuHelper.moduleStatusLabel(androidx.compose.ui.platform.LocalContext.current, moduleStatus)
                                 } else {
                                     stringResource(com.multiroute.R.string.ui_checking_module)
                                 },
@@ -809,7 +809,7 @@ fun SettingsTab(
                     // 3. 内核策略路由生效规则统计
                     DiagnosticItem(
                         label = stringResource(com.multiroute.R.string.settings_kernel_rules),
-                        value = if ((diag?.kernelRulesCount ?: 0) > 0) "${diag?.kernelRulesCount} 条分流规则生效中 (pref 14500)" else stringResource(com.multiroute.R.string.diag_kernel_rules_none)
+                        value = if ((diag?.kernelRulesCount ?: 0) > 0) stringResource(com.multiroute.R.string.diag_kernel_rules_on, diag?.kernelRulesCount ?: 0) else stringResource(com.multiroute.R.string.diag_kernel_rules_none)
                     )
 
                     // 4. 系统蜂窝首选 UID
@@ -1147,7 +1147,7 @@ fun SettingsTab(
                     }
 
                     Text(
-                        text = "Android 多网络并发与分应用策略路由管理模块。支持主/副 Wi-Fi (双 WLAN)、移动蜂窝与有线以太网的多网并发与分应用策略分流。",
+                        text = stringResource(com.multiroute.R.string.about_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
                         lineHeight = 18.sp
@@ -1413,7 +1413,7 @@ fun AppItemRow(
                         text = when {
                             app.targetChannelId == CHANNEL_DEFAULT -> stringResource(com.multiroute.R.string.vm_system_default)
                             currentChannel != null -> currentChannel.shortName
-                            else -> "${app.targetChannelId} (离线)"
+                            else -> stringResource(com.multiroute.R.string.ui_channel_offline_short, app.targetChannelId)
                         },
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
@@ -1488,7 +1488,7 @@ fun ChannelSelectBottomSheet(
                 val wifiBadge = if (channel.ssid != null) " [${channel.ssid}]" else ""
                 SelectableChannelOption(
                     title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
-                    subtitle = "接口: ${channel.interfaceName}$wifiBadge · 内网: ${channel.ipAddress ?: "无IP"}${if (channel.isDefault) " (当前默认通道)" else ""}",
+                    subtitle = stringResource(com.multiroute.R.string.channel_subtitle, channel.interfaceName, wifiBadge, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_ip)) + if (channel.isDefault) stringResource(com.multiroute.R.string.channel_current_default) else "",
                     icon = getTransportIcon(channel.transportType),
                     isSelected = app.targetChannelId == channel.id,
                     onClick = { onSelectChannel(channel.id) }
@@ -1498,7 +1498,7 @@ fun ChannelSelectBottomSheet(
             // 3. 如果当前应用绑定的通道目前处于离线状态
             if (app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.id == app.targetChannelId }) {
                 SelectableChannelOption(
-                    title = "${app.targetChannelId} (当前通道已离线)",
+                    title = stringResource(com.multiroute.R.string.ui_channel_offline, app.targetChannelId),
                     subtitle = stringResource(com.multiroute.R.string.ui_iface_offline_note),
                     icon = Icons.Default.CloudOff,
                     isSelected = true,
@@ -1551,7 +1551,7 @@ fun BatchChannelSelectBottomSheet(
                 }
                 Column {
                     Text(
-                        text = "批量分配网络通道",
+                        text = stringResource(com.multiroute.R.string.ui_batch_title),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
@@ -1584,7 +1584,7 @@ fun BatchChannelSelectBottomSheet(
                 val wifiBadge = if (channel.ssid != null) " [${channel.ssid}]" else ""
                 SelectableChannelOption(
                     title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
-                    subtitle = "接口: ${channel.interfaceName}$wifiBadge · 内网: ${channel.ipAddress ?: "无IP"}${if (channel.isDefault) " (当前默认通道)" else ""}",
+                    subtitle = stringResource(com.multiroute.R.string.channel_subtitle, channel.interfaceName, wifiBadge, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_ip)) + if (channel.isDefault) stringResource(com.multiroute.R.string.channel_current_default) else "",
                     icon = getTransportIcon(channel.transportType),
                     isSelected = false,
                     onClick = { onSelectChannel(channel.id) }
@@ -1745,7 +1745,7 @@ fun ChannelDetailCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "内网 IP: ${channel.ipAddress ?: "无内网地址"}",
+                    text = stringResource(com.multiroute.R.string.ui_intranet_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     fontFamily = FontFamily.Monospace
@@ -1848,7 +1848,7 @@ fun ChannelDetailBottomSheet(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = "底层网络接口: ${channel.interfaceName}${if (channel.ssid != null) " (SSID: ${channel.ssid})" else ""}",
+                        text = stringResource(com.multiroute.R.string.ui_underlying_iface, channel.interfaceName) + if (channel.ssid != null) " (SSID: ${channel.ssid})" else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -1902,7 +1902,7 @@ fun ChannelDetailBottomSheet(
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
                     }
-                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_primary_ip), value = channel.ipAddress ?: "无")
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_primary_ip), value = channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_none))
                     if (channel.allIpAddresses.isNotEmpty()) {
                         DetailPropertyRow(
                             label = stringResource(com.multiroute.R.string.ui_assigned_ips),
@@ -1917,11 +1917,11 @@ fun ChannelDetailBottomSheet(
                     if (!channel.domains.isNullOrEmpty()) {
                         DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_search_domains), value = channel.domains)
                     }
-                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_mtu), value = if (channel.mtu > 0) "${channel.mtu} 字节" else "未知")
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_mtu), value = if (channel.mtu > 0) stringResource(com.multiroute.R.string.ui_mtu_value, channel.mtu) else stringResource(com.multiroute.R.string.ui_unknown))
                     DetailPropertyRow(
                         label = stringResource(com.multiroute.R.string.ui_estimated_bandwidth),
                         value = if (channel.downlinkBps > 0 || channel.uplinkBps > 0) {
-                            "下行 ${channel.downlinkBps / 1000} Mbps / 上行 ${channel.uplinkBps / 1000} Mbps"
+                            stringResource(com.multiroute.R.string.ui_link_speed, channel.downlinkBps / 1000, channel.uplinkBps / 1000)
                         } else {
                             stringResource(com.multiroute.R.string.ui_adaptive)
                         }

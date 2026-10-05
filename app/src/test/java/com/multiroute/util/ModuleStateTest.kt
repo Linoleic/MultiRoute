@@ -155,18 +155,18 @@ class ModuleStateTest {
         assertEquals(ModuleStatus.LEGACY_UNVERIFIED, state.status)
         assertTrue(state.isLoadedInSystemServer)
         assertFalse(state.isFullyOperational)
-        assertTrue(state.detail.contains("无法校验"))
+        assertEquals(com.multiroute.R.string.module_detail_legacy, state.detailRes)
     }
 
     @Test
     fun testStaleWhenRecordedOwnerIsNotSystemServer() {
         val fromBeacon = evaluate(rawBeacon = beacon(), ownerIsSystemServer = false)
         assertEquals(ModuleStatus.STALE, fromBeacon.status)
-        assertTrue(fromBeacon.detail.contains("3278"))
+        assertEquals(com.multiroute.R.string.module_detail_beacon_stale, fromBeacon.detailRes)
 
         val fromMarker = evaluate(rawBeacon = null, legacyPid = 4242, ownerIsSystemServer = false)
         assertEquals(ModuleStatus.STALE, fromMarker.status)
-        assertTrue(fromMarker.detail.contains("4242"))
+        assertEquals(com.multiroute.R.string.module_detail_marker_stale, fromMarker.detailRes)
     }
 
     @Test
@@ -177,8 +177,8 @@ class ModuleStateTest {
         assertEquals(ModuleStatus.OUTDATED, state.status)
         assertTrue(state.isLoadedInSystemServer)
         assertFalse(state.isFullyOperational)
-        assertTrue(state.detail.contains("旧版本"))
-        assertTrue(state.detail.contains("软重启"))
+        assertEquals(com.multiroute.R.string.module_detail_outdated, state.detailRes)
+        assertEquals(4, state.detailArgs.size)
     }
 
     @Test
@@ -197,8 +197,8 @@ class ModuleStateTest {
         assertEquals(ModuleStatus.ACTIVE, state.status)
         assertTrue(state.isLoadedInSystemServer)
         assertTrue(state.isFullyOperational)
-        assertTrue(state.detail.contains("ConnectivityService hook 3"))
-        assertTrue(state.detail.contains("副 Wi-Fi 保活 hook 4"))
+        assertEquals(com.multiroute.R.string.module_detail_active, state.detailRes)
+        assertEquals(listOf(3, 4), state.detailArgs)
     }
 
     @Test
@@ -218,7 +218,7 @@ class ModuleStateTest {
         val state = evaluate(rawBeacon = beacon(boot = 10_000_000L), nowElapsedMs = 1_000L)
 
         assertEquals(ModuleStatus.STALE, state.status)
-        assertTrue(state.detail.contains("更晚的开机周期"))
+        assertEquals(com.multiroute.R.string.module_detail_late_boot, state.detailRes)
     }
 
     @Test
@@ -228,7 +228,7 @@ class ModuleStateTest {
         val state = evaluate(rawBeacon = beacon(buildId = "oldsha-dirty"), installedBuildId = "newsha")
 
         assertEquals(ModuleStatus.OUTDATED, state.status)
-        assertTrue(state.detail.contains("软重启"))
+        assertEquals(4, state.detailArgs.size)
     }
 
     @Test

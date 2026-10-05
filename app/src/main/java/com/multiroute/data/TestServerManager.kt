@@ -21,7 +21,7 @@ object TestServerManager {
         }
 
         val activeDisplayName = if (isCustom) {
-            "自定义服务器"
+            ""
         } else {
             TestServerConfig.DEFAULT_DISPLAY_NAME
         }

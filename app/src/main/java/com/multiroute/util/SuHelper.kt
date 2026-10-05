@@ -495,13 +495,13 @@ object SuHelper {
      * true whenever the module is injected into the app's own process, so it must never be used as the
      * primary activation signal (it cannot see system_server or the hook state).
      */
-    fun moduleStatusLabel(status: ModuleStatus): String = when (status) {
-        ModuleStatus.ACTIVE -> "已激活 (system_server 运行中，hook 已就绪)"
-        ModuleStatus.PARTIAL -> "已加载但 hook 未就绪"
-        ModuleStatus.OUTDATED -> "已加载旧版本 (需软重启 system_server)"
-        ModuleStatus.LEGACY_UNVERIFIED -> "已加载 (旧版状态协议，hook 状态无法校验)"
-        ModuleStatus.STALE -> "状态记录已过期"
-        ModuleStatus.NOT_ACTIVE -> "未激活 (请在 LSPosed 中启用并勾选系统框架作用域)"
+    fun moduleStatusLabel(context: Context, status: ModuleStatus): String = when (status) {
+        ModuleStatus.ACTIVE -> context.getString(com.multiroute.R.string.module_status_active)
+        ModuleStatus.PARTIAL -> context.getString(com.multiroute.R.string.module_status_partial)
+        ModuleStatus.OUTDATED -> context.getString(com.multiroute.R.string.module_status_outdated)
+        ModuleStatus.LEGACY_UNVERIFIED -> context.getString(com.multiroute.R.string.module_status_legacy)
+        ModuleStatus.STALE -> context.getString(com.multiroute.R.string.module_status_stale)
+        ModuleStatus.NOT_ACTIVE -> context.getString(com.multiroute.R.string.module_status_not_active)
     }
 
     /**
@@ -698,34 +698,34 @@ object SuHelper {
         val now = timeFormat.format(Date())
 
         val sb = StringBuilder()
-        sb.appendLine("=== MultiRoute 系统运行与诊断日志 ===")
-        sb.appendLine("时间: $now")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_title))
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_time, now))
         sb.appendLine()
 
         // 1. 基础系统与权限
         val diag = getDiagnosticInfo(context)
-        sb.appendLine("[1. 核心权限与模块状态]")
-        sb.appendLine("• Root 状态: ${if (diag.isRootGranted) "已授权 (${diag.suVersion})" else "未授权"}")
-        sb.appendLine("• LSPosed 模块: ${moduleStatusLabel(diag.moduleStatus)}")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec1))
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_root_state, if (diag.isRootGranted) context.getString(com.multiroute.R.string.diag_root_granted, diag.suVersion) else context.getString(com.multiroute.R.string.diag_root_missing)))
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_module, moduleStatusLabel(context, diag.moduleStatus)))
         if (diag.moduleStatusDetail.isNotEmpty()) {
             sb.appendLine("  └ ${diag.moduleStatusDetail}")
         }
-        sb.appendLine("• 蜂窝数据常活: ${if (diag.mobileDataAlwaysOn) "已开启 (1)" else "未开启 (0)"}")
-        sb.appendLine("• 副 Wi-Fi 息屏防断联: ${if (diag.isKeepSlaveWifiScreenOff) "已开启 (保持常活)" else "未开启 (跟随系统休眠)"}")
-        sb.appendLine("• 系统首选蜂窝 UIDs: ${diag.mobileDataPreferredUids.ifEmpty { "(空)" }}")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_always_on, if (diag.mobileDataAlwaysOn) context.getString(com.multiroute.R.string.diag_on) else context.getString(com.multiroute.R.string.diag_off)))
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_keepalive, if (diag.isKeepSlaveWifiScreenOff) context.getString(com.multiroute.R.string.diag_keepalive_on) else context.getString(com.multiroute.R.string.diag_keepalive_off)))
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_uids, diag.mobileDataPreferredUids.ifEmpty { context.getString(com.multiroute.R.string.diag_empty) }))
         sb.appendLine()
 
         // 2. 规则生效对照：配置的 uid→通道 与内核里的 pref 14500 规则逐条比对
-        sb.appendLine("[2. 规则生效对照]")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec2))
         if (diag.configuredUidRules.isEmpty()) {
-            sb.appendLine("• 当前没有已配置的分流规则")
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_rules))
         } else {
             diag.configuredUidRules.entries.sortedBy { it.key }.forEach { (uid, channel) ->
                 val actual = diag.kernelUidRules[uid]
                 val verdict = when {
-                    actual == null -> "未生效（内核里没有该 UID 的规则）"
-                    actual == channel -> "已生效"
-                    else -> "已生效（内核表名为 $actual）"
+                    actual == null -> context.getString(com.multiroute.R.string.diag_rule_not_effective)
+                    actual == channel -> context.getString(com.multiroute.R.string.diag_rule_effective)
+                    else -> context.getString(com.multiroute.R.string.diag_rule_effective_table, actual)
                 }
                 sb.appendLine("• uid $uid -> $channel: $verdict")
             }
@@ -733,18 +733,18 @@ object SuHelper {
         sb.appendLine()
 
         // 3. 开机恢复日志（service.d 生成，锁屏状态下它是唯一的恢复路径）
-        sb.appendLine("[3. 开机恢复日志 ${RouteRuleBuilder.BOOT_LOG_PATH}]")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec3, RouteRuleBuilder.BOOT_LOG_PATH))
         if (diag.bootRestoreLog.isEmpty()) {
-            sb.appendLine("• 暂无记录：service.d 未执行，或重启后尚未同步")
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_boot_log))
         } else {
             diag.bootRestoreLog.forEach { sb.appendLine("  $it") }
         }
         sb.appendLine()
 
         // 2. Wi-Fi 连接状态
-        sb.appendLine("[2. Wi-Fi SSID 实时映射]")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_wifi))
         if (diag.wifiSsids.isEmpty()) {
-            sb.appendLine("• 未检测到已连接的 Wi-Fi SSID")
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_wifi))
         } else {
             diag.wifiSsids.forEach { (iface, ssid) ->
                 sb.appendLine("• $iface -> $ssid")
@@ -753,9 +753,9 @@ object SuHelper {
         sb.appendLine()
 
         // 3. 内核策略路由规则 (pref 14500 & pref 14400)
-        sb.appendLine("[3. Linux 内核策略路由 (pref 14500 / 14400)]")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_kernel))
         if (diag.kernelRules.isEmpty()) {
-            sb.appendLine("• 当前内核无 pref 14500 规则 (尚未分配应用分流)")
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_kernel_rules))
         } else {
             diag.kernelRules.forEach { rule ->
                 sb.appendLine("• $rule")
@@ -764,26 +764,26 @@ object SuHelper {
         sb.appendLine()
 
         // 4. 当前活动的网络接口与 IP
-        sb.appendLine("[4. 网络接口与路由表概要]")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_ifaces))
         try {
             val lines = executeShellWithOutput("ip -br addr; echo '---'; ip rule show | head -n 25", timeoutSeconds = 3)
             lines.forEach { sb.appendLine(it) }
         } catch (e: Exception) {
-            sb.appendLine("读取网络接口失败: ${e.message}")
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_ifaces_failed, e.message ?: ""))
         }
         sb.appendLine()
 
         // 5. 最近 Logcat 相关日志
-        sb.appendLine("[5. Logcat 系统日志 (最近)]")
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_logcat))
         try {
             val lines = executeShellWithOutput("logcat -d -t 60 | grep -E 'MultiRoute|ConnectivityService|netd' | tail -n 25", timeoutSeconds = 3)
             if (lines.isEmpty()) {
-                sb.appendLine("• 暂无相关日志记录")
+                sb.appendLine(context.getString(com.multiroute.R.string.diag_no_logcat))
             } else {
                 lines.forEach { sb.appendLine(it) }
             }
         } catch (_: Exception) {
-            sb.appendLine("• Logcat 读取超时")
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_logcat_timeout))
         }
 
         sb.toString()

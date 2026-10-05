@@ -85,7 +85,6 @@ object NetworkUtils {
             if (iface.isEmpty() || iface == "lo" || iface.startsWith("dummy") || iface.startsWith("ifb")) continue
 
             val transportType: String
-            val displayName: String
             val shortName: String
             var wifiSsid: String? = null
 
@@ -96,35 +95,28 @@ object NetworkUtils {
                     val directSsid = wifiInfo?.ssid?.trim('"')?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
                     val detectedSsid = directSsid ?: wifiSsids[iface]
                     wifiSsid = detectedSsid
-
-                    displayName = if (detectedSsid != null) "WLAN ($iface) · $detectedSsid" else "WLAN ($iface)"
                     shortName = if (detectedSsid != null) "$iface ($detectedSsid)" else iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
                     val isInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     if (!isInternet) continue // Ignore internal IMS bearer
                     transportType = "cellular"
-                    displayName = "蜂窝网络 ($iface)"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {
                     transportType = "ethernet"
-                    displayName = "有线以太网 ($iface)"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
                     transportType = "vpn"
-                    displayName = "VPN通道 ($iface)"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> {
                     transportType = "bluetooth"
-                    displayName = "蓝牙网络 ($iface)"
                     shortName = iface
                 }
                 else -> {
                     transportType = "other"
-                    displayName = "通道 ($iface)"
                     shortName = iface
                 }
             }
@@ -148,7 +140,6 @@ object NetworkUtils {
                     id = iface,
                     interfaceName = iface,
                     transportType = transportType,
-                    displayName = displayName,
                     shortName = shortName,
                     ssid = wifiSsid,
                     ipAddress = primaryIp,

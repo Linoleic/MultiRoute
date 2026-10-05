@@ -21,7 +21,7 @@ data class TestServerConfig(
      */
     fun displayName(context: android.content.Context): String {
         val preset = PRESETS.firstOrNull { it.id == selectedPresetId }
-        return if (preset != null) context.getString(preset.nameRes) else activeDisplayName
+        return if (preset != null) context.getString(preset.nameRes) else context.getString(com.multiroute.R.string.server_custom)
     }
 
     companion object {
@@ -67,6 +67,7 @@ data class TestServerConfig(
 
         const val DEFAULT_PRESET_ID = PRESET_IPIP
         const val DEFAULT_URL = "https://myip.ipip.net"
-        const val DEFAULT_DISPLAY_NAME = "IPIP.net (推荐 / 含归属地)"
+        /** Stored fallback only: what gets displayed comes from the preset resource or server_custom. */
+        const val DEFAULT_DISPLAY_NAME = ""
     }
 }

@@ -193,7 +193,6 @@ enum class ModuleStatus {
 
 data class ModuleState(
     val status: ModuleStatus,
-    val detail: String,
     val beacon: ModuleBeacon? = null,
     /** Resource id of the translated detail, or 0 when only [detail] is available. */
     val detailRes: Int = 0,
@@ -201,7 +200,7 @@ data class ModuleState(
 ) {
     /** The detail as it should be shown, in the app language whenever a resource was supplied. */
     fun detailLabel(context: android.content.Context): String =
-        if (detailRes != 0) context.getString(detailRes, *detailArgs.toTypedArray()) else detail
+        if (detailRes == 0) "" else context.getString(detailRes, *detailArgs.toTypedArray())
     /** True whenever the module code is (or was) present inside system_server. */
     val isLoadedInSystemServer: Boolean
         get() = status != ModuleStatus.NOT_ACTIVE
@@ -238,20 +237,17 @@ object ModuleStateEvaluator {
             return when {
                 inputs.legacyMarkerPid == null -> ModuleState(
                     ModuleStatus.NOT_ACTIVE,
-                    "未检测到模块状态信标：模块未启用、未注入 system_server，或作用域未勾选",
                     detailRes = com.multiroute.R.string.module_detail_not_active,
                 )
 
                 inputs.ownerIsSystemServer == false -> ModuleState(
                     ModuleStatus.STALE,
-                    "标记记录${pidText(inputs.legacyMarkerPid)}已不是 system_server（记录已过期）",
                     detailRes = com.multiroute.R.string.module_detail_marker_stale,
                     detailArgs = listOf(pidText(inputs.legacyMarkerPid)),
                 )
 
                 else -> ModuleState(
                     ModuleStatus.LEGACY_UNVERIFIED,
-                    "模块已注入 system_server，但为旧版状态协议：只能证明代码已加载，无法校验 hook 是否安装",
                     detailRes = com.multiroute.R.string.module_detail_legacy,
                 )
             }
@@ -260,7 +256,6 @@ object ModuleStateEvaluator {
         if (inputs.ownerIsSystemServer == false) {
             return ModuleState(
                 ModuleStatus.STALE,
-                "信标记录的 PID ${beacon.systemServerPid} 已不是 system_server（记录已过期）",
                 beacon,
                 detailRes = com.multiroute.R.string.module_detail_beacon_stale,
                 detailArgs = listOf(beacon.systemServerPid),
@@ -270,7 +265,6 @@ object ModuleStateEvaluator {
         if (beacon.bootElapsedMs > inputs.nowElapsedMs + BOOT_SKEW_TOLERANCE_MS) {
             return ModuleState(
                 ModuleStatus.STALE,
-                "信标来自更晚的开机周期（写入于开机 ${beacon.bootElapsedMs / 1000}s，当前 ${inputs.nowElapsedMs / 1000}s）",
                 beacon,
                 detailRes = com.multiroute.R.string.module_detail_late_boot,
                 detailArgs = listOf(beacon.bootElapsedMs / 1000, inputs.nowElapsedMs / 1000),
@@ -285,9 +279,6 @@ object ModuleStateEvaluator {
         if (versionSkew || buildSkew) {
             return ModuleState(
                 ModuleStatus.OUTDATED,
-                "system_server 仍运行旧版本（已加载 v${beacon.moduleVersionCode}/${beacon.buildId.ifEmpty { "?" }}，" +
-                        "当前已安装 v${inputs.installedVersionCode}/${inputs.installedBuildId.ifEmpty { "?" }}）：" +
-                        "系统框架作用域无法热重载，需软重启后生效",
                 beacon,
                         detailRes = com.multiroute.R.string.module_detail_outdated,
                         detailArgs = listOf(beacon.moduleVersionCode, beacon.buildId.ifEmpty { "?" }, inputs.installedVersionCode, inputs.installedBuildId.ifEmpty { "?" }),
@@ -297,7 +288,6 @@ object ModuleStateEvaluator {
         if (beacon.connectivityHooks <= 0) {
             return ModuleState(
                 ModuleStatus.PARTIAL,
-                "模块已加载但 ConnectivityService hook 未安装（cs=0）：应用可见的网络状态不会被改写",
                 beacon,
                 detailRes = com.multiroute.R.string.module_detail_partial,
             )
@@ -305,8 +295,6 @@ object ModuleStateEvaluator {
 
         return ModuleState(
             ModuleStatus.ACTIVE,
-            "已激活：ConnectivityService hook ${beacon.connectivityHooks} 个，" +
-                    "副 Wi-Fi 保活 hook ${beacon.slaveWifiHooks + beacon.dualStaHooks} 个",
             beacon,
                     detailRes = com.multiroute.R.string.module_detail_active,
                     detailArgs = listOf(beacon.connectivityHooks, beacon.slaveWifiHooks + beacon.dualStaHooks),

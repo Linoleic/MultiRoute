@@ -7,8 +7,7 @@ const val CHANNEL_DEFAULT = "default"
 data class NetworkChannel(
     val id: String,                // Unique ID, matching interfaceName (e.g. "wlan0", "wlan1", "rmnet_data3", "eth0")
     val interfaceName: String,     // Kernel interface name (e.g. "wlan0")
-    val transportType: String,     // "WLAN", "蜂窝", "以太网", "VPN", "其他"
-    val displayName: String,       // User-friendly name: "WLAN (wlan0) · H3C_CA202C"
+    val transportType: String,
     val shortName: String,         // Short label: "wlan0" or "wlan0 (SSID)"
     val ssid: String? = null,      // Wi-Fi network SSID (e.g. "H3C_CA202C", "Hpkt")
     val ipAddress: String?,        // Primary IPv4/IPv6 address
