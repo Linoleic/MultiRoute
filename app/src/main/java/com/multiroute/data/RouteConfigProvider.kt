@@ -25,6 +25,14 @@ class RouteConfigProvider : ContentProvider() {
         const val KEY_CHANNEL_ID = "channel_id"
         const val KEY_KEEP_SLAVE_WIFI_SCREEN_OFF = "keep_slave_wifi_screen_off"
 
+        /**
+         * Bookkeeping for the UID list this app merged into the platform's `mobile_data_preferred_uids`
+         * setting. Only those UIDs are ever taken back out again, so entries owned by the system or by
+         * another tool are left alone. Not a rule key: excluded from [getAllRules] and ignored by the
+         * module, which only reads `uid_<n>` keys.
+         */
+        const val KEY_MERGED_CELLULAR_UIDS = "merged_cellular_uids"
+
         private val SAFE_PKG_REGEX = Regex("^[a-zA-Z0-9_.]+$")
         private val SAFE_CHANNEL_REGEX = Regex("^[a-zA-Z0-9_.]{1,15}$")
 
@@ -102,11 +110,28 @@ class RouteConfigProvider : ContentProvider() {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val result = mutableMapOf<String, String>()
             sp.all.forEach { (key, value) ->
-                if (!key.startsWith("uid_") && key != KEY_KEEP_SLAVE_WIFI_SCREEN_OFF && value is String) {
+                if (!key.startsWith("uid_") &&
+                    key != KEY_KEEP_SLAVE_WIFI_SCREEN_OFF &&
+                    key != KEY_MERGED_CELLULAR_UIDS &&
+                    value is String
+                ) {
                     result[key] = value
                 }
             }
             return result
+        }
+
+        fun getMergedCellularUids(context: Context): Set<Int> {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            val raw = sp.getString(KEY_MERGED_CELLULAR_UIDS, null) ?: return emptySet()
+            return com.multiroute.util.RouteRuleBuilder.parseUidList(raw)
+        }
+
+        fun setMergedCellularUids(context: Context, uids: Collection<Int>) {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            val text = com.multiroute.util.RouteRuleBuilder.buildUidList(uids)
+            if (text.isEmpty()) sp.edit().remove(KEY_MERGED_CELLULAR_UIDS).apply()
+            else sp.edit().putString(KEY_MERGED_CELLULAR_UIDS, text).apply()
         }
 
         fun clearAllRules(context: Context) {

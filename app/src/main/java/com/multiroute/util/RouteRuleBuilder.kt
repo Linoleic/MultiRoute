@@ -351,6 +351,35 @@ exit 0
         return key.substring(0, at) to userId
     }
 
+    /** Parses the `;`-separated UID list Android uses for `mobile_data_preferred_uids`. */
+    fun parseUidList(raw: String?): Set<Int> =
+        raw?.split(';')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.filter { isValidUid(it) }
+            ?.toSet()
+            .orEmpty()
+
+    /** Serializes a UID list in the same form; drops invalid entries and keeps it sorted. */
+    fun buildUidList(uids: Collection<Int>): String =
+        uids.filter { isValidUid(it) }.distinct().sorted().joinToString(";")
+
+    /**
+     * Reconciles the assigned cellular UIDs with the platform's list.
+     *
+     * Returns the new platform list and the new bookkeeping of what this app contributed. Only UIDs
+     * recorded in [ours] are ever removed, so entries owned by the system or another tool survive
+     * untouched, and only UIDs that were genuinely missing are recorded as ours.
+     */
+    fun mergeCellularUids(
+        platform: Set<Int>,
+        assigned: Set<Int>,
+        ours: Set<Int>
+    ): Pair<Set<Int>, Set<Int>> {
+        val toRemove = ours - assigned
+        val toAdd = assigned.filterNot { platform.contains(it) }.toSet()
+        return ((platform + toAdd) - toRemove) to ((ours + toAdd) - toRemove)
+    }
+
     /**
      * Serializes a uid→interface map for [RULE_CACHE_PATH]. Invalid entries are dropped and the output
      * is sorted so the file stays stable/diffable; one `"<uid> <iface>"` record per line.

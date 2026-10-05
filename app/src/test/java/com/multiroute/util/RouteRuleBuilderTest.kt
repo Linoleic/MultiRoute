@@ -349,4 +349,43 @@ class RouteRuleBuilderTest {
         assertTrue(RouteRuleBuilder.parseRuleCache(null).isEmpty())
         assertTrue(RouteRuleBuilder.parseRuleCache("").isEmpty())
     }
+
+    @Test
+    fun testUidListRoundTrip() {
+        assertEquals(setOf(10530, 10301), RouteRuleBuilder.parseUidList("10530;10301"))
+        assertEquals(setOf(10530), RouteRuleBuilder.parseUidList(" 10530 ; 999 ; junk ; 10530 "))
+        assertTrue(RouteRuleBuilder.parseUidList(null).isEmpty())
+
+        assertEquals("10301;10530", RouteRuleBuilder.buildUidList(listOf(10530, 10301, 10530, 999)))
+        assertEquals("", RouteRuleBuilder.buildUidList(emptyList()))
+    }
+
+    @Test
+    fun testMergeCellularUidsOnlyTakesBackOurOwnEntries() {
+        // The platform list already holds a UID owned by something else; we add one for an assignment.
+        val (platform1, ours1) = RouteRuleBuilder.mergeCellularUids(
+            platform = setOf(20001), assigned = setOf(10301), ours = emptySet()
+        )
+        assertEquals(setOf(10301, 20001), platform1)
+        assertEquals(setOf(10301), ours1)
+
+        // Unassigning takes back only what we added; the foreign entry survives.
+        val (platform2, ours2) = RouteRuleBuilder.mergeCellularUids(
+            platform = platform1, assigned = emptySet(), ours = ours1
+        )
+        assertEquals(setOf(20001), platform2)
+        assertTrue(ours2.isEmpty())
+
+        // A UID that was present before we ever touched it is never recorded as ours, so it can never be
+        // removed by us later.
+        val (platform3, ours3) = RouteRuleBuilder.mergeCellularUids(
+            platform = setOf(20001), assigned = setOf(20001), ours = emptySet()
+        )
+        assertEquals(setOf(20001), platform3)
+        assertTrue(ours3.isEmpty())
+        val (platform4, _) = RouteRuleBuilder.mergeCellularUids(
+            platform = platform3, assigned = emptySet(), ours = ours3
+        )
+        assertEquals(setOf(20001), platform4)
+    }
 }

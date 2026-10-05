@@ -263,33 +263,35 @@ object SuHelper {
             }
         }
 
-        // 1. Sync Cellular UIDs via Android's native Settings.Secure non-destructively
-        val currentSetting = runCatching {
-            Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids") ?: ""
-        }.getOrDefault("")
-
-        val existingUids = currentSetting.split(";")
-            .mapNotNull { it.trim().toIntOrNull() }
-            .filter { it in 10000..Int.MAX_VALUE }
-            .toMutableSet()
-
-        if (cellularUids.isNotEmpty()) {
-            existingUids.addAll(cellularUids)
-            val updatedSetting = existingUids.sorted().joinToString(";")
-            if (updatedSetting != currentSetting) {
-                val direct = runCatching {
-                    Settings.Secure.putString(context.contentResolver, "mobile_data_preferred_uids", updatedSetting)
-                }.getOrDefault(false)
-                if (!direct) {
-                    executeCommand("settings put secure mobile_data_preferred_uids \"$updatedSetting\"")
-                }
-            }
-        }
+        // 1. Keep the platform's own "mobile data preferred" list in step with the assignments: add the
+        // UIDs that are missing and take back the ones this app added earlier, so unassigning an app no
+        // longer leaves a permanent entry behind. Only UIDs recorded as ours are ever removed; entries
+        // owned by the system or another tool stay untouched.
+        val oursMerged = RouteConfigProvider.getMergedCellularUids(context)
+        val platformUids = RouteRuleBuilder.parseUidList(
+            runCatching {
+                Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids")
+            }.getOrDefault("")
+        )
+        val (desiredPlatformUids, ourContribution) =
+            RouteRuleBuilder.mergeCellularUids(platformUids, cellularUids, oursMerged)
+        syncMobileDataPreferredUids(context, desiredPlatformUids)
+        RouteConfigProvider.setMergedCellularUids(context, ourContribution)
 
         // 2. Validate interface route tables
         val candidateChannels = channelToUidsMap.keys
         if (candidateChannels.isEmpty()) {
-            // User explicitly cleared all routing rules: clean up kernel rules, boot script and cache
+            // User explicitly cleared all routing rules: clean up kernel rules, boot script and cache,
+            // and take this app's UIDs back out of the platform's preferred-mobile-data list.
+            val ours = RouteConfigProvider.getMergedCellularUids(context)
+            if (ours.isNotEmpty()) {
+                val current = runCatching {
+                    Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids")
+                }.getOrDefault("")
+                syncMobileDataPreferredUids(context, RouteRuleBuilder.parseUidList(current) - ours)
+                RouteConfigProvider.setMergedCellularUids(context, emptySet())
+                Log.i(TAG, "Removed ${ours.size} UID(s) this app had added to mobile_data_preferred_uids")
+            }
             val cleanupScript = RouteRuleBuilder.buildFullSyncScript(emptyMap())
             executeCommand(cleanupScript, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
             executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
@@ -346,6 +348,26 @@ object SuHelper {
         }
 
         return success
+    }
+
+    /**
+     * Writes the platform's `mobile_data_preferred_uids` setting when it differs from [desired].
+     *
+     * The direct Settings.Secure call needs WRITE_SECURE_SETTINGS, which a normal app only holds when it
+     * has been granted explicitly, so the root shell is used as a fallback.
+     */
+    private fun syncMobileDataPreferredUids(context: Context, desired: Set<Int>) {
+        val text = RouteRuleBuilder.buildUidList(desired)
+        val current = runCatching {
+            Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids") ?: ""
+        }.getOrDefault("")
+        if (text == current) return
+        val direct = runCatching {
+            Settings.Secure.putString(context.contentResolver, "mobile_data_preferred_uids", text)
+        }.getOrDefault(false)
+        if (!direct) {
+            executeCommand("settings put secure mobile_data_preferred_uids \"$text\"")
+        }
     }
 
     /**
