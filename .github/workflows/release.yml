@@ -1,0 +1,161 @@
+name: release
+
+# Publishing a release: push a tag named `<versionCode>-<versionName>` (the tag format the Xposed module
+# repository indexes), and this workflow builds, signs, verifies and publishes it. Everything it checks
+# is a hard failure, because a release that disagrees with xposed_update.json would break in-manager
+# update checks.
+on:
+  push:
+    tags: [ '*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, verify and publish
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The version name comes from tags, the code and build id from the history.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36'
+
+      - name: Require the signing secrets
+        # A release must be signed with the project key, so unlike the build workflow this one refuses to
+        # continue without it instead of silently falling back to debug signing.
+        run: |
+          for name in RELEASE_KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing secret::$name is not set for this repository"
+              exit 1
+            fi
+          done
+
+      - name: Configure release signing
+        run: |
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/multiroute-release.jks"
+          cat > keystore.properties <<EOF
+          storeFile=$RUNNER_TEMP/multiroute-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify release signing
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
+          APK_SHA=$("$APKSIGNER" verify --print-certs "$APK" | awk '/SHA-256 digest/{print $NF; exit}' | tr 'A-Z' 'a-z')
+          KS_SHA=$("$JAVA_HOME/bin/keytool" -list -v -keystore "$RUNNER_TEMP/multiroute-release.jks" \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
+            | grep -iE 'SHA-?256:' | head -1 | awk '{print $NF}' | tr -d ':' | tr 'A-Z' 'a-z')
+          echo "apk=$APK_SHA"
+          echo "keystore=$KS_SHA"
+          if [ -z "$APK_SHA" ] || [ "$APK_SHA" != "$KS_SHA" ]; then
+            echo "::error title=Signing mismatch::the release APK is not signed by the release keystore"
+            exit 1
+          fi
+
+      - name: Resolve and check release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          BADGING=$("$AAPT2" dump badging "$APK" | head -1)
+          CODE=$(echo "$BADGING" | grep -oE "versionCode='[0-9]+'" | tr -dc '0-9')
+          NAME=$(echo "$BADGING" | grep -oE "versionName='[^']+'" | sed "s/versionName='//;s/'//")
+          EXPECTED_TAG="${CODE}-${NAME}"
+          echo "versionCode=$CODE versionName=$NAME expected tag=$EXPECTED_TAG"
+          echo "tag=$EXPECTED_TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+          # The manifest the manager reads must describe exactly this build.
+          MANIFEST_CODE=$(grep -oE '"versionCode": *[0-9]+' xposed_update.json | tr -dc '0-9')
+          MANIFEST_URL=$(grep -oE '"zipUrl": *"[^"]+"' xposed_update.json | sed 's/.*"zipUrl": *"//;s/"//')
+          test "$MANIFEST_CODE" = "$CODE" || {
+            echo "::error title=Manifest mismatch::xposed_update.json declares versionCode $MANIFEST_CODE, this build is $CODE"
+            exit 1
+          }
+          case "$MANIFEST_URL" in
+            */"$EXPECTED_TAG"/MultiRoute-"$EXPECTED_TAG".apk) ;;
+            *) echo "::error title=Manifest mismatch::zipUrl must end with /$EXPECTED_TAG/MultiRoute-$EXPECTED_TAG.apk but is $MANIFEST_URL"; exit 1 ;;
+          esac
+
+          # Tag convention of the Xposed module repository: <versionCode>-<versionName>.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]; then
+            echo "::error title=Wrong tag::this build is $EXPECTED_TAG; retag with: git tag $EXPECTED_TAG && git push origin $EXPECTED_TAG"
+            exit 1
+          fi
+
+          ASSET="MultiRoute-${EXPECTED_TAG}.apk"
+          cp "$APK" "$ASSET"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
+          # Release notes: the matching CHANGELOG section when there is one, generated notes otherwise.
+          awk -v v="$NAME" 'BEGIN{f=0} /^## /{f=($0 ~ ("(^| )v?" v "( |$)"))} f' CHANGELOG.md > NOTES.md || true
+          if [ ! -s NOTES.md ]; then rm -f NOTES.md; fi
+
+      - name: Publish GitHub release
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          ASSET="${{ steps.meta.outputs.asset }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading the asset."
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            if [ -f NOTES.md ]; then
+              gh release create "$TAG" "$ASSET" --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md
+            else
+              gh release create "$TAG" "$ASSET" --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes
+            fi
+          fi
+          gh release view "$TAG" --json tagName,name,assets --jq '{tag: .tagName, name: .name, assets: [.assets[].name]}'
+
+      - name: Mirror the release into the Xposed module repository
+        # Optional: set LSPOSED_REPO_TOKEN (a token with write access to Xposed-Modules-Repo/<package>)
+        # after the submission bot has created that repository. The tag and asset this workflow produces
+        # already match what the repository indexes, so mirroring is a single release per version.
+        if: env.LSPOSED_REPO_TOKEN != ''
+        env:
+          LSPOSED_REPO_TOKEN: ${{ secrets.LSPOSED_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          ASSET="${{ steps.meta.outputs.asset }}"
+          REPO="Xposed-Modules-Repo/com.multiroute"
+          GH_TOKEN="$LSPOSED_REPO_TOKEN" gh release create "$REPO@$TAG" "$ASSET" \
+            --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes 2>/dev/null || \
+            GH_TOKEN="$LSPOSED_REPO_TOKEN" gh release upload "$REPO@$TAG" "$ASSET" --clobber
