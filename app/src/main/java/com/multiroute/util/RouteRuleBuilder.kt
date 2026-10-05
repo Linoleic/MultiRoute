@@ -381,6 +381,27 @@ exit 0
     }
 
     /**
+     * Extracts the `uid -> table` mapping from `ip rule show pref 14500` output, whose lines look like
+     * `14500: from all uidrange 10530-10530 lookup wlan1`. Used to compare what is configured with what
+     * the kernel actually holds; lines with a range instead of a single UID are ignored.
+     */
+    fun parseKernelUidRules(lines: Collection<String>): Map<Int, String> {
+        val result = mutableMapOf<Int, String>()
+        for (raw in lines) {
+            val line = raw.trim()
+            if (!line.startsWith("$DEFAULT_RULE_PREF:")) continue
+            val range = line.substringAfter("uidrange ", "").substringBefore(' ').trim()
+            val table = line.substringAfter("lookup ", "").substringBefore(' ').trim()
+            if (range.isEmpty() || table.isEmpty()) continue
+            val from = range.substringBefore('-').toIntOrNull() ?: continue
+            val to = range.substringAfter('-', range).toIntOrNull() ?: continue
+            if (from != to || !isValidUid(from)) continue
+            result[from] = table
+        }
+        return result
+    }
+
+    /**
      * Serializes a uid→interface map for [RULE_CACHE_PATH]. Invalid entries are dropped and the output
      * is sorted so the file stays stable/diffable; one `"<uid> <iface>"` record per line.
      */

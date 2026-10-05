@@ -37,6 +37,13 @@ object ModuleStateParser {
     /** Root-readable marker file kept for compatibility and for the no-settings fallback. */
     const val MARKER_PATH = "/data/system/multiroute_active"
 
+    /**
+     * Broadcast the app sends when the screen-off keep-alive switch changes, so the running module can
+     * install the Xiaomi dual-Wi-Fi hooks immediately instead of waiting for the next boot. The module
+     * re-checks the persistent flag when it arrives, so a stray broadcast cannot enable anything by itself.
+     */
+    const val ACTION_KEEPALIVE_CHANGED = "com.multiroute.ACTION_KEEPALIVE_CHANGED"
+
     const val FORMAT_VERSION = 1
 
     private const val NO_PROC_SENTINEL = "__NO_PROC__"

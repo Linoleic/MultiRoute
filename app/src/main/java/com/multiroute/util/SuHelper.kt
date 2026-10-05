@@ -29,7 +29,13 @@ data class DiagnosticInfo(
     val mobileDataPreferredUids: String = "",
     val isKeepSlaveWifiScreenOff: Boolean = false,
     val activeTables: List<String> = emptyList(),
-    val wifiSsids: Map<String, String> = emptyMap()
+    val wifiSsids: Map<String, String> = emptyMap(),
+    /** uid→channel as configured in the UI. */
+    val configuredUidRules: Map<Int, String> = emptyMap(),
+    /** uid→table as it actually exists in the kernel, so the two can be compared in the UI. */
+    val kernelUidRules: Map<Int, String> = emptyMap(),
+    /** Tail of the boot-recovery log written by the generated `service.d` script. */
+    val bootRestoreLog: List<String> = emptyList()
 )
 
 object SuHelper {
@@ -74,6 +80,13 @@ object SuHelper {
         }.getOrDefault(false)
         if (!direct) {
             executeCommand("settings put system test_wifi_slave_auto_disable $autoDisableVal")
+        }
+
+        // 3. Ask the running module to install (or stop installing) the Xiaomi dual-Wi-Fi hooks right away,
+        // so enabling the switch takes effect without a reboot. It re-checks the persistent flag above, so
+        // a stray broadcast cannot turn the hooks on by itself.
+        runCatching {
+            context.sendBroadcast(android.content.Intent(ModuleStateParser.ACTION_KEEPALIVE_CHANGED))
         }
         true
     }
@@ -588,9 +601,27 @@ object SuHelper {
             mobileDataPreferredUids = mobileDataPreferredUids,
             isKeepSlaveWifiScreenOff = keepSlaveWifi,
             activeTables = activeTables,
-            wifiSsids = wifiSsids
+            wifiSsids = wifiSsids,
+            configuredUidRules = RouteConfigProvider.getUidRules(context),
+            kernelUidRules = RouteRuleBuilder.parseKernelUidRules(kernelRules),
+            bootRestoreLog = readBootRestoreLog()
         )
     }
+
+    /**
+     * Tail of the boot-recovery log written by the generated `service.d` script. It is the only record of
+     * what happened before the app was allowed to run (on a locked device it is the sole restore path),
+     * and until now it could only be read over adb.
+     */
+    private fun readBootRestoreLog(maxLines: Int = 12): List<String> =
+        try {
+            // Absolute path on purpose: the su environment may resolve `tail` to busybox.
+            executeShellWithOutput("/system/bin/tail -n $maxLines ${RouteRuleBuilder.BOOT_LOG_PATH} 2>/dev/null", 4)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+        } catch (_: Throwable) {
+            emptyList()
+        }
 
     /**
      * Compiles a comprehensive diagnostic log snapshot for the user to view or copy.
@@ -615,6 +646,32 @@ object SuHelper {
         sb.appendLine("• 蜂窝数据常活: ${if (diag.mobileDataAlwaysOn) "已开启 (1)" else "未开启 (0)"}")
         sb.appendLine("• 副 Wi-Fi 息屏防断联: ${if (diag.isKeepSlaveWifiScreenOff) "已开启 (保持常活)" else "未开启 (跟随系统休眠)"}")
         sb.appendLine("• 系统首选蜂窝 UIDs: ${diag.mobileDataPreferredUids.ifEmpty { "(空)" }}")
+        sb.appendLine()
+
+        // 2. 规则生效对照：配置的 uid→通道 与内核里的 pref 14500 规则逐条比对
+        sb.appendLine("[2. 规则生效对照]")
+        if (diag.configuredUidRules.isEmpty()) {
+            sb.appendLine("• 当前没有已配置的分流规则")
+        } else {
+            diag.configuredUidRules.entries.sortedBy { it.key }.forEach { (uid, channel) ->
+                val actual = diag.kernelUidRules[uid]
+                val verdict = when {
+                    actual == null -> "未生效（内核里没有该 UID 的规则）"
+                    actual == channel -> "已生效"
+                    else -> "已生效（内核表名为 $actual）"
+                }
+                sb.appendLine("• uid $uid -> $channel: $verdict")
+            }
+        }
+        sb.appendLine()
+
+        // 3. 开机恢复日志（service.d 生成，锁屏状态下它是唯一的恢复路径）
+        sb.appendLine("[3. 开机恢复日志 ${RouteRuleBuilder.BOOT_LOG_PATH}]")
+        if (diag.bootRestoreLog.isEmpty()) {
+            sb.appendLine("• 暂无记录：service.d 未执行，或重启后尚未同步")
+        } else {
+            diag.bootRestoreLog.forEach { sb.appendLine("  $it") }
+        }
         sb.appendLine()
 
         // 2. Wi-Fi 连接状态

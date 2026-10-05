@@ -388,4 +388,24 @@ class RouteRuleBuilderTest {
         )
         assertEquals(setOf(20001), platform4)
     }
+
+    @Test
+    fun testParseKernelUidRules() {
+        val parsed = RouteRuleBuilder.parseKernelUidRules(
+            listOf(
+                "14500:\tfrom all uidrange 10530-10530 lookup wlan1",
+                "14500:\tfrom all uidrange 99910315-99910315 lookup wlan0",
+                "14400:\tfrom all to 192.168.0.0/16 lookup main",   // other preference -> ignored
+                "14500:\tfrom all uidrange 1-2 lookup wlan0",       // range instead of one UID -> ignored
+                "14500:\tfrom all uidrange 1030-1030 lookup wlan0", // system UID -> ignored
+                "14500:\tfrom all uidrange 10315-10315 lookup 1056" // numeric table name is kept as is
+            )
+        )
+
+        assertEquals(
+            mapOf(10530 to "wlan1", 99910315 to "wlan0", 10315 to "1056"),
+            parsed
+        )
+        assertTrue(RouteRuleBuilder.parseKernelUidRules(emptyList()).isEmpty())
+    }
 }

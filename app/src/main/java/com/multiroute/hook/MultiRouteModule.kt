@@ -48,6 +48,19 @@ class MultiRouteModule : XposedModule() {
     private val isSlaveWifiHooked = AtomicBoolean(false)
     private val isDualStaHooked = AtomicBoolean(false)
 
+    /** Keeps the "not installed because the keep-alive is off" note to one line per boot. */
+    private val keepAliveSkippedLogged = AtomicBoolean(false)
+
+    /** Set once the keep-alive broadcast receiver is registered; retried by the boot watchdog until then. */
+    private val keepAliveReceiverRegistered = AtomicBoolean(false)
+
+    /**
+     * ClassLoader the Wi-Fi service was seen in (it lives in its own APEX/module loader, not in the one
+     * this module was loaded with). Recorded during the boot-time service interception so the
+     * keep-alive hooks can also be installed later, without a reboot.
+     */
+    @Volatile private var wifiServiceClassLoader: ClassLoader? = null
+
     @Volatile private var connectivityHookCount = 0
     @Volatile private var slaveWifiHookCount = 0
     @Volatile private var dualStaHookCount = 0
@@ -653,7 +666,97 @@ class MultiRouteModule : XposedModule() {
         } catch (_: Throwable) {}
     }
 
+    /** The system_server context, used for Settings.Global writes and for receiving broadcasts. */
+    private fun systemContext(): android.content.Context? = try {
+        val activityThreadClass = Class.forName("android.app.ActivityThread")
+        val currentThread = activityThreadClass.getMethod("currentActivityThread").invoke(null)
+        currentThread?.let {
+            activityThreadClass.getMethod("getSystemContext").invoke(it) as? android.content.Context
+        }
+    } catch (_: Throwable) {
+        null
+    }
+
+    /**
+     * Installs (or stops installing) the Xiaomi dual-Wi-Fi hooks while system_server keeps running.
+     *
+     * The hooks are deliberately not installed at boot when the screen-off keep-alive is off - they would
+     * only pass every call through, so leaving them out keeps MultiRoute away from the ROM's Wi-Fi code.
+     * Turning the switch on sends this broadcast instead, and the hooks go in immediately; turning it off
+     * only affects the next boot, because the already-installed hooks keep calling through unchanged.
+     */
+    private fun registerKeepAliveReceiver() {
+        if (!keepAliveReceiverRegistered.compareAndSet(false, true)) return
+        val context = systemContext() ?: run {
+            keepAliveReceiverRegistered.set(false)
+            log(Log.WARN, TAG, "[KeepAlive] No system context; hooks can only be installed at boot")
+            return
+        }
+        try {
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
+                    if (!isKeepSlaveWifiScreenOff()) {
+                        log(Log.INFO, TAG, "[KeepAlive] Switch is off; no hooks installed.")
+                        return
+                    }
+                    // Never hook on the system_server main thread.
+                    Thread {
+                        log(Log.INFO, TAG, "[KeepAlive] Switch is on; installing dual-Wi-Fi hooks now.")
+                        installSlaveWifiHooksOnDemand()
+                    }.apply {
+                        isDaemon = true
+                        name = "MultiRoute-KeepAliveHook"
+                        start()
+                    }
+                }
+            }
+            val filter = android.content.IntentFilter(ModuleStateParser.ACTION_KEEPALIVE_CHANGED)
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, android.content.Context.RECEIVER_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                context.registerReceiver(receiver, filter)
+            }
+            log(Log.INFO, TAG, "[KeepAlive] Listening for keep-alive changes")
+        } catch (t: Throwable) {
+            // ActivityManager does not exist this early in system_server startup, so the caller retries.
+            keepAliveReceiverRegistered.set(false)
+            log(Log.WARN, TAG, "[KeepAlive] Could not register receiver yet: ${t.message}")
+        }
+    }
+
+    /** On-demand installation: use the loader the Wi-Fi service was seen in, then fall back and give up. */
+    private fun installSlaveWifiHooksOnDemand() {
+        if (isSlaveWifiHooked.get() && isDualStaHooked.get()) return
+        val loaders = mutableListOf<ClassLoader>()
+        wifiServiceClassLoader?.let { loaders.add(it) }
+        runCatching { MultiRouteModule::class.java.classLoader }.getOrNull()?.let { loaders.add(it) }
+        runCatching { ClassLoader.getSystemClassLoader() }.getOrNull()?.let { loaders.add(it) }
+        for (loader in loaders) {
+            hookSlaveWifiFromClassLoader(loader)
+            if (isSlaveWifiHooked.get() && isDualStaHooked.get()) return
+        }
+        log(
+            Log.WARN,
+            TAG,
+            "[KeepAlive] Wi-Fi classes not resolvable yet; they will be hooked when the service loads"
+        )
+    }
+
     private fun hookSlaveWifiFromClassLoader(loader: ClassLoader) {
+        // Remember the loader even while the feature is off: it is the only handle on the Wi-Fi service's
+        // own classloader, and the on-demand path needs it when the switch is turned on later.
+        wifiServiceClassLoader = loader
+
+        // Not installed while the screen-off keep-alive is off: the hooks would only pass calls through, so
+        // leaving them out keeps MultiRoute entirely out of the ROM's Wi-Fi code (and off ROMs that do not
+        // have these Xiaomi classes at all).
+        if (!isKeepSlaveWifiScreenOff()) {
+            if (keepAliveSkippedLogged.compareAndSet(false, true)) {
+                log(Log.INFO, TAG, "Xiaomi dual-Wi-Fi hooks not installed: screen-off keep-alive is off")
+            }
+            return
+        }
         // Resolve ClassLoader candidates (direct loader, and chained with miui-wifi-service.jar)
         val candidateLoaders = mutableListOf(loader)
         try {
@@ -898,6 +1001,10 @@ class MultiRouteModule : XposedModule() {
                 // broadcast is dropped outright (especially after a soft reboot).
                 awaitBootCompleted(maxWaitMs = 240_000)
 
+                // ActivityManager only exists after boot completes, and registering the keep-alive
+                // receiver needs it - registering earlier fails with a null ActivityManager.
+                registerKeepAliveReceiver()
+
                 dispatchRestoreBroadcast()
 
                 // Retries, spread out: the first wake-up can still race with app/AMS startup, and the
@@ -906,6 +1013,7 @@ class MultiRouteModule : XposedModule() {
                 for (delayMs in longArrayOf(15_000L, 60_000L, 180_000L)) {
                     Thread.sleep(delayMs)
                     log(Log.INFO, TAG, "[BootRestore] Retrying restore broadcast (+${delayMs / 1000}s).")
+                    registerKeepAliveReceiver()
                     dispatchRestoreBroadcast()
                 }
             } catch (t: Throwable) {

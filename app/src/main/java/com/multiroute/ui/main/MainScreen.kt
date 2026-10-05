@@ -819,6 +819,88 @@ fun SettingsTab(
         }
 
         item {
+            // 规则生效对照 + 开机恢复日志：把"我配置了什么"和"内核里实际有什么"摆在一起，
+            // 出问题时不用再让用户去 adb 里翻。
+            val configured = diag?.configuredUidRules.orEmpty()
+            val inKernel = diag?.kernelUidRules.orEmpty()
+            val bootLog = diag?.bootRestoreLog.orEmpty()
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "规则生效与开机恢复",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    if (configured.isEmpty()) {
+                        Text(
+                            text = "当前没有已配置的分流规则",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    } else {
+                        configured.entries.sortedBy { it.key }.forEach { (uid, channel) ->
+                            val actual = inKernel[uid]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "uid $uid → $channel",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = when {
+                                        actual == null -> "⚠ 未生效"
+                                        actual == channel -> "✓ 已生效"
+                                        else -> "✓ 已生效（表 $actual）"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (actual == null) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    Text(
+                        text = "开机恢复日志",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    if (bootLog.isEmpty()) {
+                        Text(
+                            text = "暂无记录：service.d 未执行，或重启后尚未同步",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    } else {
+                        bootLog.forEach { line ->
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                    Text(
+                        text = "恢复顺序：service.d（锁屏也会执行）→ 模块唤醒广播（解锁后）→ 应用网络回调；完整内容见「复制诊断日志」",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+        }
+
+        item {
             // 网络运行参数设置 (蜂窝常活)
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -869,6 +951,11 @@ fun SettingsTab(
                             )
                             Text(
                                 text = "禁止手机息屏休眠时系统主动拆除副 Wi-Fi，保持双 WLAN 持续在线与后台分流（开启后息屏待机功耗将略有增加）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            Text(
+                                text = "目前仅小米 HyperOS / MIUI 的双 WLAN 机型可用，其他 ROM 上该开关无效",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
