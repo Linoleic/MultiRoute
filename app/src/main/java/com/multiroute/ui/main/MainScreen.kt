@@ -1,6 +1,7 @@
 package com.multiroute.ui.main
 
 import android.content.Intent
+import com.multiroute.util.NetworkUtils
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -1486,7 +1487,7 @@ fun ChannelSelectBottomSheet(
             for (channel in channels) {
                 val wifiBadge = if (channel.ssid != null) " [${channel.ssid}]" else ""
                 SelectableChannelOption(
-                    title = channel.displayName,
+                    title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
                     subtitle = "接口: ${channel.interfaceName}$wifiBadge · 内网: ${channel.ipAddress ?: "无IP"}${if (channel.isDefault) " (当前默认通道)" else ""}",
                     icon = getTransportIcon(channel.transportType),
                     isSelected = app.targetChannelId == channel.id,
@@ -1582,7 +1583,7 @@ fun BatchChannelSelectBottomSheet(
             for (channel in channels) {
                 val wifiBadge = if (channel.ssid != null) " [${channel.ssid}]" else ""
                 SelectableChannelOption(
-                    title = channel.displayName,
+                    title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
                     subtitle = "接口: ${channel.interfaceName}$wifiBadge · 内网: ${channel.ipAddress ?: "无IP"}${if (channel.isDefault) " (当前默认通道)" else ""}",
                     icon = getTransportIcon(channel.transportType),
                     isSelected = false,
@@ -1696,13 +1697,13 @@ fun ChannelDetailCard(
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
-                            text = channel.displayName,
+                            text = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "接口: ${channel.interfaceName} · 类型: ${channel.transportType}${if (channel.ssid != null) " · SSID: ${channel.ssid}" else ""}",
+                            text = stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid)) + if (channel.ssid != null) " · SSID: ${channel.ssid}" else "",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline,
                             maxLines = 1,
@@ -1758,7 +1759,7 @@ fun ChannelDetailCard(
 
             // 公网出口测试结果
             if (testResult != null) {
-                val isFailed = testResult.startsWith("测试失败") || testResult == "接口离线"
+                val isFailed = NetworkUtils.isFailure(testResult)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
@@ -1777,7 +1778,7 @@ fun ChannelDetailCard(
                             tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
                         )
                         Text(
-                            text = stringResource(com.multiroute.R.string.ui_egress_prefix, testResult),
+                            text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
                         )
@@ -1843,7 +1844,7 @@ fun ChannelDetailBottomSheet(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = channel.displayName,
+                        text = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
@@ -1896,7 +1897,7 @@ fun ChannelDetailBottomSheet(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = channel.transportType)
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid))
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_kernel_iface), value = channel.interfaceName)
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
@@ -2011,7 +2012,7 @@ fun ChannelDetailBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (testResult != null) {
-                        val isFailed = testResult.startsWith("测试失败") || testResult == "接口离线"
+                        val isFailed = NetworkUtils.isFailure(testResult)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
@@ -2030,7 +2031,7 @@ fun ChannelDetailBottomSheet(
                                     tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
                                 )
                                 Text(
-                                    text = stringResource(com.multiroute.R.string.ui_egress_result, testResult),
+                                    text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                     color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
                                 )
@@ -2446,9 +2447,9 @@ fun TestServerConfigDialog(
 fun getTransportIcon(transportType: String): ImageVector {
     return when (transportType) {
         "WLAN" -> Icons.Default.Wifi
-        "蜂窝" -> Icons.Default.SignalCellularAlt
-        "以太网" -> Icons.Default.Lan
-        "VPN" -> Icons.Default.VpnKey
+        "cellular" -> Icons.Default.SignalCellularAlt
+        "ethernet" -> Icons.Default.Lan
+        "vpn" -> Icons.Default.VpnKey
         else -> Icons.Default.Public
     }
 }

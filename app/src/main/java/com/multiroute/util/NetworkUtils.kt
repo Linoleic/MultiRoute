@@ -103,27 +103,27 @@ object NetworkUtils {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
                     val isInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     if (!isInternet) continue // Ignore internal IMS bearer
-                    transportType = "蜂窝"
+                    transportType = "cellular"
                     displayName = "蜂窝网络 ($iface)"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {
-                    transportType = "以太网"
+                    transportType = "ethernet"
                     displayName = "有线以太网 ($iface)"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
-                    transportType = "VPN"
+                    transportType = "vpn"
                     displayName = "VPN通道 ($iface)"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> {
-                    transportType = "蓝牙"
+                    transportType = "bluetooth"
                     displayName = "蓝牙网络 ($iface)"
                     shortName = iface
                 }
                 else -> {
-                    transportType = "其他"
+                    transportType = "other"
                     displayName = "通道 ($iface)"
                     shortName = iface
                 }
@@ -181,7 +181,7 @@ object NetworkUtils {
      */
     fun parseServerResponse(url: String, rawBody: String): String {
         val trimmed = rawBody.trim()
-        if (trimmed.isEmpty()) return "返回内容为空"
+        if (trimmed.isEmpty()) return ERR_EMPTY_BODY
 
         // 1. myip.ipip.net 格式
         if (trimmed.contains("当前 IP：")) {
@@ -241,7 +241,7 @@ object NetworkUtils {
             cm.getLinkProperties(net)?.interfaceName == channel.interfaceName
         }
         if (targetNetwork == null) {
-            "接口离线"
+            ERR_IFACE_OFFLINE
         } else {
             fetchPublicIpViaNetwork(targetNetwork, serverConfig)
         }
@@ -273,7 +273,7 @@ object NetworkUtils {
                 val ipOrError = if (net != null) {
                     fetchPublicIpViaNetwork(net, serverConfig)
                 } else {
-                    "接口离线"
+                    ERR_IFACE_OFFLINE
                 }
                 channel.id to ipOrError
             }
@@ -302,12 +302,12 @@ object NetworkUtils {
                 if (parsed.isNotEmpty()) return parsed
             } else {
                 if (isCustom) {
-                    return "自定义节点 HTTP $code"
+                    return ERR_CUSTOM_HTTP + code
                 }
             }
         } catch (e: Exception) {
             if (isCustom) {
-                return "自定义节点连接失败: ${e.localizedMessage ?: e.message ?: "未知异常"}"
+                return ERR_CUSTOM_CONNECT + (e.localizedMessage ?: e.message ?: "")
             }
         }
 
@@ -331,6 +331,65 @@ object NetworkUtils {
             } catch (_: Exception) {}
         }
 
-        return "测试超时或接口无公网连通性"
+        return ERR_TIMEOUT
+    }
+
+    /**
+     * Display label of a channel.
+     *
+     * The transport values above are a contract with the code that compares them (icons, sorting), so
+     * they stay language-neutral and the label is built here instead, following the app language.
+     */
+    fun channelLabel(
+        context: Context,
+        transportType: String,
+        iface: String,
+        ssid: String? = null
+    ): String {
+        val base = when (transportType) {
+            "WLAN" -> context.getString(com.multiroute.R.string.transport_wlan, iface)
+            "cellular" -> context.getString(com.multiroute.R.string.transport_cellular, iface)
+            "ethernet" -> context.getString(com.multiroute.R.string.transport_ethernet, iface)
+            "vpn" -> context.getString(com.multiroute.R.string.transport_vpn, iface)
+            "bluetooth" -> context.getString(com.multiroute.R.string.transport_bluetooth, iface)
+            else -> context.getString(com.multiroute.R.string.transport_other, iface)
+        }
+        return if (ssid.isNullOrEmpty()) base else "$base · $ssid"
+    }
+
+    // Egress test results are language-neutral codes so the UI can colour and translate them; anything
+    // that is not a code is a real result (an IP, possibly with a location).
+    const val ERR_PREFIX = "ERR_"
+    const val ERR_EMPTY_BODY = "ERR_EMPTY_BODY"
+    const val ERR_IFACE_OFFLINE = "ERR_IFACE_OFFLINE"
+    const val ERR_TIMEOUT = "ERR_TIMEOUT"
+    const val ERR_CUSTOM_HTTP = "ERR_CUSTOM_HTTP:"
+    const val ERR_CUSTOM_CONNECT = "ERR_CUSTOM_CONNECT:"
+    const val ERR_EXCEPTION = "ERR_EXCEPTION:"
+
+    fun isFailure(result: String?): Boolean = result != null && result.startsWith(ERR_PREFIX)
+
+    /** Renders a result for display: codes become a translated message, anything else is shown as is. */
+    fun egressResultLabel(context: Context, result: String): String = when {
+        result == ERR_EMPTY_BODY -> context.getString(com.multiroute.R.string.egress_err_empty)
+        result == ERR_IFACE_OFFLINE -> context.getString(com.multiroute.R.string.egress_err_iface_offline)
+        result == ERR_TIMEOUT -> context.getString(com.multiroute.R.string.egress_err_timeout)
+        result.startsWith(ERR_CUSTOM_HTTP) ->
+            context.getString(com.multiroute.R.string.egress_err_custom_http, result.removePrefix(ERR_CUSTOM_HTTP))
+        result.startsWith(ERR_CUSTOM_CONNECT) -> {
+            val detail = result.removePrefix(ERR_CUSTOM_CONNECT)
+            context.getString(
+                com.multiroute.R.string.egress_err_custom_connect,
+                detail.ifEmpty { context.getString(com.multiroute.R.string.egress_err_unknown) }
+            )
+        }
+        result.startsWith(ERR_EXCEPTION) -> {
+            val detail = result.removePrefix(ERR_EXCEPTION)
+            context.getString(
+                com.multiroute.R.string.egress_err_failed,
+                detail.ifEmpty { context.getString(com.multiroute.R.string.egress_err_unknown) }
+            )
+        }
+        else -> result
     }
 }

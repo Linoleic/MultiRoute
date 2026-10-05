@@ -150,4 +150,18 @@
     <string name="ui_search_domains">Search domains</string>
     <string name="ui_direct_or_auto">Direct / auto</string>
     <string name="ui_dns_system">Not available (system managed)</string>
+    <string name="transport_wlan">WLAN (%1$s)</string>
+    <string name="transport_cellular">Cellular (%1$s)</string>
+    <string name="transport_ethernet">Ethernet (%1$s)</string>
+    <string name="transport_vpn">VPN (%1$s)</string>
+    <string name="transport_bluetooth">Bluetooth (%1$s)</string>
+    <string name="transport_other">Channel (%1$s)</string>
+    <string name="channel_iface_type">Interface: %1$s · Type: %2$s</string>
+    <string name="egress_err_empty">The endpoint returned an empty body</string>
+    <string name="egress_err_iface_offline">Interface offline</string>
+    <string name="egress_err_timeout">Test timed out, or the interface has no public connectivity</string>
+    <string name="egress_err_custom_http">Custom endpoint returned HTTP %1$s</string>
+    <string name="egress_err_custom_connect">Could not reach the custom endpoint: %1$s</string>
+    <string name="egress_err_failed">Test failed: %1$s</string>
+    <string name="egress_err_unknown">unknown error</string>
 </resources>
