@@ -29,7 +29,8 @@ scope the module to `system_server` only.
 | Screen-off secondary Wi-Fi keep-alive | enabled OEM auto-teardown, cleared the transient property, ensured the app was **not** running (so preferences were unreadable), turned the screen off for 45s | ✅ teardown suppressed twice, secondary link stayed up; with the transient property and preferences both unavailable, the persistent flag is what made it work |
 | Offline channel handling | pointed a rule at a non-existent interface and synced | ✅ the offline channel is skipped, its stale rules are removed, the boot script matches |
 | Concurrent sync | fired two restore broadcasts back to back | ✅ the resulting rule set was complete (a full script is applied under a mutex, with a 30s budget) |
-| **VPN precedence** | added synthetic per-UID rules at the priorities netd uses for VPNs (`12000` output-to-local, `13000` secure VPN, `14000` prohibit non-VPN — from `system/netd/server/RouteController.h`) alongside MultiRoute's `14500`, then queried `ip route get 8.8.8.8 uid 10130` | ✅ the VPN-priority rules win every time; a rule at the platform's per-UID selection priority (`15040`) loses to MultiRoute. A block implemented as `unreachable default` in the VPN's table is **not** leaked (`No route to host`), while an empty table falls through by construction |
+| **VPN precedence (synthetic)** | added synthetic per-UID rules at the priorities netd uses for VPNs (`12000` output-to-local, `13000` secure VPN, `14000` prohibit non-VPN — from `system/netd/server/RouteController.h`) alongside MultiRoute's `14500`, then queried `ip route get 8.8.8.8 uid 10130` | ✅ rules at `12000`/`13000`/`14000` win over MultiRoute; a rule at the platform's per-UID selection priority (`15040`) loses. A block implemented as `unreachable default` is **not** leaked (`No route to host`), while an empty table falls through by construction |
+| **VPN precedence (real client, full tunnel)** | client running on a Wi-Fi link (`tun0`, default network), then assigned one app to the other Wi-Fi with the same rule MultiRoute installs | ✅ the client's per-UID capture rules sit at **`24000`** — *below* MultiRoute — so the assignment wins: `ip route get` and the app's real connections moved from `172.19.0.1` (tunnel) to the assigned link's address, with DNS and TCP still succeeding (that VPN advertises its DNS at the links' own gateways). Android's own `12000` rule appeared as expected; `13000`/`14000` do not exist unless the VPN is always-on with *block connections without VPN* |
 
 ## Findings that changed the implementation
 
@@ -54,10 +55,11 @@ scope the module to `system_server` only.
 - **LAN reachability from an assigned app** — the bypass rules are generated and installed, but no
   intranet round trip was measured.
 - **DNS behaviour** — routing is redirected; name resolution is not managed (see “Known limitations”).
-- **VPN interaction** — measured as rule precedence (see the table above) rather than against a running
-  VPN client: the client installed on the test device would have routed the device's traffic through the
-  user's own servers, so it was deliberately left alone. Starting one would additionally verify the
-  hooks' app-visible state while a tunnel is active.
+  With a VPN active, an assigned app's queries to a tunnel-internal resolver would follow the assignment
+  and be sent outside the tunnel; a resolver reachable on-link (measured) keeps working.
+- **Hooks while a VPN is active** — what an assigned app *sees* (`getActiveNetwork` and friends) has been
+  verified against real traffic without a VPN, but not with a tunnel up; that needs a probe app running
+  as the assigned UID, since a shell cannot impersonate another app's sockets.
 - **One ROM family** — both devices are Xiaomi HyperOS.
 
 ## Investigated, not a MultiRoute defect
