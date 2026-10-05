@@ -102,16 +102,25 @@ jobs:
 
       - name: Check update manifest
         # The in-manager update check reads xposed_update.json, so it has to describe the released build.
-        # Other commits legitimately differ; publishing one is what needs the manifest updated.
+        # A commit that is ahead of the release is normal (the manifest describes the last release); a
+        # build *older* than the manifest, or any mismatch on a tag, would advertise something wrong.
         run: |
           AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
           APK_CODE=$("$AAPT2" dump badging app/build/outputs/apk/release/app-release.apk | head -1 \
             | grep -oE "versionCode='[0-9]+'" | tr -dc '0-9')
           MANIFEST_CODE=$(grep -oE '"versionCode": *[0-9]+' xposed_update.json | tr -dc '0-9')
+          echo "build=$APK_CODE manifest=$MANIFEST_CODE"
           if [ "$APK_CODE" = "$MANIFEST_CODE" ]; then
             echo "::notice title=Update manifest::xposed_update.json matches this build (versionCode $APK_CODE)"
+          elif [ "$APK_CODE" -gt "$MANIFEST_CODE" ]; then
+            echo "::notice title=Update manifest::this commit is past the published release; xposed_update.json still describes $MANIFEST_CODE"
           else
-            echo "::warning title=Update manifest::xposed_update.json declares $MANIFEST_CODE but this build is $APK_CODE - update the manifest before publishing it"
+            echo "::error title=Update manifest::this build ($APK_CODE) is OLDER than xposed_update.json ($MANIFEST_CODE), which would advertise a build that does not exist"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "$APK_CODE" != "$MANIFEST_CODE" ]; then
+            echo "::error title=Update manifest::tag ${GITHUB_REF_NAME:-} is not the release xposed_update.json describes ($MANIFEST_CODE vs $APK_CODE)"
+            exit 1
           fi
 
       - name: Verify release signing
