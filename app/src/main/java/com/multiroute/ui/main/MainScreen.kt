@@ -81,7 +81,7 @@ fun MainScreen(
                 title = {
                     Column {
                         Text(
-                            text = if (uiState.isSelectionMode) "批量分配通道" else "MultiRoute",
+                            text = if (uiState.isSelectionMode) stringResource(com.multiroute.R.string.ui_batch_title) else "MultiRoute",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
@@ -91,7 +91,7 @@ fun MainScreen(
                                 when (uiState.selectedTab) {
                                     0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
                                     1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
-                                    else -> "模块与策略路由状态"
+                                    else -> stringResource(com.multiroute.R.string.ui_module_routing_state)
                                 }
                             },
                             style = MaterialTheme.typography.labelSmall,
@@ -578,7 +578,7 @@ fun ChannelsTab(
             item {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "活跃网络通道 (${uiState.channels.size})",
+                    text = stringResource(com.multiroute.R.string.ui_active_channels, uiState.channels.size),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
             }
@@ -801,20 +801,20 @@ fun SettingsTab(
 
                     // 2. Root 运行环境检测
                     DiagnosticItem(
-                        label = "Root 运行环境",
-                        value = if (diag?.isRootGranted == true) "已授权就绪 (${diag.suVersion.ifEmpty { "KernelSU" }})" else "未授权"
+                        label = stringResource(com.multiroute.R.string.settings_root_env),
+                        value = if (diag?.isRootGranted == true) stringResource(com.multiroute.R.string.diag_root_ready, diag?.suVersion?.ifEmpty { "KernelSU" } ?: "KernelSU") else stringResource(com.multiroute.R.string.diag_root_missing)
                     )
 
                     // 3. 内核策略路由生效规则统计
                     DiagnosticItem(
-                        label = "内核策略路由规则",
-                        value = if ((diag?.kernelRulesCount ?: 0) > 0) "${diag?.kernelRulesCount} 条分流规则生效中 (pref 14500)" else "暂无分流应用规则"
+                        label = stringResource(com.multiroute.R.string.settings_kernel_rules),
+                        value = if ((diag?.kernelRulesCount ?: 0) > 0) "${diag?.kernelRulesCount} 条分流规则生效中 (pref 14500)" else stringResource(com.multiroute.R.string.diag_kernel_rules_none)
                     )
 
                     // 4. 系统蜂窝首选 UID
                     DiagnosticItem(
                         label = stringResource(com.multiroute.R.string.settings_cellular_uids_2),
-                        value = diag?.mobileDataPreferredUids?.ifEmpty { "(未设置)" } ?: "(未设置)"
+                        value = diag?.mobileDataPreferredUids?.ifEmpty { stringResource(com.multiroute.R.string.diag_not_set) } ?: stringResource(com.multiroute.R.string.diag_not_set)
                     )
                 }
             }
@@ -844,7 +844,7 @@ fun SettingsTab(
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色").forEach { (mode, label) ->
+                        listOf("system" to stringResource(com.multiroute.R.string.settings_follow_system), "light" to stringResource(com.multiroute.R.string.settings_theme_light), "dark" to stringResource(com.multiroute.R.string.settings_theme_dark)).forEach { (mode, label) ->
                             androidx.compose.material3.FilterChip(
                                 selected = themeMode == mode,
                                 onClick = {
@@ -881,7 +881,7 @@ fun SettingsTab(
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("" to "跟随系统", "zh-CN" to "简体中文", "en" to "English").forEach { (tag, label) ->
+                        listOf("" to stringResource(com.multiroute.R.string.settings_follow_system), "zh-CN" to stringResource(com.multiroute.R.string.settings_language_zh), "en" to stringResource(com.multiroute.R.string.settings_language_en)).forEach { (tag, label) ->
                             androidx.compose.material3.FilterChip(
                                 selected = language == tag,
                                 onClick = {
@@ -1033,7 +1033,7 @@ fun SettingsTab(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "诊断与规则维护",
+                        text = stringResource(com.multiroute.R.string.ui_diag_maintenance),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
 
@@ -1059,7 +1059,7 @@ fun SettingsTab(
                     ) {
                         Icon(Icons.Default.Sync, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (uiState.isSyncing) "正在同步内核策略..." else "强制重新同步内核策略路由")
+                        Text(if (uiState.isSyncing) stringResource(com.multiroute.R.string.ui_syncing_kernel) else stringResource(com.multiroute.R.string.ui_force_resync))
                     }
 
                     OutlinedButton(
@@ -1160,7 +1160,7 @@ fun SettingsTab(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "系统支持",
+                                text = stringResource(com.multiroute.R.string.ui_system_support),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -1174,7 +1174,7 @@ fun SettingsTab(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "开源协议",
+                                text = stringResource(com.multiroute.R.string.ui_open_source_license),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -1218,7 +1218,7 @@ fun SettingsTab(
                                 )
                                 Column {
                                     Text(
-                                        text = "GitHub 开源仓库",
+                                        text = stringResource(com.multiroute.R.string.ui_github_repo),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                                     )
                                     Text(
@@ -1230,7 +1230,7 @@ fun SettingsTab(
                             }
                             Icon(
                                 imageVector = Icons.Default.OpenInNew,
-                                contentDescription = "打开链接",
+                                contentDescription = stringResource(com.multiroute.R.string.cd_open_link),
                                 tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -1258,7 +1258,7 @@ fun SettingsTab(
                         showClearDialog = false
                     }
                 ) {
-                    Text("确认清空", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(com.multiroute.R.string.ui_confirm_clear), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -1410,7 +1410,7 @@ fun AppItemRow(
                     }
                     Text(
                         text = when {
-                            app.targetChannelId == CHANNEL_DEFAULT -> "系统默认"
+                            app.targetChannelId == CHANNEL_DEFAULT -> stringResource(com.multiroute.R.string.vm_system_default)
                             currentChannel != null -> currentChannel.shortName
                             else -> "${app.targetChannelId} (离线)"
                         },
@@ -1475,8 +1475,8 @@ fun ChannelSelectBottomSheet(
 
             // 1. 系统默认选项
             SelectableChannelOption(
-                title = "系统默认 (跟随系统)",
-                subtitle = "使用系统当前全局活跃的默认连接进行路由",
+                title = stringResource(com.multiroute.R.string.ui_default_follow_system),
+                subtitle = stringResource(com.multiroute.R.string.ui_default_follow_system_desc),
                 icon = Icons.Default.Language,
                 isSelected = app.targetChannelId == CHANNEL_DEFAULT,
                 onClick = { onSelectChannel(CHANNEL_DEFAULT) }
@@ -1498,7 +1498,7 @@ fun ChannelSelectBottomSheet(
             if (app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.id == app.targetChannelId }) {
                 SelectableChannelOption(
                     title = "${app.targetChannelId} (当前通道已离线)",
-                    subtitle = "该网络接口当前未连接，保留此配置或切换为其他在线通道",
+                    subtitle = stringResource(com.multiroute.R.string.ui_iface_offline_note),
                     icon = Icons.Default.CloudOff,
                     isSelected = true,
                     onClick = {}
@@ -1554,7 +1554,7 @@ fun BatchChannelSelectBottomSheet(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = "将当前已选中的 $selectedCount 个应用批量设置出口通道",
+                        text = stringResource(com.multiroute.R.string.ui_batch_assign_desc, selectedCount),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -1564,15 +1564,15 @@ fun BatchChannelSelectBottomSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             Text(
-                text = "选择要分配的目标通道",
+                text = stringResource(com.multiroute.R.string.ui_choose_target_channel),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.primary
             )
 
             // 1. 系统默认选项 (清空/恢复不分流)
             SelectableChannelOption(
-                title = "系统默认 (恢复不分流)",
-                subtitle = "清除这 $selectedCount 个应用的分流规则，恢复跟随系统全局默认网络调度",
+                title = stringResource(com.multiroute.R.string.ui_default_no_routing),
+                subtitle = stringResource(com.multiroute.R.string.ui_clear_assigned_desc, selectedCount),
                 icon = Icons.Default.Language,
                 isSelected = false,
                 onClick = { onSelectChannel(CHANNEL_DEFAULT) }
@@ -1718,7 +1718,7 @@ fun ChannelDetailCard(
                         modifier = Modifier.padding(start = 4.dp)
                     ) {
                         Text(
-                            text = "系统默认",
+                            text = stringResource(com.multiroute.R.string.vm_system_default),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1730,7 +1730,7 @@ fun ChannelDetailCard(
 
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "查看详情",
+                    contentDescription = stringResource(com.multiroute.R.string.ui_tap_details),
                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
                     modifier = Modifier.size(20.dp)
                 )
@@ -1777,7 +1777,7 @@ fun ChannelDetailCard(
                             tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
                         )
                         Text(
-                            text = "出口: $testResult",
+                            text = stringResource(com.multiroute.R.string.ui_egress_prefix, testResult),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
                         )
@@ -1859,7 +1859,7 @@ fun ChannelDetailBottomSheet(
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         Text(
-                            text = "系统默认",
+                            text = stringResource(com.multiroute.R.string.vm_system_default),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1870,7 +1870,7 @@ fun ChannelDetailBottomSheet(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭",
+                        contentDescription = stringResource(com.multiroute.R.string.ui_close),
                         tint = MaterialTheme.colorScheme.outline
                     )
                 }
@@ -1880,7 +1880,7 @@ fun ChannelDetailBottomSheet(
 
             // 1. 网络链路与拓扑参数
             Text(
-                text = "网络拓扑与链路属性",
+                text = stringResource(com.multiroute.R.string.ui_topology),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.primary
             )
@@ -1897,24 +1897,24 @@ fun ChannelDetailBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = channel.transportType)
-                    DetailPropertyRow(label = "内核接口名", value = channel.interfaceName)
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_kernel_iface), value = channel.interfaceName)
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
                     }
-                    DetailPropertyRow(label = "主内网 IP", value = channel.ipAddress ?: "无")
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_primary_ip), value = channel.ipAddress ?: "无")
                     if (channel.allIpAddresses.isNotEmpty()) {
                         DetailPropertyRow(
-                            label = "已分配 IP 集合",
+                            label = stringResource(com.multiroute.R.string.ui_assigned_ips),
                             value = channel.allIpAddresses.joinToString("\n")
                         )
                     }
-                    DetailPropertyRow(label = "默认网关 / 下一跳", value = channel.gateway ?: "直连 / 自动发现")
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_gateway), value = channel.gateway ?: stringResource(com.multiroute.R.string.ui_direct_or_auto))
                     DetailPropertyRow(
-                        label = "DNS 服务器",
-                        value = if (channel.dnsServers.isNotEmpty()) channel.dnsServers.joinToString("\n") else "未获取 (系统托管)"
+                        label = stringResource(com.multiroute.R.string.ui_dns_servers),
+                        value = if (channel.dnsServers.isNotEmpty()) channel.dnsServers.joinToString("\n") else stringResource(com.multiroute.R.string.ui_dns_system)
                     )
                     if (!channel.domains.isNullOrEmpty()) {
-                        DetailPropertyRow(label = "搜索域", value = channel.domains)
+                        DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_search_domains), value = channel.domains)
                     }
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_mtu), value = if (channel.mtu > 0) "${channel.mtu} 字节" else "未知")
                     DetailPropertyRow(
@@ -1922,19 +1922,19 @@ fun ChannelDetailBottomSheet(
                         value = if (channel.downlinkBps > 0 || channel.uplinkBps > 0) {
                             "下行 ${channel.downlinkBps / 1000} Mbps / 上行 ${channel.uplinkBps / 1000} Mbps"
                         } else {
-                            "动态自适应"
+                            stringResource(com.multiroute.R.string.ui_adaptive)
                         }
                     )
                     DetailPropertyRow(
                         label = stringResource(com.multiroute.R.string.ui_metered),
-                        value = if (channel.isMetered) "按流量计费 (Metered)" else "非计费网络 (Unmetered)"
+                        value = if (channel.isMetered) stringResource(com.multiroute.R.string.ui_metered_yes) else stringResource(com.multiroute.R.string.ui_metered_no)
                     )
                 }
             }
 
             // 2. 当前绑定此通道的应用
             Text(
-                text = "分流至此通道的应用 (${routedApps.size})",
+                text = stringResource(com.multiroute.R.string.ui_routed_apps, routedApps.size),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.primary
             )
@@ -1954,7 +1954,7 @@ fun ChannelDetailBottomSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "暂无单独指定至此通道的应用 (未设置的应用按系统默认通道路由)",
+                            text = stringResource(com.multiroute.R.string.ui_no_routed_apps),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -2030,7 +2030,7 @@ fun ChannelDetailBottomSheet(
                                     tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
                                 )
                                 Text(
-                                    text = "出口测试结果: $testResult",
+                                    text = stringResource(com.multiroute.R.string.ui_egress_result, testResult),
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                     color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
                                 )
@@ -2038,7 +2038,7 @@ fun ChannelDetailBottomSheet(
                         }
                     } else {
                         Text(
-                            text = "尚未测试此通道的实际独立外网出口",
+                            text = stringResource(com.multiroute.R.string.ui_not_tested),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -2056,7 +2056,7 @@ fun ChannelDetailBottomSheet(
                                 tint = MaterialTheme.colorScheme.outline
                             )
                             Text(
-                                text = "测试节点: $testServerName",
+                                text = stringResource(com.multiroute.R.string.ui_test_node_short, testServerName),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 maxLines = 1,
@@ -2164,7 +2164,7 @@ fun DiagnosticLogsDialog(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "系统运行与诊断日志",
+                            text = stringResource(com.multiroute.R.string.ui_runtime_log),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                     }
@@ -2358,12 +2358,12 @@ fun TestServerConfigDialog(
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "自定义测试节点",
+                                        text = stringResource(com.multiroute.R.string.ui_custom_test_node),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                         color = if (isCustomSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "自定义 HTTP/HTTPS 目标探测服务地址",
+                                        text = stringResource(com.multiroute.R.string.ui_custom_test_node_desc),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.outline
                                     )
