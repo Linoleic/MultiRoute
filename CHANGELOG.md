@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0
+
+- **Per-app DNS now follows the assigned channel.** Android picks the resolver from the default network
+  regardless of where the kernel routes the packets, so an assigned app could query a resolver that was
+  only reachable over a different link - or keep querying one inside a VPN tunnel. Queries of assigned
+  UIDs are redirected to their own channel's resolver; the boot script flushes that chain and the app
+  re-applies it with the resolvers of the current network, so a stale address can never break resolution.
+- **Appearance and language settings.** Theme (follow system / light / dark) with a crossfade instead of a
+  restart, a Material You toggle, and language selection (follow system / 简体中文 / English) through the
+  platform per-app locale. The UI itself is now fully translated.
+- **Xiaomi dual-Wi-Fi hooks are installed on demand.** They are no longer installed at boot unless the
+  screen-off keep-alive is on, so the module stays out of the ROM's Wi-Fi code while the feature is unused;
+  switching it on installs them immediately, without a reboot. The switch is labelled as Xiaomi-only.
+- **Cellular preferred-UID bookkeeping.** Unassigning an app, or clearing every rule, now takes back only
+  the UIDs this app added to the platform's preferred-mobile-data list.
+- **Rule effectiveness and the boot-recovery log** are part of the copyable diagnostic snapshot, so a
+  report shows what is configured, what the kernel actually holds, and what the boot script did.
+- Internal clean-ups: channel labels and egress results are language-neutral values now (icons and
+  success/failure no longer depend on display text), with 41 unit tests covering the pure logic.
 ## v1.0.0
 
 Initial release.
