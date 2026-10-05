@@ -211,9 +211,11 @@ API, nothing else.
   with *block connections without VPN* uses Android's `13000`/`14000` rules instead, which are *above*
   MultiRoute's — there the VPN keeps precedence and the assignment does nothing. Note that assigning an
   app while a VPN is active therefore takes that app **out of the tunnel**.
-- **A VPN that advertises a tunnel-internal DNS server can break resolution for an assigned app**, since
-  that UID's queries follow the assignment while the server is only reachable inside the tunnel. With
-  LAN-address DNS (what was measured: the links' own gateways) resolution kept working. See
+- **DNS is not managed, so a VPN can split it from the data path.** Measured: the app that was assigned
+  a channel started *seeing* that channel (`getActiveNetwork()` reported it, the VPN stayed in
+  `getAllNetworks()`) and its connections used the channel's address, while its queries to the VPN's own
+  resolver kept going through the tunnel because that address is on-link there. A resolver that is *not*
+  on-link follows the assignment instead, which can make resolution fail or leave the tunnel. See
   [docs/VERIFICATION.md](docs/VERIFICATION.md).
 - **The platform's per-UID network selection is below MultiRoute** (`15040`-range), so a channel
   assignment does override that.

@@ -30,7 +30,9 @@ scope the module to `system_server` only.
 | Offline channel handling | pointed a rule at a non-existent interface and synced | ✅ the offline channel is skipped, its stale rules are removed, the boot script matches |
 | Concurrent sync | fired two restore broadcasts back to back | ✅ the resulting rule set was complete (a full script is applied under a mutex, with a 30s budget) |
 | **VPN precedence (synthetic)** | added synthetic per-UID rules at the priorities netd uses for VPNs (`12000` output-to-local, `13000` secure VPN, `14000` prohibit non-VPN — from `system/netd/server/RouteController.h`) alongside MultiRoute's `14500`, then queried `ip route get 8.8.8.8 uid 10130` | ✅ rules at `12000`/`13000`/`14000` win over MultiRoute; a rule at the platform's per-UID selection priority (`15040`) loses. A block implemented as `unreachable default` is **not** leaked (`No route to host`), while an empty table falls through by construction |
-| **VPN precedence (real client, full tunnel)** | client running on a Wi-Fi link (`tun0`, default network), then assigned one app to the other Wi-Fi with the same rule MultiRoute installs | ✅ the client's per-UID capture rules sit at **`24000`** — *below* MultiRoute — so the assignment wins: `ip route get` and the app's real connections moved from `172.19.0.1` (tunnel) to the assigned link's address, with DNS and TCP still succeeding (that VPN advertises its DNS at the links' own gateways). Android's own `12000` rule appeared as expected; `13000`/`14000` do not exist unless the VPN is always-on with *block connections without VPN* |
+| **VPN precedence (real client, full tunnel)** | client running on a Wi-Fi link (`tun0`, default network), then assigned an app to the other Wi-Fi with the same rule MultiRoute installs | ✅ the client's per-UID capture rules sit at **`24000`** — *below* MultiRoute — so the assignment wins: `ip route get` and the app's real connections moved from the tunnel to the assigned link's address. Android's own `12000` rule appeared as expected; `13000`/`14000` exist only for an always-on VPN with *block connections without VPN* |
+| **Hook-visible state, and its agreement with routing, while a VPN is active** | built `tools/probe` (`:probe`), read what it reports about itself, then assigned it to the other Wi-Fi through the app and relaunched it | ✅ before: `active: 131 [wifi+vpn] iface=tun0`; after: **`active: 130 [wifi] iface=wlan1`** while the VPN network stayed in `getAllNetworks()`. Its real connections then sourced from the assigned link's address (`ss -tnp`), so the hooks and the kernel route agree |
+| **DNS of an assigned app while a VPN is active** | probe's own resolution plus the routing of the resolver address it is handed | ✅ resolution kept working: the VPN's resolver (`172.19.0.2`) is an on-link address of the tunnel, so it is reached through the tunnel even for an assigned UID (queries stay inside the VPN while the data leaves it). A resolver that is *not* on-link would follow the assignment instead |
 
 ## Findings that changed the implementation
 
@@ -55,11 +57,8 @@ scope the module to `system_server` only.
 - **LAN reachability from an assigned app** — the bypass rules are generated and installed, but no
   intranet round trip was measured.
 - **DNS behaviour** — routing is redirected; name resolution is not managed (see “Known limitations”).
-  With a VPN active, an assigned app's queries to a tunnel-internal resolver would follow the assignment
-  and be sent outside the tunnel; a resolver reachable on-link (measured) keeps working.
-- **Hooks while a VPN is active** — what an assigned app *sees* (`getActiveNetwork` and friends) has been
-  verified against real traffic without a VPN, but not with a tunnel up; that needs a probe app running
-  as the assigned UID, since a shell cannot impersonate another app's sockets.
+  Measured with a VPN: an assigned app's queries to the tunnel's own resolver stayed inside the tunnel
+  because that address is on-link there, while a resolver that is not on-link would follow the assignment.
 - **One ROM family** — both devices are Xiaomi HyperOS.
 
 ## Investigated, not a MultiRoute defect

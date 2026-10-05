@@ -32,3 +32,8 @@ plugins {
 
 rootProject.name = "MultiRoute"
 include(":app")
+
+// Development aid: reports what an app sees about the network (and what happens to its traffic), so the
+// hooks' app-visible state can be verified from inside a real assigned app. Not shipped in releases.
+include(":probe")
+project(":probe").projectDir = file("tools/probe")
