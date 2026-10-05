@@ -2,9 +2,9 @@ package com.multiroute.model
 
 data class TestServerPreset(
     val id: String,
-    val name: String,
+    val nameRes: Int,
     val url: String,
-    val description: String
+    val descriptionRes: Int
 )
 
 data class TestServerConfig(
@@ -14,6 +14,15 @@ data class TestServerConfig(
     val activeDisplayName: String = DEFAULT_DISPLAY_NAME
 ) {
     val isCustom: Boolean get() = selectedPresetId == PRESET_CUSTOM
+
+    /**
+     * Name to display: the selected preset's translated name, or the stored label (used by the custom
+     * entry, and by the fallback when no preset matches).
+     */
+    fun displayName(context: android.content.Context): String {
+        val preset = PRESETS.firstOrNull { it.id == selectedPresetId }
+        return if (preset != null) context.getString(preset.nameRes) else activeDisplayName
+    }
 
     companion object {
         const val PRESET_IPIP = "ipip"
@@ -26,33 +35,33 @@ data class TestServerConfig(
         val PRESETS = listOf(
             TestServerPreset(
                 id = PRESET_IPIP,
-                name = "IPIP.net (推荐 / 含归属地)",
+                nameRes = com.multiroute.R.string.preset_ipip_name,
                 url = "https://myip.ipip.net",
-                description = "国内响应极快，返回外网 IPv4 及省市运营商归属"
+                descriptionRes = com.multiroute.R.string.preset_ipip_desc
             ),
             TestServerPreset(
                 id = PRESET_CIP,
-                name = "cip.cc (含归属地)",
+                nameRes = com.multiroute.R.string.preset_cip_name,
                 url = "https://cip.cc",
-                description = "轻量接口，包含公网 IP 及网络运营商与位置归属"
+                descriptionRes = com.multiroute.R.string.preset_cip_desc
             ),
             TestServerPreset(
                 id = PRESET_IPIFY,
-                name = "api.ipify.org (纯公网 IP)",
+                nameRes = com.multiroute.R.string.preset_ipify_name,
                 url = "https://api.ipify.org",
-                description = "全球 Anycast CDN，仅返回公网 IPv4 纯文本"
+                descriptionRes = com.multiroute.R.string.preset_ipify_desc
             ),
             TestServerPreset(
                 id = PRESET_IFCONFIG,
-                name = "ifconfig.me (纯公网 IP)",
+                nameRes = com.multiroute.R.string.preset_ifconfig_name,
                 url = "https://ifconfig.me/ip",
-                description = "知名终端 IP 查询服务，返回纯公网 IP"
+                descriptionRes = com.multiroute.R.string.preset_ifconfig_desc
             ),
             TestServerPreset(
                 id = PRESET_ICANHAZIP,
-                name = "icanhazip.com (纯公网 IP)",
+                nameRes = com.multiroute.R.string.preset_icanhazip_name,
                 url = "https://icanhazip.com",
-                description = "Cloudflare 托管，轻量且高可靠"
+                descriptionRes = com.multiroute.R.string.preset_icanhazip_desc
             )
         )
 

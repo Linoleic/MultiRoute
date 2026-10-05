@@ -23,7 +23,7 @@ object TestServerManager {
         val activeDisplayName = if (isCustom) {
             "自定义服务器"
         } else {
-            TestServerConfig.PRESETS.firstOrNull { it.id == presetId }?.name ?: TestServerConfig.DEFAULT_DISPLAY_NAME
+            TestServerConfig.DEFAULT_DISPLAY_NAME
         }
 
         return TestServerConfig(

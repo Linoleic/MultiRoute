@@ -133,7 +133,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.value = _uiState.value.copy(
             testServerConfig = newConfig,
             showTestServerDialog = false,
-            snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_test_node_set, newConfig.activeDisplayName)
+            snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_test_node_set, newConfig.displayName(getApplication()))
         )
     }
 

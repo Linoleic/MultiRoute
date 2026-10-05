@@ -661,7 +661,7 @@ object SuHelper {
             suVersion = suVer,
             isModuleActive = moduleState.isLoadedInSystemServer,
             moduleStatus = moduleState.status,
-            moduleStatusDetail = moduleState.detail,
+            moduleStatusDetail = moduleState.detailLabel(context),
             kernelRulesCount = kernelRules.size,
             kernelRules = kernelRules,
             mobileDataAlwaysOn = mobileDataAlwaysOn,

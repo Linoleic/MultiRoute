@@ -164,4 +164,22 @@
     <string name="egress_err_custom_connect">Could not reach the custom endpoint: %1$s</string>
     <string name="egress_err_failed">Test failed: %1$s</string>
     <string name="egress_err_unknown">unknown error</string>
+    <string name="preset_ipip_name">IPIP.net (recommended, with location)</string>
+    <string name="preset_ipip_desc">Very fast from China; returns the public IPv4 with province, city and carrier</string>
+    <string name="preset_cip_name">cip.cc (with location)</string>
+    <string name="preset_cip_desc">Lightweight endpoint returning the public IP with carrier and location</string>
+    <string name="preset_ipify_name">api.ipify.org (public IP only)</string>
+    <string name="preset_ipify_desc">Global Anycast CDN; returns the public IPv4 as plain text</string>
+    <string name="preset_ifconfig_name">ifconfig.me (public IP only)</string>
+    <string name="preset_ifconfig_desc">Well-known terminal IP lookup; returns the public IP only</string>
+    <string name="preset_icanhazip_name">icanhazip.com (public IP only)</string>
+    <string name="preset_icanhazip_desc">Hosted by Cloudflare; lightweight and reliable</string>
+    <string name="module_detail_not_active">No module state beacon: the module is disabled, was not injected into system_server, or its scope is not ticked</string>
+    <string name="module_detail_marker_stale">The marker records %1$s, which is no longer system_server (stale record)</string>
+    <string name="module_detail_legacy">The module is injected into system_server but uses an older state protocol: it only proves the code loaded, not that the hooks are installed</string>
+    <string name="module_detail_beacon_stale">The beacon records PID %1$d, which is no longer system_server (stale record)</string>
+    <string name="module_detail_late_boot">The beacon comes from a later boot cycle (written at %1$d s uptime, now %2$d s)</string>
+    <string name="module_detail_outdated">system_server still runs an older build (loaded v%1$d/%2$s, installed v%3$d/%4$s): the system framework scope cannot hot-reload, so a soft reboot is needed</string>
+    <string name="module_detail_partial">The module is loaded but the ConnectivityService hooks are not installed (cs=0): app-visible network state is not rewritten</string>
+    <string name="module_detail_active">Active: %1$d ConnectivityService hooks, %2$d secondary Wi-Fi keep-alive hooks</string>
 </resources>

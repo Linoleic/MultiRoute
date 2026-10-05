@@ -205,7 +205,7 @@ fun MainScreen(
                     routedApps = routedApps,
                     testResult = uiState.testResults[channel.id],
                     isTestingSingle = uiState.isTestingSingleChannel,
-                    testServerName = uiState.testServerConfig.activeDisplayName,
+                    testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
                     testServerUrl = uiState.testServerConfig.activeUrl,
                     onTestChannel = { viewModel.testSingleChannel(channel) },
                     onDismiss = { viewModel.closeChannelDetail() }
@@ -660,7 +660,7 @@ fun ChannelsTab(
                                 tint = MaterialTheme.colorScheme.outline
                             )
                             Text(
-                                text = stringResource(com.multiroute.R.string.ui_test_node_2, uiState.testServerConfig.activeDisplayName),
+                                text = stringResource(com.multiroute.R.string.ui_test_node_2, uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current)),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 maxLines = 1,
@@ -993,7 +993,7 @@ fun SettingsTab(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = uiState.testServerConfig.activeDisplayName,
+                                text = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                             )
                             Text(
@@ -2314,7 +2314,7 @@ fun TestServerConfigDialog(
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = preset.name,
+                                        text = stringResource(preset.nameRes),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
@@ -2325,7 +2325,7 @@ fun TestServerConfigDialog(
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
-                                        text = preset.description,
+                                        text = stringResource(preset.descriptionRes),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.outline
                                     )

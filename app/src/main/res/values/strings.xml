@@ -164,4 +164,22 @@
     <string name="egress_err_custom_connect">自定义节点连接失败: %1$s</string>
     <string name="egress_err_failed">测试失败: %1$s</string>
     <string name="egress_err_unknown">未知异常</string>
+    <string name="preset_ipip_name">IPIP.net (推荐 / 含归属地)</string>
+    <string name="preset_ipip_desc">国内响应极快，返回外网 IPv4 及省市运营商归属</string>
+    <string name="preset_cip_name">cip.cc (含归属地)</string>
+    <string name="preset_cip_desc">轻量接口，包含公网 IP 及网络运营商与位置归属</string>
+    <string name="preset_ipify_name">api.ipify.org (纯公网 IP)</string>
+    <string name="preset_ipify_desc">全球 Anycast CDN，仅返回公网 IPv4 纯文本</string>
+    <string name="preset_ifconfig_name">ifconfig.me (纯公网 IP)</string>
+    <string name="preset_ifconfig_desc">知名终端 IP 查询服务，返回纯公网 IP</string>
+    <string name="preset_icanhazip_name">icanhazip.com (纯公网 IP)</string>
+    <string name="preset_icanhazip_desc">Cloudflare 托管，轻量且高可靠</string>
+    <string name="module_detail_not_active">未检测到模块状态信标：模块未启用、未注入 system_server，或作用域未勾选</string>
+    <string name="module_detail_marker_stale">标记记录 %1$s 已不是 system_server（记录已过期）</string>
+    <string name="module_detail_legacy">模块已注入 system_server，但为旧版状态协议：只能证明代码已加载，无法校验 hook 是否安装</string>
+    <string name="module_detail_beacon_stale">信标记录的 PID %1$d 已不是 system_server（记录已过期）</string>
+    <string name="module_detail_late_boot">信标来自更晚的开机周期（写入于开机 %1$d s，当前 %2$d s）</string>
+    <string name="module_detail_outdated">system_server 仍运行旧版本（已加载 v%1$d/%2$s，当前已安装 v%3$d/%4$s）：系统框架作用域无法热重载，需软重启后生效</string>
+    <string name="module_detail_partial">模块已加载但 ConnectivityService hook 未安装（cs=0）：应用可见的网络状态不会被改写</string>
+    <string name="module_detail_active">已激活：ConnectivityService hook %1$d 个，副 Wi-Fi 保活 hook %2$d 个</string>
 </resources>
