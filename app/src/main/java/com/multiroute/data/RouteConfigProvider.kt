@@ -40,6 +40,45 @@ class RouteConfigProvider : ContentProvider() {
          */
         const val KEY_DNS_FOLLOWS_CHANNEL = "dns_follows_channel"
 
+        // --- Appearance / language. Stored here so the settings survive a reinstall of the rules file
+        // --- and so everything the app needs at startup is read from one place.
+        const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_DYNAMIC_COLOR = "dynamic_color"
+        const val KEY_LANGUAGE = "language"
+
+        /** `system` (default), `light` or `dark`. */
+        fun getThemeMode(context: Context): String {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getString(KEY_THEME_MODE, "system") ?: "system"
+        }
+
+        fun setThemeMode(context: Context, mode: String) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putString(KEY_THEME_MODE, mode).apply()
+        }
+
+        /** Material You dynamic palette (Android 12+); on by default. */
+        fun isDynamicColor(context: Context): Boolean {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getBoolean(KEY_DYNAMIC_COLOR, true)
+        }
+
+        fun setDynamicColor(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_DYNAMIC_COLOR, enabled).apply()
+        }
+
+        /** BCP-47 tag such as `zh-CN` or `en`, or empty for "follow the system". */
+        fun getLanguage(context: Context): String {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getString(KEY_LANGUAGE, "") ?: ""
+        }
+
+        fun setLanguage(context: Context, tag: String) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putString(KEY_LANGUAGE, tag).apply()
+        }
+
         fun isDnsFollowsChannel(context: Context): Boolean {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             return sp.getBoolean(KEY_DNS_FOLLOWS_CHANNEL, true)
@@ -130,6 +169,9 @@ class RouteConfigProvider : ContentProvider() {
                 if (!key.startsWith("uid_") &&
                     key != KEY_KEEP_SLAVE_WIFI_SCREEN_OFF &&
                     key != KEY_MERGED_CELLULAR_UIDS &&
+                    key != KEY_THEME_MODE &&
+                    key != KEY_LANGUAGE &&
+                    key != KEY_DNS_FOLLOWS_CHANNEL &&
                     value is String
                 ) {
                     result[key] = value
