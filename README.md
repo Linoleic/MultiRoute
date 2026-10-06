@@ -4,18 +4,17 @@
 
 [![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
-[![Downloads](https://img.shields.io/github/downloads/Linoleic/MultiRoute/total)](https://github.com/Linoleic/MultiRoute/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Android](https://img.shields.io/badge/Android-7%2B%20(minSdk%2024)-green.svg)](https://developer.android.com)
+[![Android](https://img.shields.io/badge/Android-11%2B%20%28%20verified%20on%2016%20%2F%2017%20%29-green.svg)](https://developer.android.com)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg)](https://kotlinlang.org)
 
-**Per-app network channels for Android.** Assign each app to the link it should use — primary Wi-Fi,
-secondary Wi-Fi (dual Wi-Fi), cellular or Ethernet — and let them communicate **at the same time**.
-Egress is enforced with kernel policy routing (`ip rule`), not through a userspace VPN.
+**An LSPosed module that gives every app its own network channel.** Assign each app to the link it
+should use — primary Wi-Fi, secondary Wi-Fi (dual Wi-Fi), cellular or Ethernet — and let them
+communicate **at the same time**. Egress is enforced with kernel policy routing (`ip rule`), not through
+a userspace VPN.
 
-> **Requires root** (KernelSU / Magisk / APatch) and **LSPosed**. The module is scoped to the **system
-> framework** (`system_server`) only. Not affiliated with LSPosed.
+> **Requires root** (KernelSU / Magisk / APatch) and **LSPosed**, scoped to the **system framework**
+> (`system_server`).
 
 ---
 
@@ -58,7 +57,6 @@ MultiRoute lifts that restriction per app:
 | Scope | `system` — the system framework (`system_server`) **only** |
 | `staticScope` | `false` (the scope list ships in the APK metadata) |
 | `autoHotReload` | `true`, but the system framework cannot actually hot-reload → reboot, or restart `system_server` |
-| Update manifest | [`xposed_update.json`](xposed_update.json) — the manager can offer in-place updates |
 | Root | required: KernelSU, Magisk or APatch |
 
 The APK carries `META-INF/xposed/{module.prop, scope.list, java_init.list}`, so LSPosed reads the scope and
@@ -73,24 +71,14 @@ entry point from the package itself.
 | Root | KernelSU, Magisk or APatch (policy routing tables need root) |
 | Xposed | LSPosed (or another framework implementing LibXposed API 101+) |
 | Module scope | **System framework only** (`system` / `system_server`) |
-| Android | `minSdk` 24; hook targets cover both APEX and legacy `ConnectivityService` layouts |
+| Android | Verified on **16** and **17** (HyperOS). The interfaces the module hooks — `getMobileDataPreferredUids` among them — only exist from Android 11 on, so that is the realistic floor; nothing below that is supported |
 
 | Android version | Status |
 | :-- | :-- |
 | **Android 17 / HyperOS** | ✅ Verified on a Xiaomi HyperOS phone with KernelSU and LSPosed v2.2.0: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
 | **Android 16 / HyperOS** | ✅ Verified on a Xiaomi HyperOS tablet with KernelSU and LSPosed v2.2.0: dual Wi-Fi per-app routing (IPv4 + IPv6), clone-space separation, real-traffic egress, recovery after a soft reboot, DNS redirect, module status. The tablet has no cellular interface, so cellular routing was not exercised there |
-| Android 11 – 15 | ⚠️ Expected to work (same hook targets and rule layout), not yet verified |
-| Android 7 – 10 | ⚠️ Builds (`minSdk` 24) but is untested; policy-routing behaviour differs |
-
-> [!IMPORTANT]
-> **Updating the module requires a reboot.** Because the module injects into the system framework,
-> LSPosed cannot hot-reload it: after installing or updating the APK, reboot the device or restart
-> `system_server` (`su -c 'setprop ctl.restart zygote'`). The UI reports this as
-> *loaded older build — soft reboot required* instead of pretending everything is fine.
-
-> [!NOTE]
-> **Rule changes never need a reboot.** Adding, changing or removing app assignments applies
-> immediately.
+| Android 11 – 15 | ⚠️ **Not verified.** The APIs it hooks exist from Android 11 on, so it is plausible, but nothing has been tested — treat it as unknown rather than supported |
+| Android 7 – 10 | ❌ **Not supported.** The APK requires Android 11 (`minSdk` 30), and those releases lack the framework interfaces the module hooks |
 
 The on-device evidence behind this table — the commands used and what they returned — is collected in
 [docs/VERIFICATION.md](docs/VERIFICATION.md), including what has *not* been verified yet.
@@ -284,6 +272,8 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
 - **Cleartext HTTP is permitted for the egress probe.** Built-in presets use HTTPS, but a custom endpoint
   may be plain HTTP (for example a router page such as `http://192.168.1.1/ip`), which is why
   `usesCleartextTraffic` remains enabled.
+- **Android 7 – 10 are not supported.** The APK requires Android 11 (`minSdk` 30) and those releases do
+  not have the framework interfaces the module hooks.
 - Verification so far covers a limited set of devices and ROM versions (see the compatibility table);
   other ROMs may differ.
 
@@ -300,7 +290,7 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
 ./gradlew testDebugUnitTest
 ```
 
-- JDK 17, Android SDK Platform 36.
+- JDK 17, Android SDK Platform 36; `minSdk` 30 (Android 11).
 - Signing is optional: copy `keystore.properties.example` to `keystore.properties` and fill it in.
   Without it, release builds fall back to debug signing (with a warning).
 - Artifact: `app/build/outputs/apk/release/app-release.apk`.

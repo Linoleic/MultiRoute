@@ -4,17 +4,14 @@
 
 [![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
-[![Downloads](https://img.shields.io/github/downloads/Linoleic/MultiRoute/total)](https://github.com/Linoleic/MultiRoute/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Android](https://img.shields.io/badge/Android-7%2B%20(minSdk%2024)-green.svg)](https://developer.android.com)
+[![Android](https://img.shields.io/badge/Android-11%2B%20%28%20verified%20on%2016%20%2F%2017%20%29-green.svg)](https://developer.android.com)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg)](https://kotlinlang.org)
 
-**让每个应用走各自的网络通道。** 把应用分别指派到主 Wi-Fi、副 Wi-Fi（双 WLAN）、移动蜂窝或有线
-以太网，让它们**同时**通信。出口通过内核策略路由（`ip rule`）落实，而不是走 VPN。
+**一个 LSPosed 模块：让每个应用走各自的网络通道。** 把应用分别指派到主 Wi-Fi、副 Wi-Fi（双 WLAN）、
+移动蜂窝或有线以太网，让它们**同时**通信。出口通过内核策略路由（`ip rule`）落实，而不是走 VPN。
 
-> **需要 Root**（KernelSU / Magisk / APatch）与 **LSPosed**，模块作用域为**系统框架**
-> （`system_server`）。本项目与 LSPosed 官方无隶属关系。
+> **需要 Root**（KernelSU / Magisk / APatch）与 **LSPosed**，作用域为**系统框架**（`system_server`）。
 
 ---
 
@@ -56,7 +53,6 @@ MultiRoute 按应用解开这个限制：
 | 作用域 | `system` —— **仅**系统框架（`system_server`） |
 | `staticScope` | `false`（作用域清单随 APK 元数据下发） |
 | `autoHotReload` | `true`，但系统框架实际上无法热重载 → 需重启，或重启 `system_server` |
-| 更新清单 | [`xposed_update.json`](xposed_update.json)，管理器可直接提示更新 |
 | Root | 必需：KernelSU / Magisk / APatch |
 
 APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，作用域与入口由包自身声明，
@@ -71,22 +67,14 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 | Root | KernelSU / Magisk / APatch（操作策略路由表需要 root） |
 | Xposed 框架 | LSPosed（或实现了 LibXposed API 101+ 的框架） |
 | 模块作用域 | **仅勾选系统框架**（`system` / `system_server`） |
-| Android | `minSdk` 24；hook 同时兼容 APEX 模块化与传统 `ConnectivityService` 结构 |
+| Android | 已在 **16** 与 **17**（HyperOS）验证。模块所 hook 的接口——例如 `getMobileDataPreferredUids`——自 Android 11 起才存在，因此 11 是现实下限；更低版本不在支持范围内 |
 
 | Android 版本 | 状态 |
 | :-- | :-- |
 | **Android 17 / HyperOS** | ✅ 已在 Xiaomi HyperOS 手机 + KernelSU + LSPosed v2.2.0 上验证：双 WLAN 与蜂窝并发、IPv4/IPv6 规则、局域网放行、分身分流、开机恢复、模块状态、息屏保活 |
 | **Android 16 / HyperOS** | ✅ 已在 Xiaomi HyperOS 平板 + KernelSU + LSPosed v2.2.0 上验证：双 WLAN 分应用分流（IPv4 + IPv6）、分身独立分流、真实流量出口、软重启后恢复、DNS 改写、模块状态。该平板无蜂窝接口，蜂窝分流未在该设备上验证 |
-| Android 11 – 15 | ⚠️ 预期可用（hook 目标与规则结构一致），尚未验证 |
-| Android 7 – 10 | ⚠️ 可编译（`minSdk` 24），未测试；策略路由行为存在差异 |
-
-> [!IMPORTANT]
-> **更新模块后必须重启。** 模块注入系统框架，LSPosed 无法热重载：安装或更新 APK 后需重启设备，
-> 或重启系统服务（`su -c 'setprop ctl.restart zygote'`）。若仍在跑旧版本，界面会明确提示
-> 「已加载旧版本，需软重启」，而不会假装一切正常。
-
-> [!NOTE]
-> **日常规则调整无需重启。** 增删改分应用规则立即生效。
+| Android 11 – 15 | ⚠️ **未验证。** 模块 hook 的接口自 Android 11 起存在，因此理论可行，但没有任何实测——请当作"未知"，而不是"支持" |
+| Android 7 – 10 | ❌ **不支持。** APK 要求 Android 11（`minSdk` 30），且这些版本缺少模块所 hook 的框架接口 |
 
 上表所依据的真机证据（使用的命令与实测输出，以及**尚未验证**的部分）整理在
 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
@@ -249,6 +237,7 @@ AndroidX/Compose 与 LibXposed API，仅此而已。
 - **同一网卡所处频段会在运行中变化**——这正是「Wi-Fi 频段」那一行的用途。
 - **出口探测允许明文 HTTP**：内置预设均为 HTTPS，但自定义地址可能是明文（例如路由器页面
   `http://192.168.1.1/ip`），因此 `usesCleartextTraffic` 保持开启。
+- **Android 7 – 10 不支持。** APK 要求 Android 11（`minSdk` 30），这些版本缺少模块所 hook 的框架接口。
 - 目前验证覆盖的机型与系统版本有限（见兼容性表），其他 ROM 可能存在差异。
 
 ---
@@ -264,7 +253,7 @@ AndroidX/Compose 与 LibXposed API，仅此而已。
 ./gradlew testDebugUnitTest
 ```
 
-- 环境：JDK 17、Android SDK Platform 36。
+- 环境：JDK 17、Android SDK Platform 36；`minSdk` 30（Android 11）。
 - 签名可选：复制 `keystore.properties.example` 为 `keystore.properties` 并填入凭证；未配置时会输出
   警告并降级为 debug 签名，保证 CI 与外部开发者可直接编译。
 - 产物：`app/build/outputs/apk/release/app-release.apk`。
