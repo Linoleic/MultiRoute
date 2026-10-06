@@ -130,7 +130,9 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "com.multiroute"
-        minSdk = 24
+        // Android 11 is the real floor: the interfaces the module hooks (getMobileDataPreferredUids and
+        // friends) do not exist below it, so installing on an older release could only ever fail.
+        minSdk = 30
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
