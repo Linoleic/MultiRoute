@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.1
+
+- **Wi-Fi band and channel** are shown for every Wi-Fi channel (for example `5 GHz · ch 36`), derived
+  from the connection frequency — useful because which interface sits on which band changes while the
+  device is running.
+- **Android 11 is now the stated minimum.** The interfaces the module hooks, `getMobileDataPreferredUids`
+  among them, only exist from Android 11 on, so `minSdk` is 30: the APK no longer installs on releases
+  where it could only ever fail. Android 16 and 17 are the versions verified on device.
+- The README now documents the module metadata the manager reads (scope, LibXposed API range), how to
+  uninstall cleanly, and exactly what has and has not been verified.
+
 ## v1.1.0
 
 - **Per-app DNS now follows the assigned channel.** Android picks the resolver from the default network
