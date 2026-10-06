@@ -1902,6 +1902,17 @@ fun ChannelDetailBottomSheet(
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
                     }
+                    val bandLabel = NetworkUtils.wifiBandLabel(channel.frequencyMhz)
+                    if (bandLabel.isNotEmpty()) {
+                        DetailPropertyRow(
+                            label = stringResource(com.multiroute.R.string.ui_wifi_band),
+                            value = stringResource(
+                                com.multiroute.R.string.ui_wifi_band_value,
+                                bandLabel,
+                                NetworkUtils.wifiChannelNumber(channel.frequencyMhz)
+                            )
+                        )
+                    }
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_primary_ip), value = channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_none))
                     if (channel.allIpAddresses.isNotEmpty()) {
                         DetailPropertyRow(

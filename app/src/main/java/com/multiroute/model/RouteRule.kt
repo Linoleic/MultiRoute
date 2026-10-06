@@ -10,6 +10,7 @@ data class NetworkChannel(
     val transportType: String,
     val shortName: String,         // Short label: "wlan0" or "wlan0 (SSID)"
     val ssid: String? = null,      // Wi-Fi network SSID (e.g. "H3C_CA202C", "Hpkt")
+    val frequencyMhz: Int = 0,     // Wi-Fi frequency in MHz (0 = unknown); band/channel are derived from it
     val ipAddress: String?,        // Primary IPv4/IPv6 address
     val allIpAddresses: List<String> = emptyList(), // All assigned IPv4 / IPv6 addresses
     val gateway: String? = null,   // Default gateway / route address

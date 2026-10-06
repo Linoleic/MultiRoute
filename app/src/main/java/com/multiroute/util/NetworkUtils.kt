@@ -20,6 +20,52 @@ import java.net.URL
 object NetworkUtils {
 
     /**
+     * Band label of a Wi-Fi frequency, used as-is because "2.4 GHz" / "5 GHz" / "6 GHz" read the same in
+     * every language. Empty when the frequency is unknown.
+     */
+    fun wifiBandLabel(frequencyMhz: Int): String = when {
+        frequencyMhz in 2400..2500 -> "2.4 GHz"
+        frequencyMhz in 4900..5895 -> "5 GHz"
+        frequencyMhz in 5925..7125 -> "6 GHz"
+        else -> ""
+    }
+
+    /** Channel number of a Wi-Fi frequency, or 0 when it does not map to a known band. */
+    fun wifiChannelNumber(frequencyMhz: Int): Int = when {
+        frequencyMhz == 2484 -> 14 // Channel 14 is the one 2.4 GHz exception (Japan).
+        frequencyMhz in 2412..2472 -> (frequencyMhz - 2407) / 5
+        frequencyMhz in 5000..5895 -> (frequencyMhz - 5000) / 5
+        frequencyMhz in 5925..7125 -> (frequencyMhz - 5950) / 5
+        else -> 0
+    }
+
+    /**
+     * Frequencies of the connected Wi-Fi interfaces, parsed from `dumpsys connectivity`.
+     *
+     * Only used to fill gaps: `WifiInfo.frequency` is the primary source, but this app holds no location
+     * permission, so on some ROMs the transport info is redacted. The dump carries the same LinkProperties
+     * the platform uses and needs nothing beyond root, which the app already has.
+     */
+    fun getWifiFrequencies(): Map<String, Int> {
+        val result = mutableMapOf<String, Int>()
+        try {
+            val process = Runtime.getRuntime()
+                .exec(arrayOf("su", "-c", "dumpsys connectivity 2>/dev/null | grep -E 'InterfaceName|Frequency'"))
+            val text = process.inputStream.bufferedReader().use { it.readText() }
+            process.errorStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+            var iface: String? = null
+            for (line in text.split("InterfaceName: ").drop(1)) {
+                iface = line.substringBefore(' ').trim().ifEmpty { null } ?: continue
+                val mhz = Regex("""Frequency:\s*(\d+)\s*MHz""").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                if (mhz != null && mhz > 0) result[iface] = mhz
+            }
+        } catch (_: Exception) {
+        }
+        return result
+    }
+
+    /**
      * Resolves currently connected Wi-Fi SSIDs per interface (wlan0, wlan1)
      * using dumpsys / shell status with fallback.
      */
@@ -87,6 +133,7 @@ object NetworkUtils {
             val transportType: String
             val shortName: String
             var wifiSsid: String? = null
+            var wifiFrequency = 0
 
             when {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
@@ -95,6 +142,8 @@ object NetworkUtils {
                     val directSsid = wifiInfo?.ssid?.trim('"')?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
                     val detectedSsid = directSsid ?: wifiSsids[iface]
                     wifiSsid = detectedSsid
+                    // Frequency is not redacted for the app's own networks; 0 means "not reported".
+                    wifiFrequency = wifiInfo?.frequency ?: 0
                     shortName = if (detectedSsid != null) "$iface ($detectedSsid)" else iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
@@ -142,6 +191,7 @@ object NetworkUtils {
                     transportType = transportType,
                     shortName = shortName,
                     ssid = wifiSsid,
+                    frequencyMhz = wifiFrequency,
                     ipAddress = primaryIp,
                     allIpAddresses = allAddrs,
                     gateway = gateway,
@@ -155,6 +205,19 @@ object NetworkUtils {
                     isValidated = isValidated
                 )
             )
+        }
+
+        // Fill missing Wi-Fi frequencies from the shell dump, but only when needed: `dumpsys` costs a
+        // process spawn, and the platform usually reports the frequency itself.
+        if (result.any { it.transportType == "WLAN" && it.frequencyMhz <= 0 }) {
+            val fromShell = getWifiFrequencies()
+            for (i in result.indices) {
+                val ch = result[i]
+                val mhz = fromShell[ch.interfaceName] ?: continue
+                if (ch.transportType == "WLAN" && ch.frequencyMhz <= 0) {
+                    result[i] = ch.copy(frequencyMhz = mhz)
+                }
+            }
         }
 
         // Sort: default network first, then wifi, cellular, ethernet
