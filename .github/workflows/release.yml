@@ -126,6 +126,17 @@ jobs:
           cp "$APK" "$ASSET"
           echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
 
+          # Size budget. Without R8 the dex is ~42 MB, which APK compression used to hide - until minSdk
+          # reached 30, where the dex is stored uncompressed and the download went from 12 MB to 43 MB
+          # (that is how 1.1.1 was published). The build is ~3 MB now, so 20 MB leaves room to grow while
+          # still catching a regression like that before it reaches a release.
+          SIZE=$(stat -c%s "$ASSET")
+          echo "asset size: $SIZE bytes"
+          if [ "$SIZE" -gt 20971520 ]; then
+            echo "::error title=APK over the size budget::$ASSET is $((SIZE / 1048576)) MB, more than the 20 MB budget - is R8 still enabled?"
+            exit 1
+          fi
+
           # Release notes: the matching CHANGELOG section when there is one, generated notes otherwise.
           awk -v v="$NAME" 'BEGIN{f=0} /^## /{f=($0 ~ ("(^| )v?" v "( |$)"))} f' CHANGELOG.md > NOTES.md || true
           if [ ! -s NOTES.md ]; then rm -f NOTES.md; fi
