@@ -155,7 +155,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 is required, not merely nice to have: without it the dex is ~42 MB, which APK
+            // compression used to hide - but once minSdk reaches 30 the dex is stored uncompressed and
+            // the download grew from 12 MB to 43 MB. The keep rules for the hook entry point, the
+            // provider, the models and LibXposed live in proguard-rules.pro.
+            isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
