@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.1
+
+- **A release now fails if the APK exceeds 20 MB.** The 1.1.1 release went out at 43 MB because R8 had
+  never been enabled and `minSdk` 30 stopped the dex from being compressed; it is ~3 MB since. The guard
+  makes a regression like that impossible to publish unnoticed. No functional change in the app itself.
+
 ## v1.2.0
 
 - **The application id changed** to `io.github.linoleic.multiroute`. The module repository only accepts a
