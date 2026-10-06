@@ -129,7 +129,11 @@ android {
     namespace = "com.multiroute"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.multiroute"
+        // The Xposed module repository only accepts an application id whose namespace the author can
+        // prove ownership of: `com.multiroute` would need multiroute.com, which is not ours, so the
+        // GitHub namespace is used instead. `namespace` deliberately stays `com.multiroute`, so no code
+        // or class is renamed and META-INF/xposed/java_init.list keeps working unchanged.
+        applicationId = "io.github.linoleic.multiroute"
         // Android 11 is the real floor: the interfaces the module hooks (getMobileDataPreferredUids and
         // friends) do not exist below it, so installing on an older release could only ever fail.
         minSdk = 30

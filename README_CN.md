@@ -47,7 +47,7 @@ MultiRoute 按应用解开这个限制：
 
 | 项目 | 值 |
 | :-- | :-- |
-| 包名 | `com.multiroute` |
+| 包名 | `io.github.linoleic.multiroute` |
 | 模块名 | MultiRoute |
 | Xposed API | `minApiVersion 101`、`targetApiVersion 102`（LibXposed） |
 | 作用域 | `system` —— **仅**系统框架（`system_server`） |
@@ -116,6 +116,17 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 4. 打开 MultiRoute 并授予 root。**设置**页应显示「已激活（hook 就绪）」。若显示「已加载旧版本」，
    再重启一次系统服务。
 5. 如需在连接 Wi-Fi 时同时用蜂窝分流，请开启系统/开发者选项中的「移动数据始终保持连接」。
+
+### 从 1.1.x 升级
+
+包名由 `com.multiroute` 改为 `io.github.linoleic.multiroute`（模块仓库只接受"作者能证明所有权"的包名
+命名空间）。Android 会把它视为**另一个应用**：
+
+1. 先卸载旧版本 —— 分流配置**不会**迁移。
+2. 安装新 APK 后，在 LSPosed 管理器中启用**新包名**这个条目并把作用域设为系统框架。它会作为一个新模块
+   条目出现；旧的（已卸载）条目可以删掉。
+
+`tools/probe`（用于真机测量的辅助 App）有意保留为 `com.multiroute.probe`。
 
 ### 卸载与清理
 

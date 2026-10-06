@@ -31,9 +31,18 @@ class MultiRouteModule : XposedModule() {
 
         /** Action and explicit receiver component used to wake the app up for rule restoration. */
         private const val ACTION_RESTORE_RULES = "com.multiroute.ACTION_RESTORE_RULES"
-        private const val RESTORE_PACKAGE = "com.multiroute"
+
+        /**
+         * Package the wake-up broadcast is addressed to, and the receiver's fully qualified class name.
+         *
+         * Both come from the build rather than from a literal: the application id can differ from the
+         * code namespace (it is `io.github.linoleic.multiroute` while the classes stay under
+         * `com.multiroute`), and a stale literal here would make boot restoration fail silently - the
+         * broadcast would simply be addressed to a package that does not exist.
+         */
+        private val RESTORE_PACKAGE = BuildConfig.APPLICATION_ID
         private const val RESTORE_RECEIVER_CLASS = "com.multiroute.receiver.BootCompletedReceiver"
-        private const val RESTORE_RECEIVER = "$RESTORE_PACKAGE/.receiver.BootCompletedReceiver"
+        private val RESTORE_RECEIVER = "$RESTORE_PACKAGE/$RESTORE_RECEIVER_CLASS"
 
         /** Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND (hidden constant, needed to wake a stopped app). */
         private const val FLAG_RECEIVER_INCLUDE_BACKGROUND = 0x01000000
@@ -157,7 +166,7 @@ class MultiRouteModule : XposedModule() {
         if (param.isSystemServer) {
             publishState("onModuleLoaded(system)", "loaded")
         }
-        if (param.processName == "com.multiroute") {
+        if (param.processName == BuildConfig.APPLICATION_ID) {
             try {
                 val helperClass = Class.forName("com.multiroute.util.SuHelper")
                 val method = helperClass.getDeclaredMethod("isModuleActiveInLSPosed")
@@ -172,7 +181,7 @@ class MultiRouteModule : XposedModule() {
 
     override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
         super.onPackageLoaded(param)
-        if (param.packageName == "com.multiroute") {
+        if (param.packageName == BuildConfig.APPLICATION_ID) {
             try {
                 val cl = param.defaultClassLoader
                 val helperClass = Class.forName("com.multiroute.util.SuHelper", false, cl)

@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.2.0
+
+- **The application id changed** to `io.github.linoleic.multiroute`. The module repository only accepts a
+  package namespace its author can prove ownership of, and `com.multiroute` would require
+  `multiroute.com`. Android treats the new id as a different app, so **uninstall 1.1.x before installing
+  this one** (assignments are not carried over) and enable the new package in LSPosed Manager, where it
+  appears as a new module entry. The code namespace is unchanged, so the hooks and the module metadata
+  are identical; the wake-up broadcast, the in-app hook check and the repository mirror all derive the id
+  from the build now instead of hard-coding it.
+
 ## v1.1.1
 
 - **Much smaller download.** The release build is minified with R8 now: the dex drops from ~42 MB to

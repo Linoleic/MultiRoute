@@ -51,7 +51,7 @@ MultiRoute lifts that restriction per app:
 
 | Field | Value |
 | :-- | :-- |
-| Package name | `com.multiroute` |
+| Package name | `io.github.linoleic.multiroute` |
 | Module name | MultiRoute |
 | Xposed API | `minApiVersion 101`, `targetApiVersion 102` (LibXposed) |
 | Scope | `system` — the system framework (`system_server`) **only** |
@@ -126,6 +126,18 @@ The on-device evidence behind this table — the commands used and what they ret
    If it reports *loaded older build*, restart the system server once more.
 5. For routing apps over cellular while Wi-Fi is connected, enable **Mobile data always on**
    (developer options) or the ROM's own "keep cellular active" setting.
+
+### Upgrading from 1.1.x
+
+The application id changed from `com.multiroute` to `io.github.linoleic.multiroute`, because the module
+repository only accepts a package namespace the author can prove ownership of. Android treats that as a
+different app:
+
+1. Uninstall the old version first — assignments are **not** carried over.
+2. Install the new APK, then enable **the new package** in LSPosed Manager and set its scope to the system
+   framework. It appears as a new module entry; the old, now-uninstalled one can be removed.
+
+`tools/probe` (the measurement helper app) is intentionally left as `com.multiroute.probe`.
 
 ### Uninstalling / cleaning up
 
