@@ -2,6 +2,11 @@
 
 ## v1.1.1
 
+- **Much smaller download.** The release build is minified with R8 now: the dex drops from ~42 MB to
+  ~2.4 MB and the APK from ~43 MB to ~3.2 MB. R8 had always been off, which APK compression used to
+  hide — until `minSdk` reached 30, where the dex is stored uncompressed and the download tripled. The
+  hook entry point, the provider, the models and LibXposed are kept by `proguard-rules.pro`, and the
+  module was re-verified on device after minifying (both hook families install, no class errors).
 - **Wi-Fi band and channel** are shown for every Wi-Fi channel (for example `5 GHz · ch 36`), derived
   from the connection frequency — useful because which interface sits on which band changes while the
   device is running.
