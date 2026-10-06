@@ -26,6 +26,9 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Declared at job level on purpose: a step-level env is not visible to that same step's `if:`, so
+      # gating the mirror step on it there would silently skip the mirror for ever.
+      LSPOSED_REPO_TOKEN: ${{ secrets.LSPOSED_REPO_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -149,13 +152,20 @@ jobs:
         # after the submission bot has created that repository. The tag and asset this workflow produces
         # already match what the repository indexes, so mirroring is a single release per version.
         if: env.LSPOSED_REPO_TOKEN != ''
-        env:
-          LSPOSED_REPO_TOKEN: ${{ secrets.LSPOSED_REPO_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ steps.meta.outputs.tag }}"
           ASSET="${{ steps.meta.outputs.asset }}"
           REPO="Xposed-Modules-Repo/com.multiroute"
-          GH_TOKEN="$LSPOSED_REPO_TOKEN" gh release create "$REPO@$TAG" "$ASSET" \
-            --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes 2>/dev/null || \
-            GH_TOKEN="$LSPOSED_REPO_TOKEN" gh release upload "$REPO@$TAG" "$ASSET" --clobber
+          export GH_TOKEN="$LSPOSED_REPO_TOKEN"
+          # `gh` takes the repository through --repo; the OWNER/REPO@TAG shorthand is not valid here, and
+          # hiding stderr made a wrong invocation look like a successful mirror.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Mirror: release $TAG already exists; uploading the asset."
+            gh release upload "$TAG" "$ASSET" --repo "$REPO" --clobber
+          else
+            gh release create "$TAG" "$ASSET" --repo "$REPO" \
+              --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes
+          fi
+          gh release view "$TAG" --repo "$REPO" --json tagName,assets \
+            --jq '{tag: .tagName, assets: [.assets[].name]}'
