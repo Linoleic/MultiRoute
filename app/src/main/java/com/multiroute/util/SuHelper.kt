@@ -299,7 +299,76 @@ object SuHelper {
         syncMutex.withLock { syncAllRouteRulesInternal(context) }
     }
 
-    private fun syncAllRouteRulesInternal(context: Context): Boolean {
+    /**
+     * Evaluates the scenario profiles against the current links and folds the winner into [base].
+     *
+     * The common case costs nothing: with no profiles stored the base map is returned untouched and no
+     * root command is run. SSIDs come from the channel list the platform already gives us; the root dump
+     * is only consulted when an SSID trigger needs them and the platform redacted them.
+     */
+    private suspend fun resolveScenarioProfile(
+        context: Context,
+        base: Map<Int, String>
+    ): com.multiroute.model.ScenarioResolution {
+        val profiles = com.multiroute.data.ScenarioStore.load(context)
+        if (profiles.isEmpty()) {
+            return com.multiroute.model.ScenarioResolution(effectiveRules = base)
+        }
+
+        val channels = runCatching { NetworkUtils.getActiveChannels(context) }.getOrDefault(emptyList())
+        var observation = com.multiroute.model.ScenarioObservation.fromChannels(channels)
+
+        val needsSsids = profiles.any {
+            it.enabled && it.trigger is com.multiroute.model.ScenarioTrigger.SsidMatch
+        }
+        if (needsSsids && observation.wifiSsids.isEmpty()) {
+            val fromRoot = runCatching { NetworkUtils.getConnectedWifiSsids().values.toList() }
+                .getOrDefault(emptyList())
+            observation = observation.copy(wifiSsids = fromRoot.filter { it.isNotBlank() }.distinct())
+        }
+
+        val knownChannels = channels.map { it.interfaceName }.toSet()
+        // Clone-space / work-profile overrides need the root package listing; fetch it once, only if a
+        // profile that is actually applied contains one.
+        var secondaryInstalls: List<RouteRuleBuilder.SecondaryUserInstalls>? = null
+        val resolution = ScenarioEngine.resolve(
+            base = base,
+            profiles = profiles,
+            observation = observation,
+            manualId = com.multiroute.data.ScenarioStore.getManualId(context),
+            overridesByUid = { profile ->
+                profile.overrides.mapNotNull { (ruleKey, channelId) ->
+                    val (pkg, userId) = RouteRuleBuilder.parseRuleKey(ruleKey)
+                    val uid = if (userId <= 0) {
+                        runCatching { context.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
+                    } else {
+                        if (secondaryInstalls == null) {
+                            secondaryInstalls = runCatching { listSecondaryUserInstalls() }
+                                .getOrDefault(emptyList())
+                        }
+                        secondaryInstalls?.firstOrNull { it.userId == userId }?.packageUids?.get(pkg) ?: -1
+                    }
+                    if (uid > 0) uid to channelId else null
+                }.toMap()
+            },
+            // When nothing is connected yet (for example while the device is still booting) an empty list
+            // must not invalidate every override - the offline check below the sync decides what is usable.
+            hasChannel = { knownChannels.isEmpty() || it in knownChannels }
+        )
+
+        if (resolution.activeId != null) {
+            Log.i(
+                TAG,
+                "Scenario '${resolution.activeName}' active " +
+                        "(${if (resolution.appliedManually) "pinned by hand" else "matched automatically"}): " +
+                        "overrides=${resolution.overridden}, forcedDefault=${resolution.forcedDefault}, " +
+                        "ssid=${resolution.matchedSsid ?: "-"}"
+            )
+        }
+        return resolution
+    }
+
+    private suspend fun syncAllRouteRulesInternal(context: Context): Boolean {
         // Keep the persistent keep-alive flag aligned with the stored preference on every sync, so the
         // module can honour it from the very first moment of a boot (its other two sources - the
         // transient `sys.*` property and RemotePreferences - are unavailable at that point).
@@ -309,7 +378,15 @@ object SuHelper {
         // `uid_<n>` is the contract the injected module reads, so routing is driven purely by UID.
         // That keeps primary installs, OEM clone spaces (Xiaomi XSpace = user 999) and work profiles
         // uniformly routable - and lets each of them be configured to a different channel.
-        val uidRules = RouteConfigProvider.getUidRules(context)
+        val baseUidRules = RouteConfigProvider.getUidRules(context)
+
+        // Scenario profiles are overlays on those assignments: whichever profile matches the current links
+        // (or the one the user pinned by hand) may re-route some apps, or take them out of routing
+        // entirely, without touching the base configuration. Everything below only ever sees the result,
+        // so boot recovery, the rule cache, offline skipping, the cellular bookkeeping and the DNS
+        // redirect keep working exactly as before.
+        val scenario = resolveScenarioProfile(context, baseUidRules)
+        val uidRules = scenario.effectiveRules
 
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
         val cellularUids = mutableSetOf<Int>()
