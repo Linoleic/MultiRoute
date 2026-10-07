@@ -388,6 +388,19 @@ object SuHelper {
         val scenario = resolveScenarioProfile(context, baseUidRules)
         val uidRules = scenario.effectiveRules
 
+        // Publish how many scenario plans exist. The module lives in system_server and is always awake,
+        // so it is the component that can notice a link change while this app has been killed; it reads
+        // this marker, wakes us with the restore broadcast, and the plan is re-evaluated here. Written on
+        // every sync, so it also disappears again when the last plan is deleted.
+        val scenarioPlanCount = com.multiroute.data.ScenarioStore.load(context).size
+        executeCommand(
+            if (scenarioPlanCount > 0) {
+                "sh -c 'echo $scenarioPlanCount > ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}'"
+            } else {
+                "sh -c 'rm -f ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}'"
+            }
+        )
+
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
         val cellularUids = mutableSetOf<Int>()
 

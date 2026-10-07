@@ -976,6 +976,66 @@ class MultiRouteModule : XposedModule() {
     // Module-side Boot Restoration Watchdog (7.3)
     // =========================================================================
 
+    @Volatile
+    private var linkCallbackRegistered = false
+
+    @Volatile
+    private var lastScenarioWakeAt = 0L
+
+    /**
+     * Registers a ConnectivityManager callback inside system_server.
+     *
+     * Scenario plans (Wi-Fi name, link count, cellular only) depend on the links that are up right now, and
+     * the app only learns about a change through its own ViewModel callback - which does not run while its
+     * process has been killed. The module is always awake, so it watches instead and wakes the app with the
+     * very same restore broadcast the boot path uses; the app then re-evaluates the plan and re-applies the
+     * rules. Registration is idempotent and is retried from the boot watchdog, because an early
+     * system_server Context is not always usable yet.
+     */
+    private fun registerLinkChangeCallback() {
+        if (linkCallbackRegistered) return
+        try {
+            val context = systemContext() ?: return
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+                    as? android.net.ConnectivityManager ?: return
+            val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) = onLinkChanged()
+                override fun onLost(network: android.net.Network) = onLinkChanged()
+                override fun onLinkPropertiesChanged(
+                    network: android.net.Network,
+                    linkProperties: android.net.LinkProperties
+                ) = onLinkChanged()
+            }
+            cm.registerNetworkCallback(android.net.NetworkRequest.Builder().build(), callback)
+            linkCallbackRegistered = true
+            log(Log.INFO, TAG, "[Scenario] Watching link changes in system_server to wake the app")
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "[Scenario] Could not register the link-change callback: ${t.message}", t)
+        }
+    }
+
+    /** True while at least one scenario plan exists, as published by the app on every sync. */
+    private fun hasScenarioPlans(): Boolean = try {
+        val file = java.io.File(RouteRuleBuilder.SCENARIO_PLAN_MARKER)
+        file.canRead() && (file.readText().trim().toIntOrNull() ?: 0) > 0
+    } catch (t: Throwable) {
+        false
+    }
+
+    /**
+     * Wakes the app when a link changes, but only while a plan exists: with no plans the rule set does not
+     * depend on the current links, so there is nothing to re-evaluate and the app may stay asleep. The
+     * debounce is needed because one transition produces several callbacks.
+     */
+    private fun onLinkChanged() {
+        val now = System.currentTimeMillis()
+        if (now - lastScenarioWakeAt < 3000L) return
+        lastScenarioWakeAt = now
+        if (!hasScenarioPlans()) return
+        log(Log.INFO, TAG, "[Scenario] Link changed and plans exist; waking the app to re-evaluate")
+        dispatchRestoreBroadcast()
+    }
+
     private fun scheduleBootRestoreWatchdog() {
         Thread {
             try {
@@ -1014,6 +1074,10 @@ class MultiRouteModule : XposedModule() {
                 // receiver needs it - registering earlier fails with a null ActivityManager.
                 registerKeepAliveReceiver()
 
+                // The app's own NetworkCallback only runs while its process is alive; from here on the
+                // module watches link changes itself and wakes the app when a scenario plan is stored.
+                registerLinkChangeCallback()
+
                 dispatchRestoreBroadcast()
 
                 // Retries, spread out: the first wake-up can still race with app/AMS startup, and the
@@ -1023,6 +1087,7 @@ class MultiRouteModule : XposedModule() {
                     Thread.sleep(delayMs)
                     log(Log.INFO, TAG, "[BootRestore] Retrying restore broadcast (+${delayMs / 1000}s).")
                     registerKeepAliveReceiver()
+                    registerLinkChangeCallback()
                     dispatchRestoreBroadcast()
                 }
             } catch (t: Throwable) {

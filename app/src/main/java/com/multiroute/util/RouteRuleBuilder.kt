@@ -25,6 +25,14 @@ object RouteRuleBuilder {
     const val RULE_CACHE_PATH = "/data/system/multiroute_rules_cache"
 
     /**
+     * Root-writable marker holding the number of stored scenario plans, or absent when there are none.
+     * The app publishes it on every sync; the module (inside system_server, always awake) reads it to
+     * decide whether a link change is worth waking the app for, since plans are the only thing whose
+     * effect depends on the current links.
+     */
+    const val SCENARIO_PLAN_MARKER = "/data/system/multiroute_scenario_plans"
+
+    /**
      * Absolute path to the platform `ip` binary.
      *
      * Mandatory: these commands are also deployed as a `service.d` script, and there the PATH puts
