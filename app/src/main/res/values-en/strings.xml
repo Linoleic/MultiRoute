@@ -240,6 +240,7 @@
     <string name="scenario_auto">Automatic (by condition)</string>
     <string name="scenario_apply">Apply</string>
     <string name="scenario_active">Active</string>
+    <string name="scenario_conflicts">%1$d overridden by a higher-priority plan</string>
     <string name="scenario_delete">Delete</string>
     <string name="scenario_save">Save the current assignment as a plan</string>
     <string name="scenario_save_title">Save as a scenario plan</string>

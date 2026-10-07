@@ -240,6 +240,7 @@
     <string name="scenario_auto">自动（按条件）</string>
     <string name="scenario_apply">应用</string>
     <string name="scenario_active">生效中</string>
+    <string name="scenario_conflicts">%1$d 项已被更高优先级方案改写</string>
     <string name="scenario_delete">删除</string>
     <string name="scenario_save">把当前指派保存为方案</string>
     <string name="scenario_save_title">保存为场景方案</string>

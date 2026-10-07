@@ -277,6 +277,7 @@ fun MainScreen(
                     profiles = uiState.scenarioProfiles,
                     manualId = uiState.manualScenarioId,
                     activeIds = uiState.activeScenarioIds,
+                    conflicts = uiState.scenarioConflicts,
                     onApplyManually = { viewModel.applyScenarioManually(it) },
                     onClearManual = { viewModel.clearManualScenario() },
                     onSaveCurrent = { viewModel.openScenarioSaveDialog() },
@@ -1679,6 +1680,7 @@ fun ScenarioBottomSheet(
     profiles: List<ScenarioProfile>,
     manualId: String,
     activeIds: Set<String>,
+    conflicts: Map<String, Int>,
     onApplyManually: (String) -> Unit,
     onClearManual: () -> Unit,
     onSaveCurrent: () -> Unit,
@@ -1750,6 +1752,15 @@ fun ScenarioBottomSheet(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
+                            (conflicts[profile.id] ?: 0).takeIf { it > 0 }?.let { count ->
+                                Text(
+                                    text = stringResource(
+                                        com.multiroute.R.string.scenario_conflicts, count
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             androidx.compose.material3.TextButton(onClick = { onEditOverrides(profile.id) }) {

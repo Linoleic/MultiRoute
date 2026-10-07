@@ -68,6 +68,8 @@ data class MainUiState(
     val activeScenarioId: String? = null,
     /** Every plan that is applying right now; more than one when several conditions match at once. */
     val activeScenarioIds: Set<String> = emptySet(),
+    /** Plan id → how many of its apps a later (higher-priority) active plan re-routed. */
+    val scenarioConflicts: Map<String, Int> = emptyMap(),
     val activeScenarioName: String? = null,
     val activeScenarioTrigger: ScenarioTrigger? = null,
     val activeScenarioSsid: String? = null,
@@ -570,11 +572,24 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         refreshScenarioState()
     }
 
+    /**
+     * What to store for a plan override: the network when the channel is a Wi-Fi link, otherwise the
+     * interface. Which interface is `wlan0` swaps while the device runs, so a plan bound to the network
+     * keeps meaning the same link afterwards - the sync resolves `ssid:<name>` to whatever interface that
+     * network is on at the time.
+     */
+    private fun planOverrideValue(channelId: String): String =
+        _uiState.value.channels.firstOrNull { it.id == channelId }
+            ?.ssid?.takeIf { it.isNotBlank() }
+            ?.let { ScenarioEngine.symbolicSsid(it) }
+            ?: channelId
+
     private fun addOverridesToScenario(id: String, ruleKeys: Set<String>, channelId: String) {
         val context = getApplication<Application>()
         val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
         val overrides = profile.overrides.toMutableMap()
-        ruleKeys.forEach { key -> overrides[key] = channelId }
+        val stored = planOverrideValue(channelId)
+        ruleKeys.forEach { key -> overrides[key] = stored }
         ScenarioStore.upsert(context, profile.copy(overrides = overrides))
         allApps = allApps.map { if (it.ruleKey in ruleKeys) it.copy(targetChannelId = channelId) else it }
         _uiState.value = _uiState.value.copy(
@@ -649,10 +664,21 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val selected = ScenarioEngine.selectProfiles(profiles, observation, manualId)
         val profile = selected.firstOrNull()
         val trigger = profile?.trigger
+        // Which active plan loses an app to a later one. Computed on rule keys here (the uid-level version
+        // lives in the engine) purely so the sheet can say so; the two use the same priority order.
+        val conflicts = mutableMapOf<String, Int>()
+        val claimed = mutableMapOf<String, String>()
+        selected.forEach { applied ->
+            applied.overrides.keys.forEach { key ->
+                claimed[key]?.let { previous -> conflicts[previous] = (conflicts[previous] ?: 0) + 1 }
+                claimed[key] = applied.id
+            }
+        }
         _uiState.value = _uiState.value.copy(
             scenarioProfiles = profiles,
             manualScenarioId = manualId,
             activeScenarioIds = selected.map { it.id }.toSet(),
+            scenarioConflicts = conflicts,
             activeScenarioId = profile?.id,
             activeScenarioName = profile?.name,
             activeScenarioTrigger = trigger,
@@ -780,7 +806,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val profile = ScenarioStore.load(context).firstOrNull { it.id == editingId }
             if (profile != null) {
                 val overrides = profile.overrides.toMutableMap()
-                overrides[app.ruleKey] = channelId
+                overrides[app.ruleKey] = planOverrideValue(channelId)
                 ScenarioStore.upsert(context, profile.copy(overrides = overrides))
                 allApps = allApps.map {
                     if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
