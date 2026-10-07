@@ -449,6 +449,13 @@ object SuHelper {
         // redirect keep working exactly as before.
         val scenario = resolveScenarioProfile(context, baseUidRules)
         val uidRules = scenario.effectiveRules
+        // Diagnostic for "a plan did not reach the kernel": shows exactly what the sync is about to apply.
+        Log.i(
+            TAG,
+            "Effective rules: ${uidRules.size} entry/entries [" +
+                    uidRules.entries.sortedBy { it.key }.joinToString { "${it.key}=${it.value}" } +
+                    "] scenario=${scenario.activeNames.ifEmpty { listOf("-") }.joinToString("+")}"
+        )
 
         // Publish how many scenario plans exist. The module lives in system_server and is always awake,
         // so it is the component that can notice a link change while this app has been killed; it reads
