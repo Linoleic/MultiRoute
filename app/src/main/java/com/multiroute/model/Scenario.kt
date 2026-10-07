@@ -48,7 +48,13 @@ data class ScenarioProfile(
 data class ScenarioObservation(
     val wifiSsids: List<String> = emptyList(),
     val wifiLinkCount: Int = 0,
-    val hasCellular: Boolean = false
+    val hasCellular: Boolean = false,
+    /**
+     * SSID → interface name for the links that are up. Lets an override be written as "the Wi-Fi whose
+     * SSID is X" instead of naming an interface: which interface is `wlan0` and which is `wlan1` swaps
+     * while the device runs (measured on device), so naming the interface is the fragile option.
+     */
+    val ssidToInterface: Map<String, String> = emptyMap()
 ) {
     companion object {
         /** Builds the observation from the channel list the app already collects for the UI. */
@@ -57,7 +63,10 @@ data class ScenarioObservation(
             return ScenarioObservation(
                 wifiSsids = wifi.mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } },
                 wifiLinkCount = wifi.size,
-                hasCellular = channels.any { it.transportType == "cellular" }
+                hasCellular = channels.any { it.transportType == "cellular" },
+                ssidToInterface = wifi.mapNotNull { channel ->
+                    channel.ssid?.takeIf { it.isNotBlank() }?.let { it to channel.interfaceName }
+                }.toMap()
             )
         }
     }
@@ -83,5 +92,12 @@ data class ScenarioResolution(
     val effectiveRules: Map<Int, String> = emptyMap(),
     /** How many apps the profile re-routed, and how many it took out of routing. */
     val overridden: Int = 0,
-    val forcedDefault: Int = 0
+    val forcedDefault: Int = 0,
+    /**
+     * UID → name of the plan whose value lost, when more than one active plan set the same app. The winner
+     * applied; this is what makes the loser visible instead of silently dropped.
+     */
+    val overriddenBy: Map<Int, String> = emptyMap(),
+    /** Apps whose plan value did not resolve (the named Wi-Fi is not up), so the base assignment stands. */
+    val unresolved: Int = 0
 )

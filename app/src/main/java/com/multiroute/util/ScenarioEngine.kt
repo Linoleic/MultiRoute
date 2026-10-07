@@ -19,6 +19,33 @@ object ScenarioEngine {
     /** Passed as [resolve]'s `manualId` when nothing is pinned. */
     const val MANUAL_NONE = ""
 
+    /**
+     * Prefix for an override that names a Wi-Fi network instead of an interface: `ssid:Hpkt` means "the
+     * link that is connected to Hpkt right now". Resolved on every sync, so a plan keeps working when the
+     * two Wi-Fi interfaces swap roles - which they do on device.
+     */
+    const val SYMBOLIC_SSID_PREFIX = "ssid:"
+
+    fun symbolicSsid(ssid: String): String = SYMBOLIC_SSID_PREFIX + ssid
+
+    fun isSymbolicChannel(value: String): Boolean = value.startsWith(SYMBOLIC_SSID_PREFIX)
+
+    /** The SSID a symbolic channel names, or null for a plain interface name. */
+    fun symbolicSsidOf(value: String): String? =
+        if (isSymbolicChannel(value)) value.removePrefix(SYMBOLIC_SSID_PREFIX).takeIf { it.isNotEmpty() } else null
+
+    /**
+     * Turns an override value into the interface to use right now. A plain interface name is returned
+     * unchanged; a symbolic one resolves through the links that are up, and null means "cannot be used now"
+     * (the caller then leaves the base assignment alone rather than pointing at a link that is not there).
+     */
+    fun resolveOverrideChannel(value: String, observation: ScenarioObservation): String? {
+        val ssid = symbolicSsidOf(value) ?: return value
+        return observation.ssidToInterface.entries
+            .firstOrNull { it.key.equals(ssid, ignoreCase = true) }
+            ?.value
+    }
+
     /** True when [trigger] applies to [observation]. */
     fun matches(trigger: ScenarioTrigger, observation: ScenarioObservation): Boolean = when (trigger) {
         is ScenarioTrigger.Always -> true
@@ -117,9 +144,27 @@ object ScenarioEngine {
         var effective = base
         var forcedDefault = 0
         var overridden = 0
+        var unresolved = 0
+        val overriddenBy = mutableMapOf<Int, String>()
+        val lastPlanForUid = mutableMapOf<Int, String>()
         selected.forEach { profile ->
-            val resolved = overridesByUid(profile)
-                .filterValues { it == CHANNEL_DEFAULT || hasChannel(it) }
+            val resolved = overridesByUid(profile).mapNotNull { (uid, raw) ->
+                val channel = resolveOverrideChannel(raw, observation)
+                when {
+                    channel == null -> {
+                        unresolved++
+                        null
+                    }
+                    channel == CHANNEL_DEFAULT || hasChannel(channel) -> uid to channel
+                    else -> null
+                }
+            }.toMap()
+            // An app an earlier active plan already set: the later plan wins, and the loser is recorded so
+            // the UI can say which plan was overridden instead of dropping it silently.
+            resolved.keys.forEach { uid ->
+                lastPlanForUid[uid]?.let { previous -> overriddenBy[uid] = previous }
+                lastPlanForUid[uid] = profile.name
+            }
             val (next, forced) = applyOverrides(effective, resolved)
             effective = next
             forcedDefault += forced
@@ -139,7 +184,9 @@ object ScenarioEngine {
             appliedManually = pinned,
             effectiveRules = effective,
             overridden = overridden,
-            forcedDefault = forcedDefault
+            forcedDefault = forcedDefault,
+            overriddenBy = overriddenBy,
+            unresolved = unresolved
         )
     }
 }
