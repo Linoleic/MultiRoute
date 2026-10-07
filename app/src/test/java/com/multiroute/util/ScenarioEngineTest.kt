@@ -166,6 +166,76 @@ class ScenarioEngineTest {
     }
 
     @Test
+    fun testMatchingPlansLayerInsteadOfReplacingEachOther() {
+        // Dual Wi-Fi: one plan per link, both connected at the same time.
+        val planA = ScenarioProfile(
+            "a", "A", priority = 10,
+            trigger = ScenarioTrigger.SsidMatch(listOf("Hpkt")), overrides = mapOf("x" to "wlan0")
+        )
+        val planB = ScenarioProfile(
+            "b", "B", priority = 20,
+            trigger = ScenarioTrigger.SsidMatch(listOf("H3C_CA202C")), overrides = mapOf("y" to "wlan1")
+        )
+        val resolution = ScenarioEngine.resolve(
+            base = mapOf(1 to "wlan0"),
+            profiles = listOf(planB, planA),
+            observation = ScenarioObservation(
+                wifiSsids = listOf("Hpkt", "H3C_CA202C"), wifiLinkCount = 2
+            ),
+            overridesByUid = { profile ->
+                when (profile.id) {
+                    "a" -> mapOf(1 to "wlan0", 2 to "wlan0")
+                    "b" -> mapOf(2 to "wlan1")
+                    else -> emptyMap()
+                }
+            }
+        )
+        assertEquals(listOf("A", "B"), resolution.activeNames)
+        assertEquals("A", resolution.activeName)
+        assertEquals("wlan0", resolution.effectiveRules[1])
+        assertEquals("wlan1", resolution.effectiveRules[2])
+    }
+
+    @Test
+    fun testLaterPlanWinsOnConflict() {
+        val low = ScenarioProfile("a", "A", priority = 10, trigger = ScenarioTrigger.Always)
+        val high = ScenarioProfile("b", "B", priority = 20, trigger = ScenarioTrigger.Always)
+        val resolution = ScenarioEngine.resolve(
+            base = mapOf(1 to "wlan0"),
+            profiles = listOf(low, high),
+            observation = ScenarioObservation(),
+            overridesByUid = { profile -> if (profile.id == "a") mapOf(1 to "wlan1") else mapOf(1 to "wlan2") }
+        )
+        assertEquals("wlan2", resolution.effectiveRules[1])
+        assertEquals(listOf("A", "B"), resolution.activeNames)
+    }
+
+    @Test
+    fun testManualPinStillAppliesOnlyThatPlan() {
+        val planA = ScenarioProfile(
+            "a", "A", priority = 10,
+            trigger = ScenarioTrigger.SsidMatch(listOf("Hpkt")), overrides = mapOf("x" to "wlan0")
+        )
+        val planB = ScenarioProfile(
+            "b", "B", priority = 20,
+            trigger = ScenarioTrigger.SsidMatch(listOf("H3C_CA202C")), overrides = mapOf("y" to "wlan1")
+        )
+        val resolution = ScenarioEngine.resolve(
+            base = mapOf(1 to "wlan0"),
+            profiles = listOf(planA, planB),
+            observation = ScenarioObservation(wifiSsids = listOf("Hpkt", "H3C_CA202C"), wifiLinkCount = 2),
+            manualId = "b",
+            overridesByUid = { profile ->
+                if (profile.id == "a") mapOf(1 to "wlan0", 2 to "wlan0") else mapOf(2 to "wlan1")
+            }
+        )
+        assertEquals(listOf("B"), resolution.activeNames)
+        assertTrue(resolution.appliedManually)
+        assertEquals("wlan0", resolution.effectiveRules[1])
+        assertEquals("wlan1", resolution.effectiveRules[2])
+    }
+
+    @Test
     fun testOverridesToMissingChannelsAreDropped() {
         val profile = ScenarioProfile(
             "p", "P", trigger = ScenarioTrigger.Always,

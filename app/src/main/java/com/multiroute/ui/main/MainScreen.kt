@@ -276,7 +276,7 @@ fun MainScreen(
                 ScenarioBottomSheet(
                     profiles = uiState.scenarioProfiles,
                     manualId = uiState.manualScenarioId,
-                    activeId = uiState.activeScenarioId,
+                    activeIds = uiState.activeScenarioIds,
                     onApplyManually = { viewModel.applyScenarioManually(it) },
                     onClearManual = { viewModel.clearManualScenario() },
                     onSaveCurrent = { viewModel.openScenarioSaveDialog() },
@@ -1678,7 +1678,7 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
 fun ScenarioBottomSheet(
     profiles: List<ScenarioProfile>,
     manualId: String,
-    activeId: String?,
+    activeIds: Set<String>,
     onApplyManually: (String) -> Unit,
     onClearManual: () -> Unit,
     onSaveCurrent: () -> Unit,
@@ -1774,11 +1774,11 @@ fun ScenarioBottomSheet(
                     }
                     androidx.compose.material3.FilterChip(
                         selected = manualId == profile.id ||
-                                (manualId.isEmpty() && activeId == profile.id),
+                                (manualId.isEmpty() && profile.id in activeIds),
                         onClick = { onApplyManually(profile.id) },
                         label = {
                             Text(
-                                if (activeId == profile.id) {
+                                if (profile.id in activeIds) {
                                     stringResource(com.multiroute.R.string.scenario_active)
                                 } else {
                                     stringResource(com.multiroute.R.string.scenario_apply)

@@ -42,21 +42,35 @@ object ScenarioEngine {
     }
 
     /**
-     * The profile that applies: a manual pin wins (as long as it is enabled), otherwise the enabled profile
-     * with the lowest priority among those whose trigger matches. Disabled profiles never apply.
+     * Every profile that applies, lowest priority first.
+     *
+     * Plans layer rather than compete: with dual Wi-Fi up, a plan matching one link and a plan matching the
+     * other both apply, each contributing its own overrides. A manual pin still short-circuits to that one
+     * profile, because pinning means "only this".
      */
+    fun selectProfiles(
+        profiles: List<ScenarioProfile>,
+        observation: ScenarioObservation,
+        manualId: String? = null
+    ): List<ScenarioProfile> {
+        val pinned = manualId?.takeIf { it.isNotEmpty() && it != MANUAL_NONE }
+        if (pinned != null) {
+            // A pin that was deleted (or disabled) must not leave the device with no plan at all: fall
+            // through to automatic selection instead.
+            profiles.firstOrNull { it.id == pinned && it.enabled }?.let { return listOf(it) }
+        }
+        return profiles.filter { it.enabled && matches(it.trigger, observation) }
+            .sortedBy { it.priority }
+    }
+
+    /** The profile that applies first, for the places that show a single plan. */
     fun selectProfile(
         profiles: List<ScenarioProfile>,
         observation: ScenarioObservation,
         manualId: String? = null
     ): Pair<ScenarioProfile?, ScenarioTrigger?> {
-        val pinned = manualId?.takeIf { it.isNotEmpty() && it != MANUAL_NONE }
-        if (pinned != null) {
-            profiles.firstOrNull { it.id == pinned && it.enabled }?.let { return it to it.trigger }
-        }
-        val chosen = profiles.filter { it.enabled && matches(it.trigger, observation) }
-            .minByOrNull { it.priority }
-        return chosen to chosen?.trigger
+        val selected = selectProfiles(profiles, observation, manualId).firstOrNull()
+        return selected to selected?.trigger
     }
 
     /**
@@ -93,24 +107,38 @@ object ScenarioEngine {
         overridesByUid: (ScenarioProfile) -> Map<Int, String> = { emptyMap() },
         hasChannel: (String) -> Boolean = { true }
     ): ScenarioResolution {
-        val (profile, trigger) = selectProfile(profiles, observation, manualId)
-        if (profile == null) {
+        val selected = selectProfiles(profiles, observation, manualId)
+        if (selected.isEmpty()) {
             return ScenarioResolution(effectiveRules = base)
         }
 
-        val resolved = overridesByUid(profile)
-            .filterValues { it == CHANNEL_DEFAULT || hasChannel(it) }
-        val (effective, forcedDefault) = applyOverrides(base, resolved)
-        val pinned = !manualId.isNullOrEmpty() && manualId != MANUAL_NONE && manualId == profile.id
+        // Fold every matching plan in priority order: a later plan can re-route an app an earlier one set,
+        // and a later `default` can take one back out of routing.
+        var effective = base
+        var forcedDefault = 0
+        var overridden = 0
+        selected.forEach { profile ->
+            val resolved = overridesByUid(profile)
+                .filterValues { it == CHANNEL_DEFAULT || hasChannel(it) }
+            val (next, forced) = applyOverrides(effective, resolved)
+            effective = next
+            forcedDefault += forced
+            overridden += resolved.count { it.value != CHANNEL_DEFAULT }
+        }
+
+        val first = selected.first()
+        val trigger = first.trigger
+        val pinned = !manualId.isNullOrEmpty() && manualId != MANUAL_NONE && manualId == first.id
 
         return ScenarioResolution(
-            activeId = profile.id,
-            activeName = profile.name,
+            activeId = first.id,
+            activeName = first.name,
+            activeNames = selected.map { it.name },
             matchedTrigger = trigger,
-            matchedSsid = trigger?.let { matchedSsid(it, observation) },
+            matchedSsid = matchedSsid(trigger, observation),
             appliedManually = pinned,
             effectiveRules = effective,
-            overridden = resolved.count { it.value != CHANNEL_DEFAULT },
+            overridden = overridden,
             forcedDefault = forcedDefault
         )
     }

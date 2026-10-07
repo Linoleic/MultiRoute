@@ -66,6 +66,8 @@ data class MainUiState(
     // 场景方案
     val scenarioProfiles: List<ScenarioProfile> = emptyList(),
     val activeScenarioId: String? = null,
+    /** Every plan that is applying right now; more than one when several conditions match at once. */
+    val activeScenarioIds: Set<String> = emptySet(),
     val activeScenarioName: String? = null,
     val activeScenarioTrigger: ScenarioTrigger? = null,
     val activeScenarioSsid: String? = null,
@@ -644,10 +646,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val profiles = ScenarioStore.load(context)
         val manualId = ScenarioStore.getManualId(context)
         val observation = ScenarioObservation.fromChannels(_uiState.value.channels)
-        val (profile, trigger) = ScenarioEngine.selectProfile(profiles, observation, manualId)
+        val selected = ScenarioEngine.selectProfiles(profiles, observation, manualId)
+        val profile = selected.firstOrNull()
+        val trigger = profile?.trigger
         _uiState.value = _uiState.value.copy(
             scenarioProfiles = profiles,
             manualScenarioId = manualId,
+            activeScenarioIds = selected.map { it.id }.toSet(),
             activeScenarioId = profile?.id,
             activeScenarioName = profile?.name,
             activeScenarioTrigger = trigger,

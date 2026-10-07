@@ -67,6 +67,12 @@ data class ScenarioObservation(
 data class ScenarioResolution(
     val activeId: String? = null,
     val activeName: String? = null,
+    /**
+     * Every plan that applied, lowest priority first. Several plans can be active at once - which is what
+     * happens when two Wi-Fi links are up and each has a plan of its own - so this is the full list while
+     * [activeId]/[activeName] name the first one, for the places that show a single plan.
+     */
+    val activeNames: List<String> = emptyList(),
     /** The trigger that matched, so the UI can explain itself in the user's language. */
     val matchedTrigger: ScenarioTrigger? = null,
     /** The SSID that caused the match, when it was an SSID trigger. */
