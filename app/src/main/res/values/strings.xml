@@ -283,6 +283,7 @@
     <string name="config_export_clipboard">复制到剪贴板</string>
     <string name="config_import_clipboard">从剪贴板导入</string>
     <string name="config_import_file">从文件导入</string>
+    <string name="config_import_pick">选择文件导入</string>
     <string name="config_path_label">文件路径</string>
     <string name="config_exported">已导出：%1$s</string>
     <string name="config_export_failed">导出失败（需要 root）：%1$s</string>

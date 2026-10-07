@@ -802,9 +802,6 @@ fun SettingsTab(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            ConfigBackupCard(uiState = uiState, viewModel = viewModel)
-        }
-        item {
             Spacer(modifier = Modifier.height(4.dp))
             // 模块与路由核心诊断卡片
             ElevatedCard(
@@ -908,6 +905,9 @@ fun SettingsTab(
             }
         }
 
+        item {
+            ConfigBackupCard(uiState = uiState, viewModel = viewModel)
+        }
         item {
             // 外观与语言：主题（跟随系统/浅色/深色）+ 动态取色 + 语言
             val ctx = LocalContext.current
@@ -1634,18 +1634,16 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
                 ) { Text(stringResource(com.multiroute.R.string.config_export_clipboard)) }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-            OutlinedTextField(
-                value = pathState.value,
-                onValueChange = { pathState.value = it },
-                label = { Text(stringResource(com.multiroute.R.string.config_path_label)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // A file picker instead of a path: Storage Access Framework hands us read access to whatever
+            // the user chooses, so no root and no typing are needed.
+            val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+            ) { uri -> uri?.let { viewModel.importConfigFromUri(it) } }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.TextButton(
-                    onClick = { viewModel.requestImportFromFile(pathState.value) },
+                    onClick = { picker.launch(arrayOf("application/json", "text/plain", "*/*")) },
                     enabled = !uiState.isConfigBusy
-                ) { Text(stringResource(com.multiroute.R.string.config_import_file)) }
+                ) { Text(stringResource(com.multiroute.R.string.config_import_pick)) }
                 androidx.compose.material3.TextButton(
                     onClick = { viewModel.requestImportFromClipboard() },
                     enabled = !uiState.isConfigBusy

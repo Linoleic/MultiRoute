@@ -496,6 +496,27 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /** Imports a document the user picked with the system file picker (SAF grants read access). */
+    fun importConfigFromUri(uri: android.net.Uri) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }.getOrNull()
+            }
+            if (text.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    snackBarMessage = context.getString(
+                        com.multiroute.R.string.config_read_failed, uri.toString()
+                    )
+                )
+            } else {
+                stageImport(text)
+            }
+        }
+    }
+
     /** Holds a document until the user confirms; nothing is touched before that. */
     private fun stageImport(json: String) {
         val context = getApplication<Application>()

@@ -283,6 +283,7 @@
     <string name="config_export_clipboard">Copy to clipboard</string>
     <string name="config_import_clipboard">Import from clipboard</string>
     <string name="config_import_file">Import from file</string>
+    <string name="config_import_pick">Pick a file to import</string>
     <string name="config_path_label">File path</string>
     <string name="config_exported">Exported: %1$s</string>
     <string name="config_export_failed">Export failed (root required): %1$s</string>
