@@ -6,6 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-11%2B%20%28%20verified%20on%2016%20%2F%2017%20%29-green.svg)](https://developer.android.com)
+[![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
 **一个 LSPosed 模块：让每个应用走各自的网络通道。** 把应用分别指派到主 Wi-Fi、副 Wi-Fi（双 WLAN）、
@@ -49,6 +50,7 @@ MultiRoute 按应用解开这个限制：
 | :-- | :-- |
 | 包名 | `io.github.linoleic.multiroute` |
 | 模块名 | MultiRoute |
+| 官方收录 | [modules.lsposed.org/module/io.github.linoleic.multiroute](https://modules.lsposed.org/module/io.github.linoleic.multiroute) |
 | Xposed API | `minApiVersion 101`、`targetApiVersion 102`（LibXposed） |
 | 作用域 | `system` —— **仅**系统框架（`system_server`） |
 | `staticScope` | `false`（作用域清单随 APK 元数据下发） |
@@ -109,7 +111,9 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 ## 安装
 
 1. 从 [Releases](https://github.com/Linoleic/MultiRoute/releases) 安装 APK，资产名为
-   `MultiRoute-<VersionCode>-<VersionName>.apk`。模块已声明更新清单，管理器可直接提示更新。
+   `MultiRoute-<VersionCode>-<VersionName>.apk`；也可以直接在 **LSPosed 管理器的模块列表**里安装 ——
+   模块已收录进[官方仓库](https://modules.lsposed.org/module/io.github.linoleic.multiroute)。
+   两种方式都能在管理器内提示更新（依据模块声明的更新清单）。
 2. 打开 **LSPosed 管理器 → 模块 → MultiRoute**，启用并将作用域设为**系统框架**（`system`）。
    APK 已内置 `META-INF/xposed/scope.list`。
 3. 重启设备，或重启系统服务：`su -c 'setprop ctl.restart zygote'`。

@@ -6,6 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-11%2B%20%28%20verified%20on%2016%20%2F%2017%20%29-green.svg)](https://developer.android.com)
+[![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
 **An LSPosed module that gives every app its own network channel.** Assign each app to the link it
@@ -36,7 +37,7 @@ MultiRoute lifts that restriction per app:
         │  system_server hooks         │   │  policy routing tables       │
         │  · ConnectivityService       │   │  · pref 14500 per-UID egress │
         │  · Xiaomi dual Wi-Fi keep-   │   │  · pref 14400 LAN bypass     │
-        │    alive (screen off)        │   │  · nat DNS redirect:53      │
+        │    alive (screen off)        │   │  · nat DNS redirect :53      │
         │                              │   │  · IPv4 + IPv6               │
         └──────────────────────────────┘   └──────────┬───────────────────┘
                                                       │
@@ -53,6 +54,7 @@ MultiRoute lifts that restriction per app:
 | :-- | :-- |
 | Package name | `io.github.linoleic.multiroute` |
 | Module name | MultiRoute |
+| Listing | [modules.lsposed.org/module/io.github.linoleic.multiroute](https://modules.lsposed.org/module/io.github.linoleic.multiroute) |
 | Xposed API | `minApiVersion 101`, `targetApiVersion 102` (LibXposed) |
 | Scope | `system` — the system framework (`system_server`) **only** |
 | `staticScope` | `false` (the scope list ships in the APK metadata) |
@@ -117,8 +119,10 @@ The on-device evidence behind this table — the commands used and what they ret
 ## Installation
 
 1. Install the APK from the [releases page](https://github.com/Linoleic/MultiRoute/releases) — the asset
-   is named `MultiRoute-<VersionCode>-<VersionName>.apk`. The module declares an update manifest, so the
-   manager can offer updates in place.
+   is named `MultiRoute-<VersionCode>-<VersionName>.apk` — or install it straight from the LSPosed
+   manager's module list, since the module is in the
+   [official repository](https://modules.lsposed.org/module/io.github.linoleic.multiroute). Either way the
+   manager can offer updates in place, from the manifest the module declares.
 2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and set the scope to **System Framework**
    (`system`). The APK already declares this in `META-INF/xposed/scope.list`.
 3. Reboot, or restart the system server: `su -c 'setprop ctl.restart zygote'`.
