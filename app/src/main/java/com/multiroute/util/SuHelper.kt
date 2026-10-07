@@ -287,6 +287,61 @@ object SuHelper {
     }
 
     /**
+     * UID behind a rule key (`pkg` for the primary user, `pkg@<userId>` for a clone space or work profile).
+     *
+     * The primary user goes through PackageManager; the other users come from the root package listing,
+     * which the caller can fetch once and pass in when it has several keys to resolve. Returns -1 when the
+     * package is not installed for that user, so a configuration imported from another device simply does
+     * not route apps that are missing here.
+     */
+    fun resolveUidForRuleKey(
+        context: Context,
+        ruleKey: String,
+        secondaryInstalls: List<RouteRuleBuilder.SecondaryUserInstalls>? = null
+    ): Int {
+        val (pkg, userId) = RouteRuleBuilder.parseRuleKey(ruleKey)
+        if (pkg.isEmpty()) return -1
+        return if (userId <= 0) {
+            runCatching { context.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
+        } else {
+            val installs = secondaryInstalls
+                ?: runCatching { listSecondaryUserInstalls() }.getOrDefault(emptyList())
+            installs.firstOrNull { it.userId == userId }?.packageUids?.get(pkg) ?: -1
+        }
+    }
+
+    /**
+     * Writes [content] to [path] with root rights.
+     *
+     * The content is written to the app's own cache first and then copied, so JSON that came from a file we
+     * did not author never has to survive shell quoting.
+     */
+    fun writeTextAsRoot(context: Context, path: String, content: String): Boolean {
+        if (path.isBlank()) return false
+        return try {
+            val staging = java.io.File(context.cacheDir, "config-transfer.json")
+            staging.writeText(content)
+            val dir = path.substringBeforeLast('/', "")
+            val cmd = if (dir.isEmpty()) {
+                "cp ${staging.absolutePath} $path && chmod 644 $path"
+            } else {
+                "sh -c 'mkdir -p $dir && cp ${staging.absolutePath} $path && chmod 644 $path'"
+            }
+            executeCommand(cmd)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to write $path: ${t.message}")
+            false
+        }
+    }
+
+    /** Reads [path] with root rights, or null when it is missing or unreadable. */
+    fun readTextAsRoot(path: String): String? {
+        if (path.isBlank()) return null
+        val lines = executeShellWithOutput("cat $path", timeoutSeconds = 8)
+        return if (lines.isEmpty()) null else lines.joinToString("\n")
+    }
+
+    /**
      * Dynamically synchronizes routing rules for any interface (wlan0, wlan1, rmnet_data*, eth0, etc.)
      * to the kernel policy routing table and system settings.
      *

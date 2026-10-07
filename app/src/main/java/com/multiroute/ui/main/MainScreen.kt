@@ -799,6 +799,9 @@ fun SettingsTab(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
+            ConfigBackupCard(uiState = uiState, viewModel = viewModel)
+        }
+        item {
             Spacer(modifier = Modifier.height(4.dp))
             // 模块与路由核心诊断卡片
             ElevatedCard(
@@ -1587,6 +1590,83 @@ fun ChannelSelectBottomSheet(
                 )
             }
         }
+    }
+}
+
+/**
+ * 配置备份卡片：整份配置（分应用指派 + 场景方案 + 相关设置）的导出与导入。
+ */
+@Composable
+fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
+    val pathState = remember {
+        androidx.compose.runtime.mutableStateOf(
+            uiState.configPath.ifBlank {
+                "${com.multiroute.data.ConfigTransfer.EXPORT_DIR}/MultiRoute-config.json"
+            }
+        )
+    }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = stringResource(com.multiroute.R.string.config_card_title),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = stringResource(com.multiroute.R.string.config_card_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(
+                    onClick = { viewModel.exportConfigToFile() },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_export_file)) }
+                androidx.compose.material3.TextButton(
+                    onClick = { viewModel.exportConfigToClipboard() },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_export_clipboard)) }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            OutlinedTextField(
+                value = pathState.value,
+                onValueChange = { pathState.value = it },
+                label = { Text(stringResource(com.multiroute.R.string.config_path_label)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(
+                    onClick = { viewModel.requestImportFromFile(pathState.value) },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_import_file)) }
+                androidx.compose.material3.TextButton(
+                    onClick = { viewModel.requestImportFromClipboard() },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_import_clipboard)) }
+            }
+        }
+    }
+
+    if (uiState.showConfigImportConfirm) {
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelConfigImport() },
+            title = { Text(stringResource(com.multiroute.R.string.config_import_title)) },
+            text = { Text(stringResource(com.multiroute.R.string.config_import_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { viewModel.confirmConfigImport() }) {
+                    Text(stringResource(com.multiroute.R.string.config_import_confirm))
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { viewModel.cancelConfigImport() }) {
+                    Text(stringResource(com.multiroute.R.string.ui_cancel))
+                }
+            }
+        )
     }
 }
 

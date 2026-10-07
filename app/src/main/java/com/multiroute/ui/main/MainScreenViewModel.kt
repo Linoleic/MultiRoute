@@ -76,7 +76,12 @@ data class MainUiState(
     /** id of the plan whose overrides are being edited; null when assignments go to the base. */
     val scenarioEditId: String? = null,
     val scenarioDetailsId: String? = null,
-    val showScenarioDetailsDialog: Boolean = false
+    val showScenarioDetailsDialog: Boolean = false,
+    // 配置导入导出
+    val configPath: String = "",
+    val pendingImportJson: String? = null,
+    val showConfigImportConfirm: Boolean = false,
+    val isConfigBusy: Boolean = false
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
@@ -387,6 +392,139 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             showScenarioSaveDialog = false,
             snackBarMessage = context.getString(com.multiroute.R.string.scenario_saved, name.trim())
         )
+    }
+
+    // ------------------------------------------------------------------ 配置导入导出
+
+    private fun clipboard(): android.content.ClipboardManager? =
+        getApplication<Application>().getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as? android.content.ClipboardManager
+
+    /** Writes a timestamped JSON export plus a stable-named copy of the same document. */
+    fun exportConfigToFile() {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isConfigBusy = true)
+            val now = System.currentTimeMillis()
+            val json = withContext(Dispatchers.IO) {
+                com.multiroute.data.ConfigTransfer.buildJson(context, now)
+            }
+            val path = com.multiroute.data.ConfigTransfer.exportPath(now)
+            val ok = withContext(Dispatchers.IO) {
+                SuHelper.writeTextAsRoot(context, path, json) &&
+                        SuHelper.writeTextAsRoot(
+                            context,
+                            "${com.multiroute.data.ConfigTransfer.EXPORT_DIR}/MultiRoute-config.json",
+                            json
+                        )
+            }
+            _uiState.value = _uiState.value.copy(
+                isConfigBusy = false,
+                configPath = path,
+                snackBarMessage = context.getString(
+                    if (ok) com.multiroute.R.string.config_exported
+                    else com.multiroute.R.string.config_export_failed,
+                    path
+                )
+            )
+        }
+    }
+
+    fun exportConfigToClipboard() {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            val json = withContext(Dispatchers.IO) {
+                com.multiroute.data.ConfigTransfer.buildJson(context, System.currentTimeMillis())
+            }
+            clipboard()?.setPrimaryClip(android.content.ClipData.newPlainText("MultiRoute config", json))
+            _uiState.value = _uiState.value.copy(
+                snackBarMessage = context.getString(com.multiroute.R.string.config_copied)
+            )
+        }
+    }
+
+    fun requestImportFromClipboard() {
+        val context = getApplication<Application>()
+        val text = clipboard()?.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(context)
+            ?.toString()
+            .orEmpty()
+        stageImport(text)
+    }
+
+    fun requestImportFromFile(path: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isConfigBusy = true, configPath = path)
+            val text = withContext(Dispatchers.IO) { SuHelper.readTextAsRoot(path) }
+            _uiState.value = _uiState.value.copy(isConfigBusy = false)
+            if (text.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    snackBarMessage = context.getString(com.multiroute.R.string.config_read_failed, path)
+                )
+            } else {
+                stageImport(text)
+            }
+        }
+    }
+
+    /** Holds a document until the user confirms; nothing is touched before that. */
+    private fun stageImport(json: String) {
+        val context = getApplication<Application>()
+        if (!json.contains(com.multiroute.data.ConfigTransfer.FORMAT)) {
+            _uiState.value = _uiState.value.copy(
+                snackBarMessage = context.getString(com.multiroute.R.string.config_invalid)
+            )
+            return
+        }
+        _uiState.value = _uiState.value.copy(
+            pendingImportJson = json,
+            showConfigImportConfirm = true
+        )
+    }
+
+    fun cancelConfigImport() {
+        _uiState.value = _uiState.value.copy(
+            pendingImportJson = null,
+            showConfigImportConfirm = false
+        )
+    }
+
+    /** Replaces the configuration with the staged document; the replaced one is backed up first. */
+    fun confirmConfigImport() {
+        val context = getApplication<Application>()
+        val json = _uiState.value.pendingImportJson ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isConfigBusy = true,
+                showConfigImportConfirm = false,
+                pendingImportJson = null
+            )
+            val result = withContext(Dispatchers.IO) {
+                com.multiroute.data.ConfigTransfer.apply(context, json, System.currentTimeMillis())
+            }
+            withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+            loadInstalledApps()
+            refreshScenarioState()
+            _uiState.value = if (result == null) {
+                _uiState.value.copy(
+                    isConfigBusy = false,
+                    snackBarMessage = context.getString(com.multiroute.R.string.config_invalid)
+                )
+            } else {
+                _uiState.value.copy(
+                    isConfigBusy = false,
+                    snackBarMessage = context.getString(
+                        com.multiroute.R.string.config_imported,
+                        result.assignments,
+                        result.scenarios,
+                        result.skipped
+                    )
+                )
+            }
+        }
     }
 
     private fun syncRules() {

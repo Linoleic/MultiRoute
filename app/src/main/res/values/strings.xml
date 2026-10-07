@@ -270,4 +270,20 @@
     <string name="scenario_updated">已更新方案：%1$s</string>
     <string name="scenario_moved">已调整方案顺序</string>
     <string name="scenario_details_title">方案名称与触发条件</string>
+    <string name="config_card_title">配置备份</string>
+    <string name="config_card_hint">导出为 JSON（含分应用指派、场景方案与相关设置）。导入会先自动备份当前配置，再整体覆盖。</string>
+    <string name="config_export_file">导出到文件</string>
+    <string name="config_export_clipboard">复制到剪贴板</string>
+    <string name="config_import_clipboard">从剪贴板导入</string>
+    <string name="config_import_file">从文件导入</string>
+    <string name="config_path_label">文件路径</string>
+    <string name="config_exported">已导出：%1$s</string>
+    <string name="config_export_failed">导出失败（需要 root）：%1$s</string>
+    <string name="config_copied">配置已复制到剪贴板</string>
+    <string name="config_read_failed">读取失败：%1$s</string>
+    <string name="config_invalid">不是有效的 MultiRoute 配置文件</string>
+    <string name="config_import_title">确认导入</string>
+    <string name="config_import_message">导入会覆盖当前的指派与场景方案。当前配置已自动备份到应用私有目录，可回退。</string>
+    <string name="config_import_confirm">覆盖导入</string>
+    <string name="config_imported">已导入：%1$d 个指派、%2$d 个方案（跳过 %3$d 项）</string>
 </resources>

@@ -270,4 +270,20 @@
     <string name="scenario_updated">Updated plan: %1$s</string>
     <string name="scenario_moved">Plan order changed</string>
     <string name="scenario_details_title">Plan name and condition</string>
+    <string name="config_card_title">Configuration backup</string>
+    <string name="config_card_hint">Export as JSON (per-app assignments, scenario plans and the related settings). Import backs the current configuration up first, then replaces it.</string>
+    <string name="config_export_file">Export to file</string>
+    <string name="config_export_clipboard">Copy to clipboard</string>
+    <string name="config_import_clipboard">Import from clipboard</string>
+    <string name="config_import_file">Import from file</string>
+    <string name="config_path_label">File path</string>
+    <string name="config_exported">Exported: %1$s</string>
+    <string name="config_export_failed">Export failed (root required): %1$s</string>
+    <string name="config_copied">Configuration copied to the clipboard</string>
+    <string name="config_read_failed">Could not read: %1$s</string>
+    <string name="config_invalid">Not a valid MultiRoute configuration file</string>
+    <string name="config_import_title">Confirm import</string>
+    <string name="config_import_message">Importing replaces the current assignments and scenario plans. The current configuration was backed up in private app storage first, so it can be restored.</string>
+    <string name="config_import_confirm">Replace and import</string>
+    <string name="config_imported">Imported: %1$d assignment(s), %2$d plan(s), %3$d skipped</string>
 </resources>

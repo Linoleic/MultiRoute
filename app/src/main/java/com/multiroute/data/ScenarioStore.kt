@@ -31,19 +31,30 @@ object ScenarioStore {
     fun load(context: Context): List<ScenarioProfile> {
         val raw = prefs(context).getString(KEY_PROFILES, null) ?: return emptyList()
         return try {
-            val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { index ->
-                runCatching { parseProfile(array.getJSONObject(index)) }.getOrNull()
-            }
+            parseProfiles(JSONArray(raw))
         } catch (_: Exception) {
             emptyList()
         }
     }
 
-    fun save(context: Context, profiles: List<ScenarioProfile>) {
+    /**
+     * Profiles as a JSON array. Shared with the configuration export so a backup and the live store always
+     * agree on the shape - an export that used its own writer would be a second format to keep in step.
+     */
+    fun encodeProfiles(profiles: List<ScenarioProfile>): JSONArray {
         val array = JSONArray()
         profiles.forEach { array.put(encodeProfile(it)) }
-        prefs(context).edit().putString(KEY_PROFILES, array.toString()).apply()
+        return array
+    }
+
+    /** Parses [encodeProfiles] output; a malformed entry is skipped instead of failing the whole list. */
+    fun parseProfiles(array: JSONArray): List<ScenarioProfile> =
+        (0 until array.length()).mapNotNull { index ->
+            runCatching { parseProfile(array.getJSONObject(index)) }.getOrNull()
+        }
+
+    fun save(context: Context, profiles: List<ScenarioProfile>) {
+        prefs(context).edit().putString(KEY_PROFILES, encodeProfiles(profiles).toString()).apply()
     }
 
     /** Replaces the profile with the same id, or appends it. */
