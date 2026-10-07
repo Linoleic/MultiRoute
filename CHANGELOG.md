@@ -39,6 +39,18 @@ bilingual, Chinese first: the release page is what most users read.
   what it skipped, so entries pointing at apps or channels that are missing here cannot silently change
   anything. Each plan in the sheet now sits in its own surface, and a Wi-Fi condition with no network chosen
   says so, because such a plan can never match on its own.
+- **Several plans can apply at once.** Matching plans now layer in priority order instead of only the first one
+  winning: a later plan can re-route an app an earlier one set, or take it out of routing with `default`. When
+  more than one active plan sets the same app the higher-priority one wins, and the overwritten plan is labelled
+  on its row instead of being dropped silently.
+- **A plan binds to the network, not to the interface.** Assigning a Wi-Fi link inside a plan stores
+  `ssid:<name>`, resolved to whatever interface that network is on at sync time, because which interface is
+  `wlan0` changes while the device runs. A network that is not up leaves the previous assignment alone.
+- **Manual mode.** The sheet offers Automatic / Manual: in Manual no condition is evaluated at all, only the
+  plans switched on by hand apply, and several can be on at once, layered by priority. Switching one plan on
+  never cancels another.
+- Applying or cancelling a plan no longer closes the sheet, the backup card moved below the module state card,
+  and importing uses the system file picker instead of a typed path.
 
 ## v1.2.2
 
