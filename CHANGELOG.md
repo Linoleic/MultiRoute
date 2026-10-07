@@ -13,6 +13,10 @@ bilingual, Chinese first: the release page is what most users read.
   （没有方案就保持休眠）；应用进程被杀时同样会切换。
 - 方案支持**编辑覆盖应用**（编辑态下的指派写入方案而不是默认方案）、**改名与触发条件**、**调整顺序**
   （顺序即判定优先级）。
+- **配置导出与导入**：一份 JSON 文档携带分应用指派（含分身空间）、全部场景方案与相关设置；可写入
+  `Download` 或复制到剪贴板，也能从两者导入。导入是整体替换，但会**先备份当前配置**并报告跳过了多少项，
+  因此指向本机不存在应用或通道的条目不会静默改动任何东西。方案列表里每个方案各自一层容器；Wi-Fi 条件
+  未选网络时会明确标注（这种方案不会自动命中）。
 
 **English**
 
@@ -21,6 +25,12 @@ bilingual, Chinese first: the release page is what most users read.
   asleep. The app's own callback is no longer the only trigger.
 - Plans can be **re-edited** (in edit mode assignments go into the plan instead of the default plan),
   **renamed**, have their **condition changed**, and be **reordered** - the stored order is the priority order.
+- **Configuration export and import.** One JSON document carries the per-app assignments (including clone
+  spaces), every plan and the routing settings; it can be written to `Download` or copied to the clipboard,
+  and imported from either. Import replaces the configuration, but backs the current one up first and reports
+  what it skipped, so entries pointing at apps or channels that are missing here cannot silently change
+  anything. Each plan in the sheet now sits in its own surface, and a Wi-Fi condition with no network chosen
+  says so, because such a plan can never match on its own.
 
 ## v1.2.2
 
