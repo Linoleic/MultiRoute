@@ -246,6 +246,7 @@
     <string name="scenario_name">Plan name</string>
     <string name="scenario_trigger">Condition</string>
     <string name="scenario_trigger_ssid">Wi-Fi name</string>
+    <string name="scenario_trigger_ssid_empty">Wi-Fi name: none selected (never matches automatically)</string>
     <string name="scenario_trigger_links2">Two Wi-Fi links</string>
     <string name="scenario_trigger_cellular">Cellular only</string>
     <string name="scenario_trigger_always">Always</string>

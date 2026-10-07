@@ -1738,15 +1738,19 @@ fun ScenarioBottomSheet(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = profile.name,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                        Text(
-                            text = scenarioTriggerLabel(profile.trigger),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                        // Indented so the name starts where the first action's label starts, instead of
+                        // sitting further left than the buttons below it.
+                        Column(modifier = Modifier.padding(start = 13.dp)) {
+                            Text(
+                                text = profile.name,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = scenarioTriggerLabel(profile.trigger),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             androidx.compose.material3.TextButton(onClick = { onEditOverrides(profile.id) }) {
                                 Text(
@@ -1799,8 +1803,12 @@ fun ScenarioBottomSheet(
 /** 触发条件的可读描述，用于方案列表。 */
 @Composable
 fun scenarioTriggerLabel(trigger: ScenarioTrigger): String = when (trigger) {
-    is ScenarioTrigger.SsidMatch ->
-        stringResource(com.multiroute.R.string.scenario_trigger_ssid) + " " + trigger.ssids.joinToString(" / ")
+    is ScenarioTrigger.SsidMatch -> if (trigger.ssids.isEmpty()) {
+        stringResource(com.multiroute.R.string.scenario_trigger_ssid_empty)
+    } else {
+        stringResource(com.multiroute.R.string.scenario_trigger_ssid) + " " +
+                trigger.ssids.joinToString(" / ")
+    }
     is ScenarioTrigger.WifiLinkCount -> stringResource(com.multiroute.R.string.scenario_trigger_links2)
     is ScenarioTrigger.CellularOnly -> stringResource(com.multiroute.R.string.scenario_trigger_cellular)
     is ScenarioTrigger.Always -> stringResource(com.multiroute.R.string.scenario_trigger_always)

@@ -246,6 +246,7 @@
     <string name="scenario_name">方案名称</string>
     <string name="scenario_trigger">触发条件</string>
     <string name="scenario_trigger_ssid">Wi-Fi 名称</string>
+    <string name="scenario_trigger_ssid_empty">Wi-Fi 名称：未选择（不会自动命中）</string>
     <string name="scenario_trigger_links2">双 Wi-Fi 在线</string>
     <string name="scenario_trigger_cellular">仅蜂窝</string>
     <string name="scenario_trigger_always">始终</string>
