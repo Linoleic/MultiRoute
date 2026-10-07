@@ -275,10 +275,12 @@ fun MainScreen(
             if (uiState.showScenarioSheet) {
                 ScenarioBottomSheet(
                     profiles = uiState.scenarioProfiles,
-                    manualId = uiState.manualScenarioId,
+                    manualMode = uiState.scenarioManualMode,
+                    manualIds = uiState.manualScenarioIds,
+                    onSetManual = { viewModel.setScenarioManualMode() },
                     activeIds = uiState.activeScenarioIds,
                     conflicts = uiState.scenarioConflicts,
-                    onApplyManually = { viewModel.applyScenarioManually(it) },
+                    onApplyManually = { viewModel.toggleScenarioManually(it) },
                     onClearManual = { viewModel.clearManualScenario() },
                     onSaveCurrent = { viewModel.openScenarioSaveDialog() },
                     onDelete = { viewModel.deleteScenario(it) },
@@ -1678,7 +1680,9 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
 @Composable
 fun ScenarioBottomSheet(
     profiles: List<ScenarioProfile>,
-    manualId: String,
+    manualMode: Boolean,
+    manualIds: Set<String>,
+    onSetManual: () -> Unit,
     activeIds: Set<String>,
     conflicts: Map<String, Int>,
     onApplyManually: (String) -> Unit,
@@ -1711,9 +1715,14 @@ fun ScenarioBottomSheet(
             )
 
             androidx.compose.material3.FilterChip(
-                selected = manualId.isEmpty(),
+                selected = !manualMode,
                 onClick = onClearManual,
                 label = { Text(stringResource(com.multiroute.R.string.scenario_auto)) }
+            )
+            androidx.compose.material3.FilterChip(
+                selected = manualMode,
+                onClick = onSetManual,
+                label = { Text(stringResource(com.multiroute.R.string.scenario_manual_mode)) }
             )
             Text(
                 text = stringResource(com.multiroute.R.string.scenario_sheet_manual_hint),
@@ -1789,15 +1798,14 @@ fun ScenarioBottomSheet(
                         }
                     }
                     androidx.compose.material3.FilterChip(
-                        selected = manualId == profile.id ||
-                                (manualId.isEmpty() && profile.id in activeIds),
+                        selected = if (manualMode) profile.id in manualIds else profile.id in activeIds,
                         onClick = { onApplyManually(profile.id) },
                         label = {
                             Text(
-                                if (profile.id in activeIds) {
-                                    stringResource(com.multiroute.R.string.scenario_active)
-                                } else {
-                                    stringResource(com.multiroute.R.string.scenario_apply)
+                                when {
+                                    profile.id in activeIds -> stringResource(com.multiroute.R.string.scenario_active)
+                                    manualMode -> stringResource(com.multiroute.R.string.scenario_turn_on)
+                                    else -> stringResource(com.multiroute.R.string.scenario_apply)
                                 }
                             )
                         }

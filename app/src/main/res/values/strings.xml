@@ -237,8 +237,12 @@
     <string name="scenario_current">方案：%1$s</string>
     <string name="scenario_sheet_title">场景方案</string>
     <string name="scenario_sheet_hint">方案在命中条件时覆盖它涉及的应用；其余应用保持默认指派。</string>
-    <string name="scenario_sheet_manual_hint">手动应用某个方案时，暂时只使用该方案（其余方案被忽略）；选「自动（按条件）」恢复多个方案叠加。</string>
+    <string name="scenario_sheet_manual_hint">「手动模式」下所有触发都不生效，只应用你手动开启的方案（可同时开启多个、按优先级叠加）；选「自动（按条件）」恢复按条件匹配。</string>
     <string name="scenario_auto">自动（按条件）</string>
+    <string name="scenario_manual_mode">手动模式</string>
+    <string name="scenario_turn_on">开启</string>
+    <string name="scenario_switched_on">已开启该方案</string>
+    <string name="scenario_switched_off">已关闭该方案</string>
     <string name="scenario_apply">应用</string>
     <string name="scenario_active">生效中</string>
     <string name="scenario_conflicts">%1$d 项已被更高优先级方案改写</string>

@@ -237,8 +237,12 @@
     <string name="scenario_current">Plan: %1$s</string>
     <string name="scenario_sheet_title">Scenario plans</string>
     <string name="scenario_sheet_hint">A plan overrides the apps it mentions when its condition matches; everything else keeps the default assignment.</string>
-    <string name="scenario_sheet_manual_hint">Applying a plan by hand uses only that plan until you switch back to automatic; the others are ignored meanwhile.</string>
+    <string name="scenario_sheet_manual_hint">In manual mode no condition is evaluated: only the plans you switch on apply, as many at once as you like, layered by priority. Switch back to automatic to match by condition again.</string>
     <string name="scenario_auto">Automatic (by condition)</string>
+    <string name="scenario_manual_mode">Manual mode</string>
+    <string name="scenario_turn_on">Turn on</string>
+    <string name="scenario_switched_on">Plan switched on</string>
+    <string name="scenario_switched_off">Plan switched off</string>
     <string name="scenario_apply">Apply</string>
     <string name="scenario_active">Active</string>
     <string name="scenario_conflicts">%1$d overridden by a higher-priority plan</string>

@@ -75,6 +75,10 @@ data class MainUiState(
     val activeScenarioSsid: String? = null,
     val activeScenarioManual: Boolean = false,
     val manualScenarioId: String = "",
+    /** True when conditions are ignored and plans are switched by hand only. */
+    val scenarioManualMode: Boolean = false,
+    /** Plans switched on by hand; several can be on at once. */
+    val manualScenarioIds: Set<String> = emptySet(),
     val showScenarioSheet: Boolean = false,
     val showScenarioSaveDialog: Boolean = false,
     /** id of the plan whose overrides are being edited; null when assignments go to the base. */
@@ -337,28 +341,46 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.value = _uiState.value.copy(showScenarioSaveDialog = false)
     }
 
-    /** Pins a profile by hand; it then applies whatever the current links look like. */
-    fun applyScenarioManually(id: String) {
+    /**
+     * Switches one plan on or off by hand, without touching the others. Turns manual mode on, because that
+     * is what the user just asked for.
+     */
+    fun toggleScenarioManually(id: String) {
         val context = getApplication<Application>()
-        ScenarioStore.setManualId(context, id)
+        ScenarioStore.setManualMode(context, true)
+        val on = ScenarioStore.toggleManualId(context, id)
         refreshScenarioState()
-        // The sheet stays open on purpose: applying one plan is often the first of several taps, and
-        // closing it forced the user back to the list every time.
         _uiState.value = _uiState.value.copy(
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_applied)
+            snackBarMessage = context.getString(
+                if (on) com.multiroute.R.string.scenario_switched_on
+                else com.multiroute.R.string.scenario_switched_off
+            )
+        )
+        syncRules()
+    }
+
+    /** Switches to manual mode; the conditions stop being evaluated. */
+    fun setScenarioManualMode() {
+        val context = getApplication<Application>()
+        ScenarioStore.setManualMode(context, true)
+        refreshScenarioState()
+        syncRules()
+    }
+
+    /** Back to choosing plans by their conditions. */
+    fun setScenarioAutomatic() {
+        val context = getApplication<Application>()
+        ScenarioStore.setManualMode(context, false)
+        refreshScenarioState()
+        _uiState.value = _uiState.value.copy(
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_automatic)
         )
         syncRules()
     }
 
     /** Back to automatic selection by trigger. */
     fun clearManualScenario() {
-        val context = getApplication<Application>()
-        ScenarioStore.setManualId(context, null)
-        refreshScenarioState()
-        _uiState.value = _uiState.value.copy(
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_automatic)
-        )
-        syncRules()
+        setScenarioAutomatic()
     }
 
     fun deleteScenario(id: String) {
@@ -659,9 +681,14 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private fun refreshScenarioState() {
         val context = getApplication<Application>()
         val profiles = ScenarioStore.load(context)
-        val manualId = ScenarioStore.getManualId(context)
+        val manualMode = ScenarioStore.isManualMode(context)
+        val manualIds = ScenarioStore.getManualIds(context)
         val observation = ScenarioObservation.fromChannels(_uiState.value.channels)
-        val selected = ScenarioEngine.selectProfiles(profiles, observation, manualId)
+        val selected = if (manualMode) {
+            ScenarioEngine.selectProfiles(profiles, observation, ScenarioEngine.SelectionMode.MANUAL, manualIds)
+        } else {
+            ScenarioEngine.selectProfiles(profiles, observation, ScenarioEngine.SelectionMode.AUTOMATIC)
+        }
         val profile = selected.firstOrNull()
         val trigger = profile?.trigger
         // Which active plan loses an app to a later one. Computed on rule keys here (the uid-level version
@@ -676,14 +703,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
         _uiState.value = _uiState.value.copy(
             scenarioProfiles = profiles,
-            manualScenarioId = manualId,
+            manualScenarioId = manualIds.firstOrNull() ?: "",
+            scenarioManualMode = manualMode,
+            manualScenarioIds = manualIds,
             activeScenarioIds = selected.map { it.id }.toSet(),
             scenarioConflicts = conflicts,
             activeScenarioId = profile?.id,
             activeScenarioName = profile?.name,
             activeScenarioTrigger = trigger,
             activeScenarioSsid = trigger?.let { ScenarioEngine.matchedSsid(it, observation) },
-            activeScenarioManual = profile != null && manualId == profile.id
+            activeScenarioManual = manualMode
         )
     }
 

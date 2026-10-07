@@ -390,7 +390,14 @@ object SuHelper {
             base = base,
             profiles = profiles,
             observation = observation,
-            manualId = com.multiroute.data.ScenarioStore.getManualId(context),
+            // Manual mode means the conditions are not evaluated at all: exactly the plans switched on by
+            // hand apply, several at once if the user wants that.
+            mode = if (com.multiroute.data.ScenarioStore.isManualMode(context)) {
+                ScenarioEngine.SelectionMode.MANUAL
+            } else {
+                ScenarioEngine.SelectionMode.AUTOMATIC
+            },
+            manualIds = com.multiroute.data.ScenarioStore.getManualIds(context),
             overridesByUid = { profile ->
                 profile.overrides.mapNotNull { (ruleKey, channelId) ->
                     val (pkg, userId) = RouteRuleBuilder.parseRuleKey(ruleKey)
