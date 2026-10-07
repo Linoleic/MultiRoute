@@ -1723,8 +1723,17 @@ fun ScenarioBottomSheet(
             }
 
             profiles.forEach { profile ->
-                Row(
+                // Each plan gets its own surface: without it the name, the condition and two rows of
+                // actions ran together and it was hard to tell where one plan ended.
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -1776,6 +1785,7 @@ fun ScenarioBottomSheet(
                     androidx.compose.material3.TextButton(onClick = { onDelete(profile.id) }) {
                         Text(stringResource(com.multiroute.R.string.scenario_delete))
                     }
+                }
                 }
             }
 
