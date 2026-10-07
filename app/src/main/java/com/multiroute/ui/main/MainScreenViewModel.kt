@@ -20,6 +20,11 @@ import com.multiroute.model.NetworkChannel
 import com.multiroute.model.TestServerConfig
 import com.multiroute.util.DiagnosticInfo
 import com.multiroute.util.NetworkUtils
+import com.multiroute.data.ScenarioStore
+import com.multiroute.model.ScenarioObservation
+import com.multiroute.model.ScenarioProfile
+import com.multiroute.model.ScenarioTrigger
+import com.multiroute.util.ScenarioEngine
 import com.multiroute.util.SuHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,7 +62,17 @@ data class MainUiState(
     // 批量通道分配多选状态
     val isSelectionMode: Boolean = false,
     val selectedRuleKeys: Set<String> = emptySet(),
-    val showBatchAssignSheet: Boolean = false
+    val showBatchAssignSheet: Boolean = false,
+    // 场景方案
+    val scenarioProfiles: List<ScenarioProfile> = emptyList(),
+    val activeScenarioId: String? = null,
+    val activeScenarioName: String? = null,
+    val activeScenarioTrigger: ScenarioTrigger? = null,
+    val activeScenarioSsid: String? = null,
+    val activeScenarioManual: Boolean = false,
+    val manualScenarioId: String = "",
+    val showScenarioSheet: Boolean = false,
+    val showScenarioSaveDialog: Boolean = false
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
@@ -92,6 +107,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 val context = getApplication<Application>()
                 val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
                 _uiState.value = _uiState.value.copy(channels = activeChannels)
+                refreshScenarioState()
                 withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
             } catch (_: Exception) {}
         }
@@ -276,8 +292,111 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun dismissSnackBar() {
-        _uiState.value = _uiState.value.copy(snackBarMessage = null)
+    // ------------------------------------------------------------------ 场景方案
+
+    fun openScenarioSheet() {
+        refreshScenarioState()
+        _uiState.value = _uiState.value.copy(showScenarioSheet = true)
+    }
+
+    fun closeScenarioSheet() {
+        _uiState.value = _uiState.value.copy(showScenarioSheet = false)
+    }
+
+    fun openScenarioSaveDialog() {
+        _uiState.value = _uiState.value.copy(showScenarioSheet = false, showScenarioSaveDialog = true)
+    }
+
+    fun closeScenarioSaveDialog() {
+        _uiState.value = _uiState.value.copy(showScenarioSaveDialog = false)
+    }
+
+    /** Pins a profile by hand; it then applies whatever the current links look like. */
+    fun applyScenarioManually(id: String) {
+        val context = getApplication<Application>()
+        ScenarioStore.setManualId(context, id)
+        refreshScenarioState()
+        _uiState.value = _uiState.value.copy(
+            showScenarioSheet = false,
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_applied)
+        )
+        syncRules()
+    }
+
+    /** Back to automatic selection by trigger. */
+    fun clearManualScenario() {
+        val context = getApplication<Application>()
+        ScenarioStore.setManualId(context, null)
+        refreshScenarioState()
+        _uiState.value = _uiState.value.copy(
+            showScenarioSheet = false,
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_automatic)
+        )
+        syncRules()
+    }
+
+    fun deleteScenario(id: String) {
+        val context = getApplication<Application>()
+        ScenarioStore.delete(context, id)
+        refreshScenarioState()
+        syncRules()
+    }
+
+    /**
+     * Saves the current per-app assignments as a new profile. The routing screen keeps meaning "the
+     * default plan"; a profile only carries the apps it should override.
+     */
+    fun saveCurrentAssignmentsAsScenario(name: String, trigger: ScenarioTrigger) {
+        val context = getApplication<Application>()
+        val overrides = com.multiroute.data.RouteConfigProvider.getAllRules(context)
+        if (name.isBlank() || overrides.isEmpty()) {
+            _uiState.value = _uiState.value.copy(
+                showScenarioSaveDialog = false,
+                snackBarMessage = context.getString(com.multiroute.R.string.scenario_save_failed)
+            )
+            return
+        }
+        ScenarioStore.upsert(
+            context,
+            ScenarioProfile(
+                id = "s" + System.currentTimeMillis(),
+                name = name.trim(),
+                trigger = trigger,
+                overrides = overrides
+            )
+        )
+        refreshScenarioState()
+        _uiState.value = _uiState.value.copy(
+            showScenarioSaveDialog = false,
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_saved, name.trim())
+        )
+    }
+
+    private fun syncRules() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(getApplication()) }
+        }
+    }
+
+    /** Which profile applies right now, for the UI only - the sync evaluates this itself. */
+    private fun refreshScenarioState() {
+        val context = getApplication<Application>()
+        val profiles = ScenarioStore.load(context)
+        val manualId = ScenarioStore.getManualId(context)
+        val observation = ScenarioObservation.fromChannels(_uiState.value.channels)
+        val (profile, trigger) = ScenarioEngine.selectProfile(profiles, observation, manualId)
+        _uiState.value = _uiState.value.copy(
+            scenarioProfiles = profiles,
+            manualScenarioId = manualId,
+            activeScenarioId = profile?.id,
+            activeScenarioName = profile?.name,
+            activeScenarioTrigger = trigger,
+            activeScenarioSsid = trigger?.let { ScenarioEngine.matchedSsid(it, observation) },
+            activeScenarioManual = profile != null && manualId == profile.id
+        )
+    }
+
+    fun dismissSnackBar() {        _uiState.value = _uiState.value.copy(snackBarMessage = null)
     }
 
     fun refreshEnvironment() {

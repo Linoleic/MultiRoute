@@ -45,6 +45,8 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
+import com.multiroute.model.ScenarioProfile
+import com.multiroute.model.ScenarioTrigger
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.TestServerConfig
 import com.multiroute.model.TestServerPreset
@@ -109,6 +111,16 @@ fun MainScreen(
                             )
                         }
                     } else {
+                        androidx.compose.material3.TextButton(onClick = { viewModel.openScenarioSheet() }) {
+                            Text(
+                                text = uiState.activeScenarioName?.let {
+                                    stringResource(com.multiroute.R.string.scenario_current, it)
+                                } ?: stringResource(com.multiroute.R.string.scenario_default),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (uiState.activeScenarioName != null) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline
+                            )
+                        }
                         IconButton(onClick = { viewModel.refreshEnvironment() }) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -233,6 +245,29 @@ fun MainScreen(
                         viewModel.updateTestServerConfig(presetId, customUrl)
                     },
                     onDismiss = { viewModel.closeTestServerDialog() }
+                )
+            }
+
+            // 场景方案抽屉：手动应用 / 恢复自动 / 保存当前指派 / 删除
+            if (uiState.showScenarioSheet) {
+                ScenarioBottomSheet(
+                    profiles = uiState.scenarioProfiles,
+                    manualId = uiState.manualScenarioId,
+                    activeId = uiState.activeScenarioId,
+                    onApplyManually = { viewModel.applyScenarioManually(it) },
+                    onClearManual = { viewModel.clearManualScenario() },
+                    onSaveCurrent = { viewModel.openScenarioSaveDialog() },
+                    onDelete = { viewModel.deleteScenario(it) },
+                    onDismiss = { viewModel.closeScenarioSheet() }
+                )
+            }
+            if (uiState.showScenarioSaveDialog) {
+                ScenarioSaveDialog(
+                    currentSsids = uiState.channels
+                        .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
+                        .distinct(),
+                    onSave = { name, trigger -> viewModel.saveCurrentAssignmentsAsScenario(name, trigger) },
+                    onDismiss = { viewModel.closeScenarioSaveDialog() }
                 )
             }
         }
@@ -1507,6 +1542,203 @@ fun ChannelSelectBottomSheet(
             }
         }
     }
+}
+
+/**
+ * 场景方案抽屉：查看全部方案、手动应用、恢复自动、把当前指派保存为方案、删除方案。
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun ScenarioBottomSheet(
+    profiles: List<ScenarioProfile>,
+    manualId: String,
+    activeId: String?,
+    onApplyManually: (String) -> Unit,
+    onClearManual: () -> Unit,
+    onSaveCurrent: () -> Unit,
+    onDelete: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = stringResource(com.multiroute.R.string.scenario_sheet_title),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = stringResource(com.multiroute.R.string.scenario_sheet_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+
+            androidx.compose.material3.FilterChip(
+                selected = manualId.isEmpty(),
+                onClick = onClearManual,
+                label = { Text(stringResource(com.multiroute.R.string.scenario_auto)) }
+            )
+
+            if (profiles.isEmpty()) {
+                Text(
+                    text = stringResource(com.multiroute.R.string.scenario_empty),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+
+            profiles.forEach { profile ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = profile.name,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = scenarioTriggerLabel(profile.trigger),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    androidx.compose.material3.FilterChip(
+                        selected = manualId == profile.id ||
+                                (manualId.isEmpty() && activeId == profile.id),
+                        onClick = { onApplyManually(profile.id) },
+                        label = {
+                            Text(
+                                if (activeId == profile.id) {
+                                    stringResource(com.multiroute.R.string.scenario_active)
+                                } else {
+                                    stringResource(com.multiroute.R.string.scenario_apply)
+                                }
+                            )
+                        }
+                    )
+                    androidx.compose.material3.TextButton(onClick = { onDelete(profile.id) }) {
+                        Text(stringResource(com.multiroute.R.string.scenario_delete))
+                    }
+                }
+            }
+
+            androidx.compose.material3.TextButton(onClick = onSaveCurrent) {
+                Text(stringResource(com.multiroute.R.string.scenario_save))
+            }
+        }
+    }
+}
+
+/** 触发条件的可读描述，用于方案列表。 */
+@Composable
+fun scenarioTriggerLabel(trigger: ScenarioTrigger): String = when (trigger) {
+    is ScenarioTrigger.SsidMatch ->
+        stringResource(com.multiroute.R.string.scenario_trigger_ssid) + " " + trigger.ssids.joinToString(" / ")
+    is ScenarioTrigger.WifiLinkCount -> stringResource(com.multiroute.R.string.scenario_trigger_links2)
+    is ScenarioTrigger.CellularOnly -> stringResource(com.multiroute.R.string.scenario_trigger_cellular)
+    is ScenarioTrigger.Always -> stringResource(com.multiroute.R.string.scenario_trigger_always)
+    is ScenarioTrigger.Manual -> stringResource(com.multiroute.R.string.scenario_trigger_manual)
+}
+
+/**
+ * 把当前指派保存为方案：名称 + 触发条件（Wi-Fi 名称 / 双 Wi-Fi / 仅蜂窝 / 始终 / 仅手动）。
+ */
+@Composable
+fun ScenarioSaveDialog(
+    currentSsids: List<String>,
+    onSave: (String, ScenarioTrigger) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val name = remember { androidx.compose.runtime.mutableStateOf("") }
+    val kind = remember { androidx.compose.runtime.mutableStateOf("ssid") }
+    val picked = remember { androidx.compose.runtime.mutableStateOf(emptySet<String>()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(com.multiroute.R.string.scenario_save_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name.value,
+                    onValueChange = { name.value = it },
+                    label = { Text(stringResource(com.multiroute.R.string.scenario_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = stringResource(com.multiroute.R.string.scenario_trigger),
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "ssid" to com.multiroute.R.string.scenario_trigger_ssid,
+                        "links2" to com.multiroute.R.string.scenario_trigger_links2,
+                        "cellular" to com.multiroute.R.string.scenario_trigger_cellular,
+                        "always" to com.multiroute.R.string.scenario_trigger_always,
+                        "manual" to com.multiroute.R.string.scenario_trigger_manual
+                    ).forEach { (id, labelRes) ->
+                        androidx.compose.material3.FilterChip(
+                            selected = kind.value == id,
+                            onClick = { kind.value = id },
+                            label = { Text(stringResource(labelRes)) }
+                        )
+                    }
+                }
+                if (kind.value == "ssid") {
+                    if (currentSsids.isEmpty()) {
+                        Text(
+                            text = stringResource(com.multiroute.R.string.scenario_no_ssid),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            currentSsids.forEach { ssid ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = picked.value.contains(ssid),
+                                    onClick = {
+                                        picked.value = if (picked.value.contains(ssid)) {
+                                            picked.value - ssid
+                                        } else {
+                                            picked.value + ssid
+                                        }
+                                    },
+                                    label = { Text(ssid) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                val trigger = when (kind.value) {
+                    "links2" -> ScenarioTrigger.WifiLinkCount(min = 2)
+                    "cellular" -> ScenarioTrigger.CellularOnly
+                    "always" -> ScenarioTrigger.Always
+                    "manual" -> ScenarioTrigger.Manual
+                    else -> ScenarioTrigger.SsidMatch(picked.value.toList())
+                }
+                onSave(name.value, trigger)
+            }) {
+                Text(stringResource(com.multiroute.R.string.ui_save_apply))
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(stringResource(com.multiroute.R.string.ui_cancel))
+            }
+        }
+    )
 }
 
 /**
