@@ -237,6 +237,7 @@
     <string name="scenario_current">Plan: %1$s</string>
     <string name="scenario_sheet_title">Scenario plans</string>
     <string name="scenario_sheet_hint">A plan overrides the apps it mentions when its condition matches; everything else keeps the default assignment.</string>
+    <string name="scenario_sheet_manual_hint">Applying a plan by hand uses only that plan until you switch back to automatic; the others are ignored meanwhile.</string>
     <string name="scenario_auto">Automatic (by condition)</string>
     <string name="scenario_apply">Apply</string>
     <string name="scenario_active">Active</string>

@@ -1715,6 +1715,11 @@ fun ScenarioBottomSheet(
                 onClick = onClearManual,
                 label = { Text(stringResource(com.multiroute.R.string.scenario_auto)) }
             )
+            Text(
+                text = stringResource(com.multiroute.R.string.scenario_sheet_manual_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
 
             if (profiles.isEmpty()) {
                 Text(

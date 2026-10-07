@@ -342,8 +342,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val context = getApplication<Application>()
         ScenarioStore.setManualId(context, id)
         refreshScenarioState()
+        // The sheet stays open on purpose: applying one plan is often the first of several taps, and
+        // closing it forced the user back to the list every time.
         _uiState.value = _uiState.value.copy(
-            showScenarioSheet = false,
             snackBarMessage = context.getString(com.multiroute.R.string.scenario_applied)
         )
         syncRules()
@@ -355,7 +356,6 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         ScenarioStore.setManualId(context, null)
         refreshScenarioState()
         _uiState.value = _uiState.value.copy(
-            showScenarioSheet = false,
             snackBarMessage = context.getString(com.multiroute.R.string.scenario_automatic)
         )
         syncRules()
