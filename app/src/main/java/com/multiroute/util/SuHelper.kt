@@ -770,6 +770,33 @@ object SuHelper {
     /**
      * Compiles a comprehensive diagnostic log snapshot for the user to view or copy.
      */
+    /**
+     * Human-readable reason for the active scenario plan, using the same strings the routing screen uses.
+     * Shared with the diagnostic snapshot so a report says *why* a plan applied, not just that one did.
+     */
+    fun scenarioReasonText(
+        context: Context,
+        resolution: com.multiroute.model.ScenarioResolution
+    ): String {
+        if (resolution.activeId == null) return ""
+        if (resolution.appliedManually) {
+            return context.getString(com.multiroute.R.string.scenario_reason_manual)
+        }
+        return when (val trigger = resolution.matchedTrigger) {
+            is com.multiroute.model.ScenarioTrigger.SsidMatch -> context.getString(
+                com.multiroute.R.string.scenario_reason_ssid,
+                resolution.matchedSsid ?: trigger.ssids.joinToString(" / ")
+            )
+            is com.multiroute.model.ScenarioTrigger.WifiLinkCount ->
+                context.getString(com.multiroute.R.string.scenario_reason_links2)
+            is com.multiroute.model.ScenarioTrigger.CellularOnly ->
+                context.getString(com.multiroute.R.string.scenario_reason_cellular)
+            is com.multiroute.model.ScenarioTrigger.Always ->
+                context.getString(com.multiroute.R.string.scenario_reason_always)
+            else -> context.getString(com.multiroute.R.string.scenario_reason_manual)
+        }
+    }
+
     suspend fun getDiagnosticLogs(context: Context): String = withContext(Dispatchers.IO) {
         val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val now = timeFormat.format(Date())
@@ -789,6 +816,19 @@ object SuHelper {
         }
         sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_always_on, if (diag.mobileDataAlwaysOn) context.getString(com.multiroute.R.string.diag_on) else context.getString(com.multiroute.R.string.diag_off)))
         sb.appendLine(context.getString(com.multiroute.R.string.diag_keepalive, if (diag.isKeepSlaveWifiScreenOff) context.getString(com.multiroute.R.string.diag_keepalive_on) else context.getString(com.multiroute.R.string.diag_keepalive_off)))
+        // Which scenario plan is in effect, and why - the two questions a report about "a wrong route"
+        // always starts with. Only printed when plans exist, so the snapshot stays short for everyone else.
+        if (com.multiroute.data.ScenarioStore.load(context).isNotEmpty()) {
+            val resolution = resolveScenarioProfile(context, RouteConfigProvider.getUidRules(context))
+            sb.appendLine(
+                context.getString(
+                    com.multiroute.R.string.diag_scenario,
+                    resolution.activeName
+                        ?: context.getString(com.multiroute.R.string.diag_scenario_none),
+                    scenarioReasonText(context, resolution)
+                )
+            )
+        }
         sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_uids, diag.mobileDataPreferredUids.ifEmpty { context.getString(com.multiroute.R.string.diag_empty) }))
         sb.appendLine()
 

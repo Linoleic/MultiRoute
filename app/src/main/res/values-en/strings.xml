@@ -261,4 +261,6 @@
     <string name="scenario_saved">Saved plan: %1$s</string>
     <string name="scenario_save_failed">Not saved: give it a name and assign at least one app to a channel first</string>
     <string name="scenario_empty">No scenario plans yet. Assign apps to channels, then save that as a plan.</string>
+    <string name="diag_scenario">• Scenario plan: %1$s%2$s</string>
+    <string name="diag_scenario_none">none matched (the default assignment is in use)</string>
 </resources>

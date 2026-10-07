@@ -5,6 +5,26 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## Unreleased
+
+**中文**
+
+- **场景方案**：给应用指派通道后，可以把它保存为一个方案（名称 + 触发条件）。命中时，方案只覆盖它涉及的应用，
+  其余应用保持默认指派。触发条件支持 **Wi-Fi 名称**（从当前已连接的网络里直接点选）、**双 Wi-Fi 在线**、
+  **仅蜂窝**、**始终**与**仅手动**；多个方案同时命中时按优先级取第一个，也可以在列表里**手动指定**方案
+  （此时忽略条件）。方案还能把某个应用**移出分流**（覆盖为「系统默认」）。分流规则页顶栏显示当前生效方案，
+  点击即可切换；诊断快照会写出当前方案与命中原因。
+
+**English**
+
+- **Scenario plans.** Once apps are assigned to channels, that assignment can be saved as a plan (a name plus a
+  condition) which overrides the apps it mentions when the condition matches, while every other app keeps the
+  default assignment. Conditions: a **Wi-Fi name** picked from the networks connected right now, **two Wi-Fi
+  links**, **cellular only**, **always**, or **manual only**. When several plans match, the lowest priority
+  wins, and a plan can also be pinned by hand (which ignores its condition). A plan may also put an app **back
+  on the system default**. The routing screen shows the active plan in its top bar, and the diagnostic
+  snapshot names the plan and why it matched.
+
 ## v1.2.1
 
 **中文**

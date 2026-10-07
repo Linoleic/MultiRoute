@@ -96,6 +96,11 @@ The on-device evidence behind this table — the commands used and what they ret
   use *different* channels.
 - **Per-app DNS that follows the channel** — queries of an assigned app are redirected to that channel's
   resolver, so name resolution does not stay behind on the default network (or inside a VPN tunnel).
+- **Scenario plans** — save the current assignment as a named plan with a condition (a Wi-Fi name picked
+  from the networks connected right now, two Wi-Fi links, cellular only, always, or manual only). When a plan
+  matches it overrides the apps it mentions and everything else keeps the default assignment; several plans
+  can coexist with a priority order, one can be pinned by hand, and a plan can also put an app back on the
+  system default. The routing screen shows the active plan.
 - **Dual-stack** — IPv4 and IPv6 rules are installed together.
 - **LAN bypass** — on-link subnets are pinned to the interface that owns them, so intranet devices
   (NAS, printers, casting) stay reachable from apps assigned elsewhere.
@@ -282,6 +287,9 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
   space name; only ROMs whose clone spaces are real Android users are covered.
 - **Screen-off keep-alive targets Xiaomi's dual Wi-Fi classes** (`SlaveWifiService`, `DualStaImpl`), and
   the hooks are only installed while that switch is on. On other ROMs the switch is inert.
+- **Scenario plans are evaluated by the app**, not by the module: with the app process killed, a network
+  change does not switch plans until the app runs again (a reboot is covered by `service.d` and the module's
+  wake-up broadcast).
 - **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
 - **Which interface sits on which band can change while the app is running** — that is exactly what the
   Wi-Fi band row is for.

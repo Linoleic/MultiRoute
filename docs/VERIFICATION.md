@@ -34,6 +34,9 @@ scope the module to `system_server` only.
 | **Hook-visible state, and its agreement with routing, while a VPN is active** | built `tools/probe` (`:probe`), read what it reports about itself, then assigned it to the other Wi-Fi through the app and relaunched it | ✅ before: `active: 131 [wifi+vpn] iface=tun0`; after: **`active: 130 [wifi] iface=wlan1`** while the VPN network stayed in `getAllNetworks()`. Its real connections then sourced from the assigned link's address (`ss -tnp`), so the hooks and the kernel route agree |
 | **DNS of an assigned app while a VPN is active** | probe's own resolution plus the routing of the resolver address it is handed | ✅ resolution kept working: the VPN's resolver (`172.19.0.2`) is an on-link address of the tunnel, so it is reached through the tunnel even for an assigned UID (queries stay inside the VPN while the data leaves it). A resolver that is *not* on-link would follow the assignment instead |
 
+| **Scenario plans: triggers, overrides, pinning and priority** | stored plans written directly into the app's preferences, then compared `ip rule show pref 14500` and the app's own log line for each case | ✅ an SSID match applies the override (`14500: from all uidrange 10301-10301 lookup wlan1` plus `Scenario 'SSID scenario' active (matched automatically): overrides=1 … ssid=H3C_CA202C`); a non-matching SSID falls back to the base (zero rules); a manual pin applies regardless of the trigger (`(pinned by hand) … ssid=-`); a plan forcing `default` removed a base rule and reported `forcedDefault=1`, leaving zero rules |
+| **Scenario plans react to a real network change** | started the app, turned Wi-Fi off and back on, then polled the kernel | ✅ the app re-synced on its own (13 log entries during the transition) and the rule was back on the assigned interface once the device reconnected to the same SSID |
+
 ## Findings that changed the implementation
 
 1. **Boot restore had to be reordered.** After a *soft* reboot neither `service.d` nor `BOOT_COMPLETED` runs
@@ -59,6 +62,10 @@ scope the module to `system_server` only.
 - **DNS behaviour** — routing is redirected; name resolution is not managed (see “Known limitations”).
   Measured with a VPN: an assigned app's queries to the tunnel's own resolver stayed inside the tunnel
   because that address is on-link there, while a resolver that is not on-link would follow the assignment.
+- **Scenario plan evaluation while the app is not running** — triggers are evaluated by the app's own network
+  callback, so a plan does not switch on a network change if the app process has been killed. A reboot is
+  covered (`service.d` plus the module's wake-up broadcast); moving the observation into the module, which
+  already lives in `system_server`, is future work.
 - **One ROM family** — both devices are Xiaomi HyperOS.
 
 ## Investigated, not a MultiRoute defect
