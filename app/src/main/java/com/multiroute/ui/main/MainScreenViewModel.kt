@@ -72,7 +72,11 @@ data class MainUiState(
     val activeScenarioManual: Boolean = false,
     val manualScenarioId: String = "",
     val showScenarioSheet: Boolean = false,
-    val showScenarioSaveDialog: Boolean = false
+    val showScenarioSaveDialog: Boolean = false,
+    /** id of the plan whose overrides are being edited; null when assignments go to the base. */
+    val scenarioEditId: String? = null,
+    val scenarioDetailsId: String? = null,
+    val showScenarioDetailsDialog: Boolean = false
 )
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
@@ -174,6 +178,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun exitSelectionMode() {
+        // Leaving the selection also ends scenario edit mode: everything assigned there is already stored
+        // in the plan, so nothing is lost, and the app list goes back to the base configuration.
+        if (_uiState.value.scenarioEditId != null) {
+            finishEditingScenario()
+            return
+        }
         _uiState.value = _uiState.value.copy(
             isSelectionMode = false,
             selectedRuleKeys = emptySet(),
@@ -217,6 +227,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         // primary install of the same package can be assigned independently.
         val keys = _uiState.value.selectedRuleKeys
         if (keys.isEmpty()) return
+
+        // While a plan is being edited the selection lands in that plan instead of the base configuration -
+        // that is what edit mode is for, and it keeps the routing screen meaning "the default plan".
+        _uiState.value.scenarioEditId?.let { editingId ->
+            addOverridesToScenario(editingId, keys, channelId)
+            return
+        }
 
         val context = getApplication<Application>()
         val targets = allApps.filter { it.ruleKey in keys }
@@ -378,6 +395,111 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /** Enters "edit this plan's overrides" mode: selections then land in the plan, not in the base. */
+    fun startEditingScenario(id: String) {
+        val context = getApplication<Application>()
+        val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
+        allApps = allApps.map { app ->
+            val override = profile.overrides[app.ruleKey]
+            if (override != null) app.copy(targetChannelId = override) else app
+        }
+        _uiState.value = _uiState.value.copy(
+            showScenarioSheet = false,
+            scenarioEditId = id,
+            isSelectionMode = true,
+            selectedRuleKeys = profile.overrides.keys,
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_editing, profile.name)
+        )
+        filterApps()
+    }
+
+    /** Leaves edit mode and puts the app list back on the base assignments. */
+    fun finishEditingScenario() {
+        val context = getApplication<Application>()
+        val base = com.multiroute.data.RouteConfigProvider.getAllRules(context)
+        allApps = allApps.map { app ->
+            app.copy(targetChannelId = base[app.ruleKey] ?: com.multiroute.model.CHANNEL_DEFAULT)
+        }
+        _uiState.value = _uiState.value.copy(
+            scenarioEditId = null,
+            isSelectionMode = false,
+            selectedRuleKeys = emptySet(),
+            showBatchAssignSheet = false
+        )
+        filterApps()
+        refreshScenarioState()
+    }
+
+    private fun addOverridesToScenario(id: String, ruleKeys: Set<String>, channelId: String) {
+        val context = getApplication<Application>()
+        val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
+        val overrides = profile.overrides.toMutableMap()
+        ruleKeys.forEach { key -> overrides[key] = channelId }
+        ScenarioStore.upsert(context, profile.copy(overrides = overrides))
+        allApps = allApps.map { if (it.ruleKey in ruleKeys) it.copy(targetChannelId = channelId) else it }
+        _uiState.value = _uiState.value.copy(
+            showBatchAssignSheet = false,
+            snackBarMessage = context.getString(
+                com.multiroute.R.string.scenario_override_added, ruleKeys.size, profile.name
+            )
+        )
+        filterApps()
+        refreshScenarioState()
+        syncRules()
+    }
+
+    /** Moves a plan up or down in the order that decides which of several matching plans wins. */
+    fun moveScenario(id: String, delta: Int) {
+        val context = getApplication<Application>()
+        val list = ScenarioStore.load(context).toMutableList()
+        val from = list.indexOfFirst { it.id == id }
+        if (from < 0) return
+        val to = (from + delta).coerceIn(0, list.size - 1)
+        if (to == from) return
+        list.add(to, list.removeAt(from))
+        // Renumber so the stored order *is* the evaluation order, spaced so a manual priority edit stays
+        // possible without colliding with the neighbours.
+        ScenarioStore.save(
+            context,
+            list.mapIndexed { index, profile -> profile.copy(priority = (index + 1) * 10) }
+        )
+        _uiState.value = _uiState.value.copy(
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_moved)
+        )
+        refreshScenarioState()
+        syncRules()
+    }
+
+    fun openScenarioDetails(id: String) {
+        _uiState.value = _uiState.value.copy(
+            showScenarioSheet = false,
+            showScenarioDetailsDialog = true,
+            scenarioDetailsId = id
+        )
+    }
+
+    fun closeScenarioDetails() {
+        _uiState.value = _uiState.value.copy(
+            showScenarioDetailsDialog = false,
+            scenarioDetailsId = null
+        )
+    }
+
+    /** Renames a plan and/or changes the condition it matches on. */
+    fun saveScenarioDetails(id: String, name: String, trigger: ScenarioTrigger) {
+        val context = getApplication<Application>()
+        val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
+        if (name.isBlank()) return
+        ScenarioStore.upsert(context, profile.copy(name = name.trim(), trigger = trigger))
+        _uiState.value = _uiState.value.copy(
+            showScenarioDetailsDialog = false,
+            scenarioDetailsId = null,
+            snackBarMessage = context.getString(com.multiroute.R.string.scenario_updated, name.trim())
+        )
+        refreshScenarioState()
+        syncRules()
+    }
+
     /** Which profile applies right now, for the UI only - the sync evaluates this itself. */
     private fun refreshScenarioState() {
         val context = getApplication<Application>()
@@ -509,6 +631,29 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun updateRouteChannel(app: AppItem, channelId: String) {
         val context = getApplication<Application>()
+
+        // Same rule as the batch path: while editing a plan, a single assignment belongs to that plan.
+        _uiState.value.scenarioEditId?.let { editingId ->
+            val profile = ScenarioStore.load(context).firstOrNull { it.id == editingId }
+            if (profile != null) {
+                val overrides = profile.overrides.toMutableMap()
+                overrides[app.ruleKey] = channelId
+                ScenarioStore.upsert(context, profile.copy(overrides = overrides))
+                allApps = allApps.map {
+                    if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
+                }
+                _uiState.value = _uiState.value.copy(
+                    selectedAppForSheet = null,
+                    snackBarMessage = context.getString(
+                        com.multiroute.R.string.scenario_override_added, 1, profile.name
+                    )
+                )
+                filterApps()
+                refreshScenarioState()
+                syncRules()
+                return
+            }
+        }
         RouteConfigProvider.setTargetChannel(
             context,
             RuleTarget(app.ruleKey, app.uid),

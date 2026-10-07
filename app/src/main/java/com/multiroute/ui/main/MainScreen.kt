@@ -83,8 +83,15 @@ fun MainScreen(
             TopAppBar(
                 title = {
                     Column {
+                        val editingName = uiState.scenarioEditId?.let { id ->
+                            uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
+                        }
                         Text(
-                            text = if (uiState.isSelectionMode) stringResource(com.multiroute.R.string.ui_batch_title) else "MultiRoute",
+                            text = if (uiState.isSelectionMode) {
+                                editingName?.let {
+                                    stringResource(com.multiroute.R.string.scenario_editing, it)
+                                } ?: stringResource(com.multiroute.R.string.ui_batch_title)
+                            } else "MultiRoute",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
@@ -111,14 +118,30 @@ fun MainScreen(
                             )
                         }
                     } else {
-                        androidx.compose.material3.TextButton(onClick = { viewModel.openScenarioSheet() }) {
+                        val editingName = uiState.scenarioEditId?.let { id ->
+                            uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
+                        }
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                if (uiState.scenarioEditId != null) {
+                                    viewModel.finishEditingScenario()
+                                } else {
+                                    viewModel.openScenarioSheet()
+                                }
+                            }
+                        ) {
                             Text(
-                                text = uiState.activeScenarioName?.let {
+                                text = editingName?.let {
+                                    stringResource(com.multiroute.R.string.scenario_editing, it)
+                                } ?: uiState.activeScenarioName?.let {
                                     stringResource(com.multiroute.R.string.scenario_current, it)
                                 } ?: stringResource(com.multiroute.R.string.scenario_default),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = if (uiState.activeScenarioName != null) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline
+                                color = if (uiState.activeScenarioName != null || editingName != null) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                }
                             )
                         }
                         IconButton(onClick = { viewModel.refreshEnvironment() }) {
@@ -258,6 +281,9 @@ fun MainScreen(
                     onClearManual = { viewModel.clearManualScenario() },
                     onSaveCurrent = { viewModel.openScenarioSaveDialog() },
                     onDelete = { viewModel.deleteScenario(it) },
+                    onEditOverrides = { viewModel.startEditingScenario(it) },
+                    onEditDetails = { viewModel.openScenarioDetails(it) },
+                    onMove = { id, delta -> viewModel.moveScenario(id, delta) },
                     onDismiss = { viewModel.closeScenarioSheet() }
                 )
             }
@@ -269,6 +295,26 @@ fun MainScreen(
                     onSave = { name, trigger -> viewModel.saveCurrentAssignmentsAsScenario(name, trigger) },
                     onDismiss = { viewModel.closeScenarioSaveDialog() }
                 )
+            }
+            // 修改已有方案的名称与触发条件
+            if (uiState.showScenarioDetailsDialog) {
+                val edited = uiState.scenarioDetailsId?.let { id ->
+                    uiState.scenarioProfiles.firstOrNull { it.id == id }
+                }
+                if (edited != null) {
+                    ScenarioSaveDialog(
+                        titleRes = com.multiroute.R.string.scenario_details_title,
+                        initialName = edited.name,
+                        initialTrigger = edited.trigger,
+                        currentSsids = uiState.channels
+                            .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
+                            .distinct(),
+                        onSave = { name, trigger ->
+                            viewModel.saveScenarioDetails(edited.id, name, trigger)
+                        },
+                        onDismiss = { viewModel.closeScenarioDetails() }
+                    )
+                }
             }
         }
     }
@@ -1557,6 +1603,9 @@ fun ScenarioBottomSheet(
     onClearManual: () -> Unit,
     onSaveCurrent: () -> Unit,
     onDelete: (String) -> Unit,
+    onEditOverrides: (String) -> Unit,
+    onEditDetails: (String) -> Unit,
+    onMove: (String, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
@@ -1609,6 +1658,26 @@ fun ScenarioBottomSheet(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            androidx.compose.material3.TextButton(onClick = { onEditOverrides(profile.id) }) {
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.scenario_edit_overrides),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            androidx.compose.material3.TextButton(onClick = { onEditDetails(profile.id) }) {
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.scenario_edit_details),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            androidx.compose.material3.TextButton(onClick = { onMove(profile.id, -1) }) {
+                                Text(text = "\u2191", style = MaterialTheme.typography.labelSmall)
+                            }
+                            androidx.compose.material3.TextButton(onClick = { onMove(profile.id, 1) }) {
+                                Text(text = "\u2193", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                     androidx.compose.material3.FilterChip(
                         selected = manualId == profile.id ||
@@ -1655,15 +1724,35 @@ fun scenarioTriggerLabel(trigger: ScenarioTrigger): String = when (trigger) {
 fun ScenarioSaveDialog(
     currentSsids: List<String>,
     onSave: (String, ScenarioTrigger) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    titleRes: Int = com.multiroute.R.string.scenario_save_title,
+    initialName: String = "",
+    initialTrigger: ScenarioTrigger? = null
 ) {
-    val name = remember { androidx.compose.runtime.mutableStateOf("") }
-    val kind = remember { androidx.compose.runtime.mutableStateOf("ssid") }
-    val picked = remember { androidx.compose.runtime.mutableStateOf(emptySet<String>()) }
+    val name = remember { androidx.compose.runtime.mutableStateOf(initialName) }
+    val kind = remember {
+        androidx.compose.runtime.mutableStateOf(
+            when (initialTrigger) {
+                is ScenarioTrigger.WifiLinkCount -> "links2"
+                is ScenarioTrigger.CellularOnly -> "cellular"
+                is ScenarioTrigger.Always -> "always"
+                is ScenarioTrigger.Manual -> "manual"
+                else -> "ssid"
+            }
+        )
+    }
+    val picked = remember {
+        androidx.compose.runtime.mutableStateOf(
+            (initialTrigger as? ScenarioTrigger.SsidMatch)?.ssids?.toSet() ?: emptySet<String>()
+        )
+    }
+    // A plan being edited may name a network that is not connected right now; keep it selectable so the
+    // dialog cannot silently drop it.
+    val ssidOptions = (currentSsids + picked.value).distinct()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(com.multiroute.R.string.scenario_save_title)) },
+        title = { Text(stringResource(titleRes)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -1693,7 +1782,7 @@ fun ScenarioSaveDialog(
                     }
                 }
                 if (kind.value == "ssid") {
-                    if (currentSsids.isEmpty()) {
+                    if (ssidOptions.isEmpty()) {
                         Text(
                             text = stringResource(com.multiroute.R.string.scenario_no_ssid),
                             style = MaterialTheme.typography.bodySmall,
@@ -1701,7 +1790,7 @@ fun ScenarioSaveDialog(
                         )
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            currentSsids.forEach { ssid ->
+                            ssidOptions.forEach { ssid ->
                                 androidx.compose.material3.FilterChip(
                                     selected = picked.value.contains(ssid),
                                     onClick = {

@@ -263,4 +263,11 @@
     <string name="scenario_empty">还没有场景方案。先给应用指派通道，再保存为方案。</string>
     <string name="diag_scenario">• 场景方案: %1$s%2$s</string>
     <string name="diag_scenario_none">无命中（使用默认指派）</string>
+    <string name="scenario_editing">编辑中：%1$s</string>
+    <string name="scenario_edit_overrides">编辑应用</string>
+    <string name="scenario_edit_details">名称/条件</string>
+    <string name="scenario_override_added">已写入方案 %2$s：%1$d 个应用</string>
+    <string name="scenario_updated">已更新方案：%1$s</string>
+    <string name="scenario_moved">已调整方案顺序</string>
+    <string name="scenario_details_title">方案名称与触发条件</string>
 </resources>

@@ -263,4 +263,11 @@
     <string name="scenario_empty">No scenario plans yet. Assign apps to channels, then save that as a plan.</string>
     <string name="diag_scenario">• Scenario plan: %1$s%2$s</string>
     <string name="diag_scenario_none">none matched (the default assignment is in use)</string>
+    <string name="scenario_editing">Editing: %1$s</string>
+    <string name="scenario_edit_overrides">Edit apps</string>
+    <string name="scenario_edit_details">Name/condition</string>
+    <string name="scenario_override_added">Written to plan %2$s: %1$d app(s)</string>
+    <string name="scenario_updated">Updated plan: %1$s</string>
+    <string name="scenario_moved">Plan order changed</string>
+    <string name="scenario_details_title">Plan name and condition</string>
 </resources>
