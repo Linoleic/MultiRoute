@@ -18,6 +18,11 @@ object ScenarioStore {
     private const val PREFS = "multiroute_scenarios"
     private const val KEY_PROFILES = "profiles"
     private const val KEY_MANUAL = "manual_id"
+    private const val KEY_MODE = "mode"
+    private const val KEY_MANUAL_IDS = "manual_ids"
+
+    const val MODE_AUTOMATIC = "auto"
+    const val MODE_MANUAL = "manual"
 
     /** Trigger kinds, written to JSON so the format stays readable and forward-compatible. */
     private const val KIND_ALWAYS = "always"
@@ -67,15 +72,63 @@ object ScenarioStore {
 
     fun delete(context: Context, id: String) {
         save(context, load(context).filterNot { it.id == id })
-        if (getManualId(context) == id) setManualId(context, null)
+        if (id in getManualIds(context)) {
+            setManualIds(context, getManualIds(context) - id)
+        }
+    }
+
+    /**
+     * True when the conditions are ignored and plans are switched by hand only. Stored explicitly; a
+     * database written by an older build has no mode, and its single pinned plan meant the same thing.
+     */
+    fun isManualMode(context: Context): Boolean {
+        val sp = prefs(context)
+        if (sp.contains(KEY_MODE)) return sp.getString(KEY_MODE, MODE_AUTOMATIC) == MODE_MANUAL
+        return getManualIds(context).isNotEmpty()
+    }
+
+    fun setManualMode(context: Context, manual: Boolean) {
+        prefs(context).edit()
+            .putString(KEY_MODE, if (manual) MODE_MANUAL else MODE_AUTOMATIC)
+            .apply()
+    }
+
+    /** Plans switched on by hand. Several can be on at once, and they layer by priority like the rest. */
+    fun getManualIds(context: Context): Set<String> {
+        val sp = prefs(context)
+        sp.getStringSet(KEY_MANUAL_IDS, null)?.let { return it }
+        // Legacy: one pinned plan.
+        return (sp.getString(KEY_MANUAL, "") ?: "").takeIf { it.isNotEmpty() }?.let { setOf(it) }
+            ?: emptySet()
+    }
+
+    fun setManualIds(context: Context, ids: Collection<String>) {
+        prefs(context).edit().putStringSet(KEY_MANUAL_IDS, ids.toSet()).apply()
+    }
+
+    /** Switches one plan on or off; returns true when it is now on. */
+    fun toggleManualId(context: Context, id: String): Boolean {
+        val current = getManualIds(context).toMutableSet()
+        val enabled = if (current.contains(id)) {
+            current.remove(id)
+            false
+        } else {
+            current.add(id)
+            true
+        }
+        setManualIds(context, current)
+        return enabled
     }
 
     /** Id of the profile the user pinned by hand, or empty when selection is automatic. */
-    fun getManualId(context: Context): String = prefs(context).getString(KEY_MANUAL, "") ?: ""
+    fun getManualId(context: Context): String = getManualIds(context).firstOrNull() ?: ""
 
     fun setManualId(context: Context, id: String?) {
-        if (id.isNullOrEmpty()) prefs(context).edit().remove(KEY_MANUAL).apply()
-        else prefs(context).edit().putString(KEY_MANUAL, id).apply()
+        if (id.isNullOrEmpty()) {
+            setManualIds(context, emptySet())
+        } else {
+            setManualIds(context, setOf(id))
+        }
     }
 
     private fun encodeProfile(profile: ScenarioProfile): JSONObject {

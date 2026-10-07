@@ -69,11 +69,34 @@ object ScenarioEngine {
     }
 
     /**
+     * How the active plans are chosen. In [MANUAL] no trigger is evaluated at all: exactly the plans the
+     * user switched on apply, and several may be on at once.
+     */
+    enum class SelectionMode { AUTOMATIC, MANUAL }
+
+    /**
      * Every profile that applies, lowest priority first.
      *
-     * Plans layer rather than compete: with dual Wi-Fi up, a plan matching one link and a plan matching the
-     * other both apply, each contributing its own overrides. A manual pin still short-circuits to that one
-     * profile, because pinning means "only this".
+     * In [SelectionMode.AUTOMATIC] that is every enabled profile whose condition holds, so dual Wi-Fi with a
+     * plan per link applies both. In [SelectionMode.MANUAL] the conditions are ignored entirely and the
+     * hand-switched [manualIds] apply, again layered by priority.
+     */
+    fun selectProfiles(
+        profiles: List<ScenarioProfile>,
+        observation: ScenarioObservation,
+        mode: SelectionMode,
+        manualIds: Set<String> = emptySet()
+    ): List<ScenarioProfile> {
+        val candidates = when (mode) {
+            SelectionMode.MANUAL -> profiles.filter { it.enabled && it.id in manualIds }
+            SelectionMode.AUTOMATIC -> profiles.filter { it.enabled && matches(it.trigger, observation) }
+        }
+        return candidates.sortedBy { it.priority }
+    }
+
+    /**
+     * Legacy single-pin entry point: a non-empty [manualId] selects that plan alone. Kept so callers that
+     * only know about the old pin model keep working; new code passes a [SelectionMode] instead.
      */
     fun selectProfiles(
         profiles: List<ScenarioProfile>,
@@ -82,12 +105,9 @@ object ScenarioEngine {
     ): List<ScenarioProfile> {
         val pinned = manualId?.takeIf { it.isNotEmpty() && it != MANUAL_NONE }
         if (pinned != null) {
-            // A pin that was deleted (or disabled) must not leave the device with no plan at all: fall
-            // through to automatic selection instead.
             profiles.firstOrNull { it.id == pinned && it.enabled }?.let { return listOf(it) }
         }
-        return profiles.filter { it.enabled && matches(it.trigger, observation) }
-            .sortedBy { it.priority }
+        return selectProfiles(profiles, observation, SelectionMode.AUTOMATIC)
     }
 
     /** The profile that applies first, for the places that show a single plan. */
@@ -132,12 +152,21 @@ object ScenarioEngine {
         observation: ScenarioObservation,
         manualId: String? = null,
         overridesByUid: (ScenarioProfile) -> Map<Int, String> = { emptyMap() },
-        hasChannel: (String) -> Boolean = { true }
+        hasChannel: (String) -> Boolean = { true },
+        mode: SelectionMode = SelectionMode.AUTOMATIC,
+        manualIds: Set<String> = emptySet()
     ): ScenarioResolution {
-        val selected = selectProfiles(profiles, observation, manualId)
+        // A legacy pin behaves as manual mode with that single plan switched on.
+        val legacyPin = manualId?.takeIf { it.isNotEmpty() && it != MANUAL_NONE }
+        val selected = if (legacyPin != null) {
+            selectProfiles(profiles, observation, manualId = legacyPin)
+        } else {
+            selectProfiles(profiles, observation, mode, manualIds)
+        }
         if (selected.isEmpty()) {
             return ScenarioResolution(effectiveRules = base)
         }
+        val manualSelection = legacyPin != null || mode == SelectionMode.MANUAL
 
         // Fold every matching plan in priority order: a later plan can re-route an app an earlier one set,
         // and a later `default` can take one back out of routing.
@@ -173,7 +202,7 @@ object ScenarioEngine {
 
         val first = selected.first()
         val trigger = first.trigger
-        val pinned = !manualId.isNullOrEmpty() && manualId != MANUAL_NONE && manualId == first.id
+        val pinned = manualSelection
 
         return ScenarioResolution(
             activeId = first.id,
