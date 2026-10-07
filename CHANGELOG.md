@@ -5,6 +5,23 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## Unreleased
+
+**中文**
+
+- **场景方案在应用未运行时也生效**：模块在 `system_server` 侧监听链路变化，仅在存在方案时唤醒应用重新评估
+  （没有方案就保持休眠）；应用进程被杀时同样会切换。
+- 方案支持**编辑覆盖应用**（编辑态下的指派写入方案而不是默认方案）、**改名与触发条件**、**调整顺序**
+  （顺序即判定优先级）。
+
+**English**
+
+- **Scenario plans now apply while the app is not running.** The module watches link changes inside
+  `system_server` and wakes the app to re-evaluate, but only while a plan exists - without one the app stays
+  asleep. The app's own callback is no longer the only trigger.
+- Plans can be **re-edited** (in edit mode assignments go into the plan instead of the default plan),
+  **renamed**, have their **condition changed**, and be **reordered** - the stored order is the priority order.
+
 ## v1.2.2
 
 **中文**

@@ -37,6 +37,9 @@ scope the module to `system_server` only.
 | **Scenario plans: triggers, overrides, pinning and priority** | stored plans written directly into the app's preferences, then compared `ip rule show pref 14500` and the app's own log line for each case | ✅ an SSID match applies the override (`14500: from all uidrange 10301-10301 lookup wlan1` plus `Scenario 'SSID scenario' active (matched automatically): overrides=1 … ssid=H3C_CA202C`); a non-matching SSID falls back to the base (zero rules); a manual pin applies regardless of the trigger (`(pinned by hand) … ssid=-`); a plan forcing `default` removed a base rule and reported `forcedDefault=1`, leaving zero rules |
 | **Scenario plans react to a real network change** | started the app, turned Wi-Fi off and back on, then polled the kernel | ✅ the app re-synced on its own (13 log entries during the transition) and the rule was back on the assigned interface once the device reconnected to the same SSID |
 
+| **A plan switches even while the app is not running** | stored a plan, killed the app (verified with `pidof`), toggled Wi-Fi off and on, then polled the module log, the process list and the kernel | ✅ the module logged `[Scenario] Link changed and plans exist; waking the app to re-evaluate`, the app process came back on its own (`pidof` returned a new pid) and re-applied the rule (`Boot route rules sync completed. Result: true`). With the plan deleted the same toggle woke nothing: zero such log lines and the app stayed dead |
+| **Editing a plan's overrides and its order** | injected two plans, opened the plan sheet on device, entered "edit apps", and reordered them | ✅ the sheet listed both plans with their conditions and status; "edit apps" opened the selection with the plan's override preselected and the header reading `Editing: <plan>`; reordering renumbers the stored priorities so the stored order is the evaluation order |
+
 ## Findings that changed the implementation
 
 1. **Boot restore had to be reordered.** After a *soft* reboot neither `service.d` nor `BOOT_COMPLETED` runs
@@ -62,10 +65,9 @@ scope the module to `system_server` only.
 - **DNS behaviour** — routing is redirected; name resolution is not managed (see “Known limitations”).
   Measured with a VPN: an assigned app's queries to the tunnel's own resolver stayed inside the tunnel
   because that address is on-link there, while a resolver that is not on-link would follow the assignment.
-- **Scenario plan evaluation while the app is not running** — triggers are evaluated by the app's own network
-  callback, so a plan does not switch on a network change if the app process has been killed. A reboot is
-  covered (`service.d` plus the module's wake-up broadcast); moving the observation into the module, which
-  already lives in `system_server`, is future work.
+- **Scenario plan evaluation needs the module loaded** — the module watches link changes only once it is
+  running in `system_server`, so after installing a new module build a soft reboot (or reboot) is required
+  before a plan keeps switching while the app is dead. Nothing else about the plan evaluation is unverified.
 - **One ROM family** — both devices are Xiaomi HyperOS.
 
 ## Investigated, not a MultiRoute defect
