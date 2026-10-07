@@ -1714,16 +1714,19 @@ fun ScenarioBottomSheet(
                 color = MaterialTheme.colorScheme.outline
             )
 
-            androidx.compose.material3.FilterChip(
-                selected = !manualMode,
-                onClick = onClearManual,
-                label = { Text(stringResource(com.multiroute.R.string.scenario_auto)) }
-            )
-            androidx.compose.material3.FilterChip(
-                selected = manualMode,
-                onClick = onSetManual,
-                label = { Text(stringResource(com.multiroute.R.string.scenario_manual_mode)) }
-            )
+            // Side by side: the two modes are one choice, not two stacked options.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilterChip(
+                    selected = !manualMode,
+                    onClick = onClearManual,
+                    label = { Text(stringResource(com.multiroute.R.string.scenario_mode_auto)) }
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = manualMode,
+                    onClick = onSetManual,
+                    label = { Text(stringResource(com.multiroute.R.string.scenario_mode_manual)) }
+                )
+            }
             Text(
                 text = stringResource(com.multiroute.R.string.scenario_sheet_manual_hint),
                 style = MaterialTheme.typography.bodySmall,

@@ -293,4 +293,6 @@
     <string name="config_import_message">导入会覆盖当前的指派与场景方案。当前配置已自动备份到应用私有目录，可回退。</string>
     <string name="config_import_confirm">覆盖导入</string>
     <string name="config_imported">已导入：%1$d 个指派、%2$d 个方案（跳过 %3$d 项）</string>
+    <string name="scenario_mode_auto">自动</string>
+    <string name="scenario_mode_manual">手动</string>
 </resources>

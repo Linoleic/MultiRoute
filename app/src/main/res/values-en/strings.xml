@@ -293,4 +293,6 @@
     <string name="config_import_message">Importing replaces the current assignments and scenario plans. The current configuration was backed up in private app storage first, so it can be restored.</string>
     <string name="config_import_confirm">Replace and import</string>
     <string name="config_imported">Imported: %1$d assignment(s), %2$d plan(s), %3$d skipped</string>
+    <string name="scenario_mode_auto">Automatic</string>
+    <string name="scenario_mode_manual">Manual</string>
 </resources>
