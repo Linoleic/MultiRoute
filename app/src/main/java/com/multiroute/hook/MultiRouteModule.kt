@@ -198,6 +198,7 @@ class MultiRouteModule : XposedModule() {
     override fun onSystemServerStarting(param: XposedModuleInterface.SystemServerStartingParam) {
         super.onSystemServerStarting(param)
         val classLoader = param.classLoader
+        systemServerClassLoader = classLoader
         log(Log.INFO, TAG, "System server starting up, preparing Dynamic Multi-Channel hooks...")
 
         // 1. Mark module active immediately at system_server startup
@@ -1042,6 +1043,65 @@ class MultiRouteModule : XposedModule() {
     @Volatile
     private var linkCallbackRegistered = false
 
+    /** Kept so the boot watchdog (which runs later, when logs are actually visible) can use it. */
+    @Volatile
+    private var systemServerClassLoader: ClassLoader? = null
+
+    /** Where the (read-only) tethering-surface discovery is written for the app to pick up. */
+    private val TETHER_SURFACE_PATH = "/data/system/multiroute_tether_surface"
+
+    /**
+     * Read-only discovery for the hotspot-upstream work: logs which tethering classes this ROM has and which
+     * of their fields/methods mention an upstream or an interface type. It installs nothing, so the hook that
+     * follows can target names this ROM actually contains instead of what AOSP happens to look like - reading
+     * the APEX dex files on the device turned out to be unreliable (split apexes, oat artifacts, and `strings`
+     * not surfacing every name).
+     */
+    private fun logTetheringSurface(classLoader: ClassLoader) {
+        val candidates = listOf(
+            "com.android.server.connectivity.tethering.Tethering",
+            "com.android.server.connectivity.tethering.TetheringConfiguration",
+            "com.android.server.connectivity.tethering.UpstreamNetworkMonitor"
+        )
+        val report = StringBuilder()
+        // The tethering service lives in an APEX and is not reachable through the classloader the module is
+        // handed, so try every loader that could plausibly own it and report which one works.
+        val loaders = linkedMapOf<String, ClassLoader?>("param" to classLoader)
+        loaders["system"] = ClassLoader.getSystemClassLoader()
+        Thread.currentThread().contextClassLoader?.let { loaders["context"] = it }
+        javaClass.classLoader?.let { loaders["module"] = it }
+        for ((label, loader) in loaders) {
+            if (loader == null) continue
+            for (name in candidates) {
+                try {
+                    val clazz = Class.forName(name, false, loader)
+                    report.appendLine("[$label/${loader.javaClass.simpleName}] $name : loaded")
+                    clazz.declaredFields
+                        .filter { it.name.contains("pstream", true) || it.name.contains("IfaceType", true) }
+                        .forEach { report.appendLine("  field ${it.name} : ${it.type.simpleName}") }
+                    clazz.declaredMethods
+                        .filter { it.name.contains("pstream", true) || it.name.contains("IfaceType", true) }
+                        .forEach { method ->
+                            report.appendLine(
+                                "  method ${method.name}(" +
+                                        method.parameterTypes.joinToString { it.simpleName } + ")"
+                            )
+                        }
+                } catch (t: Throwable) {
+                    report.appendLine("[$label] $name : ${t.javaClass.simpleName}")
+                }
+            }
+        }
+        report.lineSequence().forEach { log(Log.INFO, TAG, "[TetherSurface] $it") }
+        // Logs from inside system_server are not a dependable channel on every ROM, so the same text also
+        // lands in a file the app can read - the same pattern the rule cache already uses.
+        try {
+            java.io.File(TETHER_SURFACE_PATH).writeText(report.toString())
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "[TetherSurface] could not write $TETHER_SURFACE_PATH: ${t.message}")
+        }
+    }
+
     @Volatile
     private var lastScenarioWakeAt = 0L
 
@@ -1109,6 +1169,10 @@ class MultiRouteModule : XposedModule() {
                 // SystemServiceManager interception) have either installed or failed, so the beacon
                 // published here is the authoritative one for this boot.
                 publishState("bootRestoreWatchdog", "ready")
+
+                // Discovery runs here, not at onSystemServerStarting: logs written that early are dropped
+                // before LSPosed's log daemon is attached, which made the first attempt look like dead code.
+                systemServerClassLoader?.let { logTetheringSurface(it) }
 
                 // Wake the app so it re-applies its own routing rules.
                 //
