@@ -16,6 +16,9 @@
     <string name="settings_keep_slave_wifi">Keep secondary Wi-Fi on screen-off</string>
     <string name="settings_keep_slave_wifi_desc">Stops the system from tearing down the secondary Wi-Fi when the screen turns off, so dual WLAN stays online for background routing (standby power rises slightly)</string>
     <string name="settings_keep_slave_wifi_note">Only available on Xiaomi HyperOS / MIUI devices with dual WLAN; the switch does nothing on other ROMs</string>
+    <string name="settings_dns_redirect">DNS follows assigned channel</string>
+    <string name="settings_dns_redirect_desc">Rewrites standard DNS (UDP/TCP port 53) queries of assigned apps to their channel\'s own resolver, preventing queries from lingering on the default network</string>
+    <string name="settings_dns_redirect_note">Note: If system Private DNS (DoT / port 853) or app-level DoH is enabled, encrypted DNS traffic is managed by the system security policy and cannot be transparently rewritten</string>
     <string name="settings_egress">Public-IP test</string>
     <string name="settings_root_env">Root environment</string>
     <string name="settings_kernel_rules">Kernel policy routing</string>

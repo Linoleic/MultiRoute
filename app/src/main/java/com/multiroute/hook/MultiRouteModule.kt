@@ -141,7 +141,7 @@ class MultiRouteModule : XposedModule() {
             val markerFile = java.io.File(ModuleStateParser.MARKER_PATH)
             markerFile.writeText(beacon)
             markerFile.setReadable(true, false)
-            markerFile.setWritable(true, false)
+            markerFile.setWritable(true, true)
         } catch (t: Throwable) {
             log(Log.WARN, TAG, "[$source] Could not write ${ModuleStateParser.MARKER_PATH}: ${t.message}")
         }
@@ -704,6 +704,26 @@ class MultiRouteModule : XposedModule() {
         try {
             val receiver = object : android.content.BroadcastReceiver() {
                 override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
+                    // Security: Verify that the broadcast came from MultiRoute's own UID or root/system.
+                    val senderUid = runCatching {
+                        val m = android.content.BroadcastReceiver::class.java.getDeclaredMethod("getSendingUid")
+                        m.isAccessible = true
+                        (m.invoke(this) as? Number)?.toInt()
+                    }.getOrNull()
+
+                    val allowedUids = mutableSetOf(android.os.Process.myUid(), 0, 1000)
+                    ctx?.packageManager?.let { pm ->
+                        runCatching {
+                            val appUid = pm.getPackageUid(BuildConfig.APPLICATION_ID, 0)
+                            if (appUid > 0) allowedUids.add(appUid)
+                        }
+                    }
+
+                    if (senderUid != null && senderUid !in allowedUids) {
+                        log(Log.WARN, TAG, "[KeepAlive] Ignored unauthorized keep-alive signal from UID $senderUid")
+                        return
+                    }
+
                     if (!isKeepSlaveWifiScreenOff()) {
                         log(Log.INFO, TAG, "[KeepAlive] Switch is off; no hooks installed.")
                         return

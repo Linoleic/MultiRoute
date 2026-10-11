@@ -16,6 +16,9 @@
     <string name="settings_keep_slave_wifi">副 Wi-Fi 息屏防断联</string>
     <string name="settings_keep_slave_wifi_desc">禁止手机息屏休眠时系统主动拆除副 Wi-Fi，保持双 WLAN 持续在线与后台分流（开启后息屏待机功耗将略有增加）</string>
     <string name="settings_keep_slave_wifi_note">目前仅小米 HyperOS / MIUI 的双 WLAN 机型可用，其他 ROM 上该开关无效</string>
+    <string name="settings_dns_redirect">DNS 随指派通道解析</string>
+    <string name="settings_dns_redirect_desc">将被指派应用的标准 DNS (UDP/TCP 53) 查询透明改写到其通道自身的解析器，避免解析请求滞留在默认网络</string>
+    <string name="settings_dns_redirect_note">注意：若开启系统「私人 DNS」(DoT / 853 端口) 或应用内使用 DoH 加密，解析流量将由系统安全策略托管而无法被透明改写</string>
     <string name="settings_egress">公网出口测试设置</string>
     <string name="settings_root_env">Root 运行环境</string>
     <string name="settings_kernel_rules">内核策略路由规则</string>

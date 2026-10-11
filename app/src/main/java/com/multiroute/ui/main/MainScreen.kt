@@ -1054,6 +1054,35 @@ fun SettingsTab(
                             onCheckedChange = { viewModel.toggleKeepSlaveWifiScreenOff() }
                         )
                     }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_dns_redirect),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_dns_redirect_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_dns_redirect_note),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Switch(
+                            checked = uiState.isDnsFollowsChannel,
+                            onCheckedChange = { viewModel.toggleDnsFollowsChannel() }
+                        )
+                    }
                 }
             }
         }

@@ -39,6 +39,7 @@ data class MainUiState(
     val isRootGranted: Boolean = false,
     val isMobileDataAlwaysOn: Boolean = false,
     val isKeepSlaveWifiScreenOff: Boolean = false,
+    val isDnsFollowsChannel: Boolean = true,
     val channels: List<NetworkChannel> = emptyList(),
     val testResults: Map<String, String> = emptyMap(),
     val isTesting: Boolean = false,
@@ -751,6 +752,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     isRootGranted = diag.isRootGranted,
                     isMobileDataAlwaysOn = diag.mobileDataAlwaysOn,
                     isKeepSlaveWifiScreenOff = diag.isKeepSlaveWifiScreenOff,
+                    isDnsFollowsChannel = RouteConfigProvider.isDnsFollowsChannel(context),
                     channels = activeChannels,
                     diagnosticInfo = diag
                 )
@@ -774,6 +776,19 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun closeLogsDialog() {
         _uiState.value = _uiState.value.copy(showLogsDialog = false)
+    }
+
+    fun toggleDnsFollowsChannel() {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val current = _uiState.value.isDnsFollowsChannel
+            val next = !current
+            RouteConfigProvider.setDnsFollowsChannel(context, next)
+            _uiState.value = _uiState.value.copy(isDnsFollowsChannel = next)
+            // Resync rules to apply or flush DNS redirect NAT chain
+            SuHelper.syncAllRouteRules(context)
+            refreshEnvironment()
+        }
     }
 
     fun toggleKeepSlaveWifiScreenOff() {
