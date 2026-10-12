@@ -73,6 +73,8 @@ object ConfigTransfer {
         settings.put("dnsFollowsChannel", RouteConfigProvider.isDnsFollowsChannel(context))
         settings.put("keepSlaveWifiScreenOff", RouteConfigProvider.isKeepSlaveWifiScreenOff(context))
         settings.put("manualScenarioId", ScenarioStore.getManualId(context))
+        settings.put("autoFailoverEnabled", RouteConfigProvider.isAutoFailoverEnabled(context))
+        settings.put("failoverHoldOffSeconds", RouteConfigProvider.getFailoverHoldOffSeconds(context))
         root.put("settings", settings)
 
         return root.toString(2)
@@ -142,6 +144,14 @@ object ConfigTransfer {
             }
             if (s.has("manualScenarioId")) {
                 ScenarioStore.setManualId(context, s.optString("manualScenarioId"))
+                appliedSettings++
+            }
+            if (s.has("autoFailoverEnabled")) {
+                RouteConfigProvider.setAutoFailoverEnabled(context, s.optBoolean("autoFailoverEnabled"))
+                appliedSettings++
+            }
+            if (s.has("failoverHoldOffSeconds")) {
+                RouteConfigProvider.setFailoverHoldOffSeconds(context, s.optInt("failoverHoldOffSeconds"))
                 appliedSettings++
             }
         }

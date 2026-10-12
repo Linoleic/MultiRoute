@@ -1083,6 +1083,67 @@ fun SettingsTab(
                             onCheckedChange = { viewModel.toggleDnsFollowsChannel() }
                         )
                     }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_auto_failover),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_auto_failover_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_auto_failover_note),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Switch(
+                            checked = uiState.isAutoFailoverEnabled,
+                            onCheckedChange = { viewModel.toggleAutoFailover() }
+                        )
+                    }
+
+                    if (uiState.isAutoFailoverEnabled) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_failover_holdoff, uiState.failoverHoldOffSeconds),
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_failover_holdoff_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(1, 2, 3, 5, 8).forEach { secs ->
+                                    FilterChip(
+                                        selected = uiState.failoverHoldOffSeconds == secs,
+                                        onClick = { viewModel.updateFailoverHoldOffSeconds(secs) },
+                                        label = { Text("${secs}s") }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

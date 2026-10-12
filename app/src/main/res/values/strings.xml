@@ -19,6 +19,11 @@
     <string name="settings_dns_redirect">DNS 随指派通道解析</string>
     <string name="settings_dns_redirect_desc">将被指派应用的标准 DNS (UDP/TCP 53) 查询透明改写到其通道自身的解析器，避免解析请求滞留在默认网络</string>
     <string name="settings_dns_redirect_note">注意：若开启系统「私人 DNS」(DoT / 853 端口) 或应用内使用 DoH 加密，解析流量将由系统安全策略托管而无法被透明改写</string>
+    <string name="settings_auto_failover">通道离线自动降级</string>
+    <string name="settings_auto_failover_desc">当指派通道断开或丢失默认路由时，将其绑定的应用即时回退到系统默认网络，避免应用断网</string>
+    <string name="settings_auto_failover_note">遵循零公网请求原则：通过系统网络生命周期与本地内核路由表感知，绝不产生静默外网探测</string>
+    <string name="settings_failover_holdoff">恢复回切防抖延迟: %1$d 秒</string>
+    <string name="settings_failover_holdoff_desc">通道恢复并保持稳定指定秒数后，再恢复原分流绑定，防止弱信号边缘频繁闪断</string>
     <string name="settings_egress">公网出口测试设置</string>
     <string name="settings_root_env">Root 运行环境</string>
     <string name="settings_kernel_rules">内核策略路由规则</string>

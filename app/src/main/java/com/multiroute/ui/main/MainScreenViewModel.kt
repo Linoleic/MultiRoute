@@ -8,9 +8,12 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.RuleTarget
 import com.multiroute.data.TestServerManager
@@ -40,6 +43,8 @@ data class MainUiState(
     val isMobileDataAlwaysOn: Boolean = false,
     val isKeepSlaveWifiScreenOff: Boolean = false,
     val isDnsFollowsChannel: Boolean = true,
+    val isAutoFailoverEnabled: Boolean = true,
+    val failoverHoldOffSeconds: Int = 3,
     val channels: List<NetworkChannel> = emptyList(),
     val testResults: Map<String, String> = emptyMap(),
     val isTesting: Boolean = false,
@@ -101,18 +106,59 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private var allApps: List<AppItem> = emptyList()
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private var lastNetworkChangeTime = 0L
+    private var recoveryJob: Job? = null
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            handleNetworkChanged()
+            handleNetworkAvailable()
         }
 
         override fun onLost(network: Network) {
-            handleNetworkChanged()
+            handleNetworkLost()
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
             handleNetworkChanged()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            handleNetworkChanged()
+        }
+    }
+
+    private fun handleNetworkLost() {
+        // Hard failure: Disconnected or out of range. If auto failover is enabled,
+        // cancel any pending recovery debounce and trigger immediate rule resync (so kernel rules fall through).
+        recoveryJob?.cancel()
+        val now = System.currentTimeMillis()
+        if (now - lastNetworkChangeTime < 300L) return
+        lastNetworkChangeTime = now
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
+                _uiState.value = _uiState.value.copy(channels = activeChannels)
+                refreshScenarioState()
+                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun handleNetworkAvailable() {
+        val context = getApplication<Application>()
+        val holdOffSecs = RouteConfigProvider.getFailoverHoldOffSeconds(context)
+        recoveryJob?.cancel()
+        recoveryJob = viewModelScope.launch {
+            // Anti-flapping hold-off debounce delay: wait for interface to stabilize before restoring rules
+            if (RouteConfigProvider.isAutoFailoverEnabled(context) && holdOffSecs > 0) {
+                delay(holdOffSecs * 1000L)
+            }
+            try {
+                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
+                _uiState.value = _uiState.value.copy(channels = activeChannels)
+                refreshScenarioState()
+                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+            } catch (_: Exception) {}
         }
     }
 
@@ -753,6 +799,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     isMobileDataAlwaysOn = diag.mobileDataAlwaysOn,
                     isKeepSlaveWifiScreenOff = diag.isKeepSlaveWifiScreenOff,
                     isDnsFollowsChannel = RouteConfigProvider.isDnsFollowsChannel(context),
+                    isAutoFailoverEnabled = RouteConfigProvider.isAutoFailoverEnabled(context),
+                    failoverHoldOffSeconds = RouteConfigProvider.getFailoverHoldOffSeconds(context),
                     channels = activeChannels,
                     diagnosticInfo = diag
                 )
@@ -787,6 +835,27 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.value = _uiState.value.copy(isDnsFollowsChannel = next)
             // Resync rules to apply or flush DNS redirect NAT chain
             SuHelper.syncAllRouteRules(context)
+            refreshEnvironment()
+        }
+    }
+
+    fun toggleAutoFailover() {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val current = _uiState.value.isAutoFailoverEnabled
+            val next = !current
+            RouteConfigProvider.setAutoFailoverEnabled(context, next)
+            _uiState.value = _uiState.value.copy(isAutoFailoverEnabled = next)
+            refreshEnvironment()
+        }
+    }
+
+    fun updateFailoverHoldOffSeconds(seconds: Int) {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val safeSecs = seconds.coerceIn(1, 15)
+            RouteConfigProvider.setFailoverHoldOffSeconds(context, safeSecs)
+            _uiState.value = _uiState.value.copy(failoverHoldOffSeconds = safeSecs)
             refreshEnvironment()
         }
     }

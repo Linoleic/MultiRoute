@@ -40,6 +40,18 @@ class RouteConfigProvider : ContentProvider() {
          */
         const val KEY_DNS_FOLLOWS_CHANNEL = "dns_follows_channel"
 
+        /**
+         * Whether auto failover is enabled: when an assigned channel disconnects or loses default route,
+         * its assigned apps fall back to the system default network immediately.
+         */
+        const val KEY_AUTO_FAILOVER_ENABLED = "auto_failover_enabled"
+
+        /**
+         * Hold-off debounce delay in seconds before restoring rules when a recovered channel reappears.
+         * Default: 3 seconds.
+         */
+        const val KEY_FAILOVER_HOLD_OFF_SECONDS = "failover_hold_off_seconds"
+
         // --- Appearance / language. Stored here so the settings survive a reinstall of the rules file
         // --- and so everything the app needs at startup is read from one place.
         const val KEY_THEME_MODE = "theme_mode"
@@ -87,6 +99,26 @@ class RouteConfigProvider : ContentProvider() {
         fun setDnsFollowsChannel(context: Context, enabled: Boolean) {
             context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_DNS_FOLLOWS_CHANNEL, enabled).apply()
+        }
+
+        fun isAutoFailoverEnabled(context: Context): Boolean {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getBoolean(KEY_AUTO_FAILOVER_ENABLED, true)
+        }
+
+        fun setAutoFailoverEnabled(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_AUTO_FAILOVER_ENABLED, enabled).apply()
+        }
+
+        fun getFailoverHoldOffSeconds(context: Context): Int {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getInt(KEY_FAILOVER_HOLD_OFF_SECONDS, 3).coerceIn(1, 15)
+        }
+
+        fun setFailoverHoldOffSeconds(context: Context, seconds: Int) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putInt(KEY_FAILOVER_HOLD_OFF_SECONDS, seconds.coerceIn(1, 15)).apply()
         }
 
         private val SAFE_PKG_REGEX = Regex("^[a-zA-Z0-9_.]+$")
@@ -172,6 +204,8 @@ class RouteConfigProvider : ContentProvider() {
                     key != KEY_THEME_MODE &&
                     key != KEY_LANGUAGE &&
                     key != KEY_DNS_FOLLOWS_CHANNEL &&
+                    key != KEY_AUTO_FAILOVER_ENABLED &&
+                    key != KEY_FAILOVER_HOLD_OFF_SECONDS &&
                     value is String
                 ) {
                     result[key] = value
@@ -197,9 +231,13 @@ class RouteConfigProvider : ContentProvider() {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val keepScreenOff = sp.getBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, false)
             val keepDnsFollows = sp.getBoolean(KEY_DNS_FOLLOWS_CHANNEL, true)
+            val autoFailover = sp.getBoolean(KEY_AUTO_FAILOVER_ENABLED, true)
+            val holdOffSecs = sp.getInt(KEY_FAILOVER_HOLD_OFF_SECONDS, 3)
             sp.edit().clear()
                 .putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, keepScreenOff)
                 .putBoolean(KEY_DNS_FOLLOWS_CHANNEL, keepDnsFollows)
+                .putBoolean(KEY_AUTO_FAILOVER_ENABLED, autoFailover)
+                .putInt(KEY_FAILOVER_HOLD_OFF_SECONDS, holdOffSecs)
                 .apply()
         }
     }
