@@ -45,6 +45,7 @@ data class MainUiState(
     val isDnsFollowsChannel: Boolean = true,
     val isAutoFailoverEnabled: Boolean = true,
     val failoverHoldOffSeconds: Int = 3,
+    val isFailoverProbeInternet: Boolean = true,
     val channels: List<NetworkChannel> = emptyList(),
     val testResults: Map<String, String> = emptyMap(),
     val isTesting: Boolean = false,
@@ -172,7 +173,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
                 _uiState.value = _uiState.value.copy(channels = activeChannels)
                 refreshScenarioState()
-                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+                if (recoveryJob?.isActive != true) {
+                    withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+                }
             } catch (_: Exception) {}
         }
     }
@@ -801,6 +804,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     isDnsFollowsChannel = RouteConfigProvider.isDnsFollowsChannel(context),
                     isAutoFailoverEnabled = RouteConfigProvider.isAutoFailoverEnabled(context),
                     failoverHoldOffSeconds = RouteConfigProvider.getFailoverHoldOffSeconds(context),
+                    isFailoverProbeInternet = RouteConfigProvider.isFailoverProbeInternet(context),
                     channels = activeChannels,
                     diagnosticInfo = diag
                 )
@@ -856,6 +860,18 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val safeSecs = seconds.coerceIn(1, 15)
             RouteConfigProvider.setFailoverHoldOffSeconds(context, safeSecs)
             _uiState.value = _uiState.value.copy(failoverHoldOffSeconds = safeSecs)
+            refreshEnvironment()
+        }
+    }
+
+    fun toggleFailoverProbeInternet() {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val current = _uiState.value.isFailoverProbeInternet
+            val next = !current
+            RouteConfigProvider.setFailoverProbeInternet(context, next)
+            _uiState.value = _uiState.value.copy(isFailoverProbeInternet = next)
+            withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
             refreshEnvironment()
         }
     }

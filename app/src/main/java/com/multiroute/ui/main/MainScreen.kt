@@ -1143,6 +1143,35 @@ fun SettingsTab(
                                 }
                             }
                         }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_failover_probe_internet),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_failover_probe_internet_desc),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_failover_probe_internet_note),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            Switch(
+                                checked = uiState.isFailoverProbeInternet,
+                                onCheckedChange = { viewModel.toggleFailoverProbeInternet() }
+                            )
+                        }
                     }
                 }
             }

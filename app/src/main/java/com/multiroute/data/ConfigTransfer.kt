@@ -75,6 +75,7 @@ object ConfigTransfer {
         settings.put("manualScenarioId", ScenarioStore.getManualId(context))
         settings.put("autoFailoverEnabled", RouteConfigProvider.isAutoFailoverEnabled(context))
         settings.put("failoverHoldOffSeconds", RouteConfigProvider.getFailoverHoldOffSeconds(context))
+        settings.put("failoverProbeInternet", RouteConfigProvider.isFailoverProbeInternet(context))
         root.put("settings", settings)
 
         return root.toString(2)
@@ -152,6 +153,10 @@ object ConfigTransfer {
             }
             if (s.has("failoverHoldOffSeconds")) {
                 RouteConfigProvider.setFailoverHoldOffSeconds(context, s.optInt("failoverHoldOffSeconds"))
+                appliedSettings++
+            }
+            if (s.has("failoverProbeInternet")) {
+                RouteConfigProvider.setFailoverProbeInternet(context, s.optBoolean("failoverProbeInternet"))
                 appliedSettings++
             }
         }

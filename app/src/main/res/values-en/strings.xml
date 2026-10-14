@@ -20,10 +20,13 @@
     <string name="settings_dns_redirect_desc">Rewrites standard DNS (UDP/TCP port 53) queries of assigned apps to their channel\'s own resolver, preventing queries from lingering on the default network</string>
     <string name="settings_dns_redirect_note">Note: If system Private DNS (DoT / port 853) or app-level DoH is enabled, encrypted DNS traffic is managed by the system security policy and cannot be transparently rewritten</string>
     <string name="settings_auto_failover">Auto failover on channel disconnect</string>
-    <string name="settings_auto_failover_desc">When an assigned channel disconnects or loses its default route, its assigned apps fall back to the system default network immediately to prevent network dropouts</string>
-    <string name="settings_auto_failover_note">Strict zero-outbound-requests policy: perceived solely via system network callbacks and local kernel routing tables; no silent external probing</string>
+    <string name="settings_auto_failover_desc">When an assigned channel disconnects, loses its default route, or loses Internet access, its assigned apps fall back to the system default network immediately</string>
+    <string name="settings_auto_failover_note">Supports zero-outbound local detection or lightweight active validation; routing rules are enforced strictly in the local kernel</string>
     <string name="settings_failover_holdoff">Recovery re-route hold-off: %1$d s</string>
     <string name="settings_failover_holdoff_desc">Restores routing only after the recovered channel remains continuously online for this duration, preventing rapid flapping at weak signal margins</string>
+    <string name="settings_failover_probe_internet">Internet connectivity validation (active 204 probe)</string>
+    <string name="settings_failover_probe_internet_desc">Probes lightweight 204 endpoints when channels connect/recover to verify real Internet access, detecting captive portals or offline Wi-Fi</string>
+    <string name="settings_failover_probe_internet_note">Notice: Negligible overhead (a few hundred bytes, 0-byte body), no continuous background polling. Turn off if routing to purely local intranet devices</string>
     <string name="settings_egress">Public-IP test</string>
     <string name="settings_root_env">Root environment</string>
     <string name="settings_kernel_rules">Kernel policy routing</string>

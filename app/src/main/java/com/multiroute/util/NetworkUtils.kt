@@ -281,6 +281,44 @@ object NetworkUtils {
         return trimmed.take(80)
     }
 
+    const val PROBE_URL_MIUI = "http://connect.rom.miui.com/generate_204"
+    const val PROBE_URL_CLOUDFLARE = "http://cp.cloudflare.com/generate_204"
+    const val PROBE_URL_GSTATIC = "http://connectivitycheck.gstatic.com/generate_204"
+
+    /**
+     * Rapidly probes whether [network] has working public Internet access via lightweight HTTP 204.
+     * Low overhead: zero response body, short timeout (2.5s), and detects captive portals (302 redirects).
+     */
+    fun checkNetworkInternet(network: Network, customUrl: String? = null): Boolean {
+        val probeUrls = if (!customUrl.isNullOrBlank()) {
+            listOf(customUrl, PROBE_URL_MIUI, PROBE_URL_CLOUDFLARE)
+        } else {
+            listOf(PROBE_URL_MIUI, PROBE_URL_CLOUDFLARE, PROBE_URL_GSTATIC)
+        }
+
+        for (probeUrl in probeUrls) {
+            var conn: HttpURLConnection? = null
+            try {
+                val url = URL(probeUrl)
+                conn = network.openConnection(url) as HttpURLConnection
+                conn.instanceFollowRedirects = false
+                conn.connectTimeout = 2500
+                conn.readTimeout = 2500
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
+                val code = conn.responseCode
+                if (code == 204 || code == 200) {
+                    return true
+                }
+            } catch (_: Exception) {
+                // Try fallback probe URL
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
+        }
+        return false
+    }
+
     /**
      * Tests public internet connectivity on a single specific network channel.
      */

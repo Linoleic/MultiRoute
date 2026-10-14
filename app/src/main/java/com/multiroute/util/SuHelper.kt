@@ -7,6 +7,8 @@ import com.multiroute.BuildConfig
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.model.CHANNEL_DEFAULT
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -144,6 +146,50 @@ object SuHelper {
             }
         }
         return online
+    }
+
+    /**
+     * Filters interfaces that currently have verified public Internet access.
+     * Checks Android platform validation (NET_CAPABILITY_VALIDATED) first as a zero-overhead fast-path,
+     * then uses lightweight HTTP 204 probing for unvalidated or secondary interfaces.
+     */
+    suspend fun filterInterfacesWithInternet(
+        context: Context,
+        candidateIfaces: Collection<String>
+    ): Set<String> = withContext(Dispatchers.IO) {
+        val safeIfaces = candidateIfaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
+        if (safeIfaces.isEmpty()) return@withContext emptySet()
+
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            ?: return@withContext safeIfaces
+
+        val ifaceToNetworkMap = mutableMapOf<String, android.net.Network>()
+        for (network in cm.allNetworks) {
+            val lp = cm.getLinkProperties(network)
+            val iface = lp?.interfaceName
+            if (iface != null && safeIfaces.contains(iface)) {
+                ifaceToNetworkMap[iface] = network
+            }
+        }
+
+        val results = safeIfaces.map { iface ->
+            async {
+                val net = ifaceToNetworkMap[iface]
+                if (net == null) {
+                    iface to false
+                } else {
+                    val caps = cm.getNetworkCapabilities(net)
+                    if (caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        iface to true
+                    } else {
+                        val hasInternet = NetworkUtils.checkNetworkInternet(net)
+                        iface to hasInternet
+                    }
+                }
+            }
+        }.awaitAll().toMap()
+
+        results.filterValues { it }.keys
     }
 
     /**
@@ -525,11 +571,26 @@ object SuHelper {
         // rules around is therefore pure confusion (observed on device while a Wi-Fi link was
         // re-registering: rules pointed at table 1056 after its default route was gone), so the kernel
         // is always rewritten from the channels that are usable right now.
-        val onlineChannels = getInterfacesWithDefaultRoute(candidateChannels)
-        if (onlineChannels.isEmpty()) {
+        val autoFailover = RouteConfigProvider.isAutoFailoverEnabled(context)
+        val probeInternet = RouteConfigProvider.isFailoverProbeInternet(context)
+        val defaultRouteChannels = getInterfacesWithDefaultRoute(candidateChannels)
+
+        val onlineChannels = if (autoFailover) {
+            if (probeInternet && defaultRouteChannels.isNotEmpty()) {
+                val validated = filterInterfacesWithInternet(context, defaultRouteChannels)
+                Log.i(TAG, "Failover check: defaultRoutes=$defaultRouteChannels, internetValidated=$validated")
+                validated
+            } else {
+                defaultRouteChannels
+            }
+        } else {
+            defaultRouteChannels
+        }
+
+        if (onlineChannels.isEmpty() && candidateChannels.isNotEmpty()) {
             Log.w(
                 TAG,
-                "None of $candidateChannels has a default route right now; clearing their kernel rules " +
+                "None of $candidateChannels is currently usable (offline or unvalidated); clearing their kernel rules " +
                         "(traffic falls back to the default network in that state anyway)"
             )
         }
@@ -537,7 +598,7 @@ object SuHelper {
         val activeChannelMap = channelToUidsMap.filterKeys { iface ->
             val isOnline = onlineChannels.contains(iface)
             if (!isOnline) {
-                Log.w(TAG, "Interface $iface has no default route in kernel table; skipping to prevent traffic blackholing")
+                Log.w(TAG, "Interface $iface is not usable (offline or unvalidated); skipping to prevent traffic blackholing")
             }
             isOnline
         }

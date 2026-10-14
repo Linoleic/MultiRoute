@@ -52,6 +52,13 @@ class RouteConfigProvider : ContentProvider() {
          */
         const val KEY_FAILOVER_HOLD_OFF_SECONDS = "failover_hold_off_seconds"
 
+        /**
+         * Whether auto failover verifies real internet connectivity via lightweight HTTP 204 probing.
+         * When enabled, interfaces that are connected to LAN but have no Internet access (e.g. captive portals
+         * or broken WAN links) trigger failover to keep apps reachable. Default: true.
+         */
+        const val KEY_FAILOVER_PROBE_INTERNET = "failover_probe_internet"
+
         // --- Appearance / language. Stored here so the settings survive a reinstall of the rules file
         // --- and so everything the app needs at startup is read from one place.
         const val KEY_THEME_MODE = "theme_mode"
@@ -119,6 +126,16 @@ class RouteConfigProvider : ContentProvider() {
         fun setFailoverHoldOffSeconds(context: Context, seconds: Int) {
             context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 .edit().putInt(KEY_FAILOVER_HOLD_OFF_SECONDS, seconds.coerceIn(1, 15)).apply()
+        }
+
+        fun isFailoverProbeInternet(context: Context): Boolean {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getBoolean(KEY_FAILOVER_PROBE_INTERNET, true)
+        }
+
+        fun setFailoverProbeInternet(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_FAILOVER_PROBE_INTERNET, enabled).apply()
         }
 
         private val SAFE_PKG_REGEX = Regex("^[a-zA-Z0-9_.]+$")
@@ -206,6 +223,7 @@ class RouteConfigProvider : ContentProvider() {
                     key != KEY_DNS_FOLLOWS_CHANNEL &&
                     key != KEY_AUTO_FAILOVER_ENABLED &&
                     key != KEY_FAILOVER_HOLD_OFF_SECONDS &&
+                    key != KEY_FAILOVER_PROBE_INTERNET &&
                     value is String
                 ) {
                     result[key] = value
@@ -233,11 +251,13 @@ class RouteConfigProvider : ContentProvider() {
             val keepDnsFollows = sp.getBoolean(KEY_DNS_FOLLOWS_CHANNEL, true)
             val autoFailover = sp.getBoolean(KEY_AUTO_FAILOVER_ENABLED, true)
             val holdOffSecs = sp.getInt(KEY_FAILOVER_HOLD_OFF_SECONDS, 3)
+            val probeInternet = sp.getBoolean(KEY_FAILOVER_PROBE_INTERNET, true)
             sp.edit().clear()
                 .putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, keepScreenOff)
                 .putBoolean(KEY_DNS_FOLLOWS_CHANNEL, keepDnsFollows)
                 .putBoolean(KEY_AUTO_FAILOVER_ENABLED, autoFailover)
                 .putInt(KEY_FAILOVER_HOLD_OFF_SECONDS, holdOffSecs)
+                .putBoolean(KEY_FAILOVER_PROBE_INTERNET, probeInternet)
                 .apply()
         }
     }

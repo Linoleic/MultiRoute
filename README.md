@@ -258,11 +258,10 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
 
 - **Everything stays on the device.** Assignments live in the app's private preferences and in the kernel
   rules, with a small UID→interface cache for the hooks.
-- **The only outbound request is one you start yourself.** The egress probe on the Channels screen queries
-  a public-IP endpoint that you choose — a built-in preset (all HTTPS) or your own URL. As with visiting
-  that endpoint in a browser, it necessarily sees the public IP you are probing *from*; it is not sent any
-  device identifier, app list or rule contents. **If you never run the probe, the app makes no network
-  requests at all.**
+- **Outbound requests are strictly transparent and user-controlled:**
+  - **The egress probe on the Channels screen** only queries when manually started by you;
+  - **The "Internet connectivity validation" under Auto-Failover** (configurable in Settings): when a channel connects or recovers, it optionally sends a single lightweight HTTP 204 request (a few hundred bytes, 0-byte body) through that channel to verify real Internet access, preventing routing stalls on captive portals, ISP dropouts, or local-only networks. It never polls continuously in the background and carries no device identifiers, app lists, or rule contents;
+  - If you never run the egress probe and keep Internet validation turned off, the app makes **no network requests at all**.
 - **Root access is scoped to routing.** `su` is used to add and remove policy-routing rules, to write the
   boot-recovery script and to read the resolver/boot-log details shown in diagnostics. Nothing is executed
   on behalf of anyone else and nothing is reported back.
