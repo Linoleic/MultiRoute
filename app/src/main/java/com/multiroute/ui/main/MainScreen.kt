@@ -1043,11 +1043,6 @@ fun SettingsTab(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_keep_slave_wifi_note),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
                         }
                         Switch(
                             checked = uiState.isKeepSlaveWifiScreenOff,
@@ -1072,11 +1067,6 @@ fun SettingsTab(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dns_redirect_note),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
                         }
                         Switch(
                             checked = uiState.isDnsFollowsChannel,
@@ -1098,11 +1088,6 @@ fun SettingsTab(
                             )
                             Text(
                                 text = stringResource(com.multiroute.R.string.settings_auto_failover_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_auto_failover_note),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -1158,11 +1143,6 @@ fun SettingsTab(
                                 )
                                 Text(
                                     text = stringResource(com.multiroute.R.string.settings_failover_probe_internet_desc),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                                Text(
-                                    text = stringResource(com.multiroute.R.string.settings_failover_probe_internet_note),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )
