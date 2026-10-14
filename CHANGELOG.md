@@ -5,6 +5,30 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.3.0
+
+**中文**
+
+- **通道故障自动降级 (Auto Failover)**：当被指派的网络通道离线、断开连接或丢失默认网关时，其绑定的应用会自动即时回退至系统默认网络，避免应用陷入无网死锁。
+- **主动外网连通性校验 (204 探针)**：通道建立或恢复时，可选通过该通道向极轻量 204 探针发起无数据体请求，精准识别欠费、断网 Wi-Fi 或待认证门户（Captive Portal）；纯内网环境可一键关闭。
+- **网络恢复/切换防抖延迟**：统一通道恢复回切与情景策略重新激活的防抖时间窗口（支持 1s / 2s / 3s / 5s / 8s 可选，默认 3s），等待链路稳定与 DHCP 握手完成，杜绝边缘弱信号区的频繁颠簸与连接横跳。
+- **安全加固 (Security Hardening)**：
+  - 严格限制开机与动态恢复广播的接收权限（`signature` 签名级别防护），阻断未授权应用假借恢复之名滥发广播。
+  - 收紧规则持久化缓存与诊断日志文件权限（仅属主读写 `0600` / 内部私有存储 `MODE_PRIVATE`）。
+  - 设置页显式提供「DNS 随指派通道解析」启闭开关，便于与全局加密 DNS (DoT / DoH) 灵活共存。
+- **界面体验精简**：设置页全面优化视觉呼吸感，剔除各卡片多余堆叠的二级提示小字，将关键限制与功耗提示提炼融入单行描述，交互更加清爽直观。
+
+**English**
+
+- **Auto Failover on Channel Outage:** When an assigned channel disconnects, drops offline, or loses its default route, bound apps automatically fall back to the system default network immediately to prevent network dropouts.
+- **Active Internet Connectivity Validation (204 Probe):** Optionally validates real internet connectivity upon channel connection or recovery via lightweight HTTP 204 probes (0-byte body) to accurately detect captive portals or offline Wi-Fi (can be disabled for pure LAN environments).
+- **Unified Network Recovery Hold-off Delay:** Synchronizes anti-flapping debounce delay across channel failover recovery and contextual scenario activation (selectable: 1s / 2s / 3s / 5s / 8s, default: 3s) to prevent route flapping at weak signal boundaries.
+- **Security Hardening:**
+  - Enforced `signature`-level permission guards on boot and dynamic restoration broadcast receivers to prevent unauthorized spoofing.
+  - Hardened file permissions on rule cache and diagnostic logs (`0600` / `MODE_PRIVATE`).
+  - Added toggle in Settings for transparent per-channel DNS redirection.
+- **Streamlined Settings UI:** Cleaned up redundant secondary note captions and refined descriptions into clear, concise single-line headers.
+
 ## v1.2.3
 
 **中文**
