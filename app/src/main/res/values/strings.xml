@@ -22,8 +22,8 @@
     <string name="settings_auto_failover">通道离线自动降级</string>
     <string name="settings_auto_failover_desc">通道离线或故障时，绑定应用自动回退至默认网络</string>
     <string name="settings_auto_failover_note"></string>
-    <string name="settings_failover_holdoff">恢复防抖延迟: %1$d 秒</string>
-    <string name="settings_failover_holdoff_desc">通道恢复稳定后再恢复分流，防止边缘频繁震荡</string>
+    <string name="settings_failover_holdoff">网络恢复防抖延迟: %1$d 秒</string>
+    <string name="settings_failover_holdoff_desc">通道或情景网络稳定后再切换规则，防止边缘频繁震荡</string>
     <string name="settings_failover_probe_internet">外网连通性校验 (204 探测)</string>
     <string name="settings_failover_probe_internet_desc">使用轻量 204 探针识别断网 Wi-Fi 或待认证门户（纯内网分流请关闭）</string>
     <string name="settings_failover_probe_internet_note"></string>

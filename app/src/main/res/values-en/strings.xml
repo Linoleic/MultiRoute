@@ -22,8 +22,8 @@
     <string name="settings_auto_failover">Auto failover on channel disconnect</string>
     <string name="settings_auto_failover_desc">Fallback assigned apps to default network when channel is offline</string>
     <string name="settings_auto_failover_note"></string>
-    <string name="settings_failover_holdoff">Recovery hold-off delay: %1$d s</string>
-    <string name="settings_failover_holdoff_desc">Restores routing after the channel stabilizes to avoid flapping</string>
+    <string name="settings_failover_holdoff">Network recovery hold-off: %1$d s</string>
+    <string name="settings_failover_holdoff_desc">Switches routing or scenario after network stabilizes to prevent flapping</string>
     <string name="settings_failover_probe_internet">Internet connectivity check (204 probe)</string>
     <string name="settings_failover_probe_internet_desc">Detects offline Wi-Fi or captive portals via lightweight 204 probe</string>
     <string name="settings_failover_probe_internet_note"></string>

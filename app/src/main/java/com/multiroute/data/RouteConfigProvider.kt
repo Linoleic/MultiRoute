@@ -47,7 +47,7 @@ class RouteConfigProvider : ContentProvider() {
         const val KEY_AUTO_FAILOVER_ENABLED = "auto_failover_enabled"
 
         /**
-         * Hold-off debounce delay in seconds before restoring rules when a recovered channel reappears.
+         * Hold-off debounce delay in seconds before restoring rules or switching scenarios when a recovered channel reappears.
          * Default: 3 seconds.
          */
         const val KEY_FAILOVER_HOLD_OFF_SECONDS = "failover_hold_off_seconds"

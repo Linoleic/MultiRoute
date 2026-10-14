@@ -1098,7 +1098,7 @@ fun SettingsTab(
                         )
                     }
 
-                    if (uiState.isAutoFailoverEnabled) {
+                    if (uiState.isAutoFailoverEnabled || uiState.scenarioProfiles.isNotEmpty()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1129,8 +1129,12 @@ fun SettingsTab(
                             }
                         }
 
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                        if (uiState.isAutoFailoverEnabled) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                        }
+                    }
 
+                    if (uiState.isAutoFailoverEnabled) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,

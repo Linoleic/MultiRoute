@@ -150,8 +150,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val holdOffSecs = RouteConfigProvider.getFailoverHoldOffSeconds(context)
         recoveryJob?.cancel()
         recoveryJob = viewModelScope.launch {
-            // Anti-flapping hold-off debounce delay: wait for interface to stabilize before restoring rules
-            if (RouteConfigProvider.isAutoFailoverEnabled(context) && holdOffSecs > 0) {
+            val hasScenarios = com.multiroute.data.ScenarioStore.load(context).isNotEmpty()
+            val isFailover = RouteConfigProvider.isAutoFailoverEnabled(context)
+            // Anti-flapping hold-off debounce delay: wait for interface to stabilize before restoring rules or switching scenarios
+            if ((isFailover || hasScenarios) && holdOffSecs > 0) {
                 delay(holdOffSecs * 1000L)
             }
             try {
@@ -164,6 +166,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun handleNetworkChanged() {
+        if (recoveryJob?.isActive == true) return
         val now = System.currentTimeMillis()
         if (now - lastNetworkChangeTime < 1500L) return
         lastNetworkChangeTime = now
@@ -173,9 +176,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
                 _uiState.value = _uiState.value.copy(channels = activeChannels)
                 refreshScenarioState()
-                if (recoveryJob?.isActive != true) {
-                    withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-                }
+                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
             } catch (_: Exception) {}
         }
     }
