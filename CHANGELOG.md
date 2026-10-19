@@ -5,6 +5,20 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.3.1-beta.1
+
+**中文**
+
+- **多语言即时切换兼容修复**：修复在部分定制 ROM 与旧版本 Android 上语言切换无法即时生效或重启后失效的问题（引入应用级与 Activity 级上下文配置封装，全兼容 Android 11 ~ 17）。
+- **运行诊断日志增强**：在系统运行与诊断日志中输出设备的完整品牌、具体机型、Android 系统版本与构建版本号，便于排查特定机型的系统网络策略与兼容性问题。
+- **发布脚本优化**：CI 发布工作流自动识别 Beta / RC / Preview 版本并标记为 Pre-release。
+
+**English**
+
+- **Reliable in-app language switching:** Fixed an issue where switching the app language to English had no effect on certain ROMs and Android versions. Both application and activity context configurations are now explicitly wrapped to ensure immediate and persistent locale resolution across Android 11 to 17.
+- **Diagnostic report enhancement:** The runtime diagnostic log now includes device manufacturer, model, Android OS version (release and API level), and display build ID for accurate environment diagnosis.
+- **CI release workflow improvement:** Pre-release tags (beta, rc, preview) are now automatically tagged with the `--prerelease` flag on GitHub and repository releases.
+
 ## v1.3.0
 
 **中文**
