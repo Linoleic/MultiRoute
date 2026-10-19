@@ -973,8 +973,19 @@ fun SettingsTab(
                             androidx.compose.material3.FilterChip(
                                 selected = language == tag,
                                 onClick = {
-                                    RouteConfigProvider.setLanguage(ctx, tag)
-                                    host?.recreate()
+                                    if (language != tag) {
+                                        RouteConfigProvider.setLanguage(ctx, tag)
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                            runCatching {
+                                                val manager = ctx.getSystemService(android.app.LocaleManager::class.java)
+                                                val expected =
+                                                    if (tag.isEmpty()) android.os.LocaleList.getEmptyLocaleList()
+                                                    else android.os.LocaleList.forLanguageTags(tag)
+                                                manager?.applicationLocales = expected
+                                            }
+                                        }
+                                        host?.recreate()
+                                    }
                                 },
                                 label = { Text(label) }
                             )
