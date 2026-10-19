@@ -215,6 +215,7 @@
     <string name="diag_title">=== MultiRoute 系统运行与诊断日志 ===</string>
     <string name="diag_time">时间: %1$s</string>
     <string name="diag_sec1">[1. 核心权限与模块状态]</string>
+    <string name="diag_device_info">• 设备与系统: %1$s %2$s · Android %3$s (API %4$d) · %5$s</string>
     <string name="diag_root_state">• Root 状态: %1$s</string>
     <string name="diag_root_granted">已授权 (%1$s)</string>
     <string name="diag_module">• LSPosed 模块: %1$s</string>

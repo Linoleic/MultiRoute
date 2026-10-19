@@ -215,6 +215,7 @@
     <string name="diag_title">=== MultiRoute runtime and diagnostic log ===</string>
     <string name="diag_time">Time: %1$s</string>
     <string name="diag_sec1">[1. Root access and module state]</string>
+    <string name="diag_device_info">• Device &amp; OS: %1$s %2$s · Android %3$s (API %4$d) · %5$s</string>
     <string name="diag_root_state">• Root: %1$s</string>
     <string name="diag_root_granted">granted (%1$s)</string>
     <string name="diag_module">• LSPosed module: %1$s</string>

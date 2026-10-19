@@ -1,6 +1,7 @@
 package com.multiroute.util
 
 import android.content.Context
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import com.multiroute.BuildConfig
@@ -952,6 +953,16 @@ object SuHelper {
         // 1. 基础系统与权限
         val diag = getDiagnosticInfo(context)
         sb.appendLine(context.getString(com.multiroute.R.string.diag_sec1))
+        sb.appendLine(
+            context.getString(
+                com.multiroute.R.string.diag_device_info,
+                Build.MANUFACTURER,
+                Build.MODEL,
+                Build.VERSION.RELEASE,
+                Build.VERSION.SDK_INT,
+                Build.DISPLAY
+            )
+        )
         sb.appendLine(context.getString(com.multiroute.R.string.diag_root_state, if (diag.isRootGranted) context.getString(com.multiroute.R.string.diag_root_granted, diag.suVersion) else context.getString(com.multiroute.R.string.diag_root_missing)))
         sb.appendLine(context.getString(com.multiroute.R.string.diag_module, moduleStatusLabel(context, diag.moduleStatus)))
         if (diag.moduleStatusDetail.isNotEmpty()) {
