@@ -76,11 +76,14 @@ object NetworkUtils {
         val ssid: String,
         val bssid: String? = null,
         val frequencyMhz: Int = 0,
-        val rssi: Int = 0
+        val rssi: Int = 0,
+        val iface: String? = null,
+        val ip: String? = null,
+        val isPrimary: Boolean = false
     )
 
     /**
-     * Resolves currently connected Wi-Fi details (SSID, BSSID, frequency) per interface (wlan0, wlan1)
+     * Resolves currently connected Wi-Fi details (SSID, BSSID, frequency, RSSI, IP, role) per interface (wlan0, wlan1)
      * using cmd wifi status with shell/dumpsys fallback.
      */
     fun getConnectedWifiDetails(): Map<String, WifiConnectionDetails> {
@@ -96,20 +99,37 @@ object NetworkUtils {
             var currentBssid: String? = null
             var currentFreq = 0
             var currentRssi = 0
+            var currentIp: String? = null
+            var currentIsPrimary = false
+
+            fun saveCurrent() {
+                val iface = currentIface
+                val ssid = currentSsid
+                if (iface != null && ssid != null) {
+                    result[iface] = WifiConnectionDetails(
+                        ssid = ssid,
+                        bssid = currentBssid,
+                        frequencyMhz = currentFreq,
+                        rssi = currentRssi,
+                        iface = iface,
+                        ip = currentIp,
+                        isPrimary = currentIsPrimary || iface == "wlan0"
+                    )
+                }
+            }
 
             lines.forEach { line ->
                 if (line.contains("iface=")) {
-                    val ifaceToSave = currentIface
-                    val ssidToSave = currentSsid
-                    if (ifaceToSave != null && ssidToSave != null) {
-                        result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq, currentRssi)
-                    }
+                    saveCurrent()
                     val iface = line.substringAfter("iface=").substringBefore(" ").substringBefore("}")
+                    val role = line.substringAfter("role=", "").substringBefore(" ").substringBefore("}")
                     currentIface = iface
                     currentSsid = null
                     currentBssid = null
                     currentFreq = 0
                     currentRssi = 0
+                    currentIp = null
+                    currentIsPrimary = role.contains("PRIMARY", ignoreCase = true) || iface == "wlan0"
                 } else if (line.contains("Wifi is connected to \"")) {
                     val ssid = line.substringAfter("Wifi is connected to \"").substringBefore("\"")
                     if (ssid.isNotEmpty() && ssid != "<unknown ssid>") {
@@ -129,13 +149,17 @@ object NetworkUtils {
                     if (rssiMatch != null) {
                         currentRssi = rssiMatch.groupValues[1].toIntOrNull() ?: 0
                     }
+                    val ipMatch = Regex("""IP:\s*/?([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})""").find(line)
+                    if (ipMatch != null) {
+                        currentIp = ipMatch.groupValues[1]
+                    }
+                    val isPrimMatch = Regex("""IsPrimary:\s*(\d+)""").find(line)
+                    if (isPrimMatch != null && isPrimMatch.groupValues[1] == "1") {
+                        currentIsPrimary = true
+                    }
                 }
             }
-            val ifaceToSave = currentIface
-            val ssidToSave = currentSsid
-            if (ifaceToSave != null && ssidToSave != null) {
-                result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq, currentRssi)
-            }
+            saveCurrent()
         } catch (_: Exception) {}
 
         if (result.isNotEmpty()) {
@@ -155,7 +179,11 @@ object NetworkUtils {
                         val iface = match.groupValues[1].trim()
                         val ssid = match.groupValues[2].trim()
                         if (iface.isNotEmpty() && ssid.isNotEmpty() && ssid != "<unknown ssid>") {
-                            result[iface] = WifiConnectionDetails(ssid = ssid)
+                            result[iface] = WifiConnectionDetails(
+                                ssid = ssid,
+                                iface = iface,
+                                isPrimary = (iface == "wlan0")
+                            )
                         }
                     }
                 }
