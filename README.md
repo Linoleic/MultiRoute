@@ -36,8 +36,8 @@ MultiRoute lifts that restriction per app:
         │  Framework layer (LSPosed)   │   │  Kernel layer (root)         │
         │  system_server hooks         │   │  policy routing tables       │
         │  · ConnectivityService       │   │  · pref 14500 per-UID egress │
-        │  · Xiaomi dual Wi-Fi keep-   │   │  · pref 14400 LAN bypass     │
-        │    alive (screen off)        │   │  · nat DNS redirect :53      │
+        │  · Dual Wi-Fi & keepalive    │   │  · pref 14400 LAN bypass     │
+        │                              │   │  · nat DNS redirect :53      │
         │                              │   │  · IPv4 + IPv6               │
         └──────────────────────────────┘   └──────────┬───────────────────┘
                                                       │
@@ -107,17 +107,16 @@ The on-device evidence behind this table — the commands used and what they ret
 - **LAN bypass** — on-link subnets are pinned to the interface that owns them, so intranet devices
   (NAS, printers, casting) stay reachable from apps assigned elsewhere.
 - **Automatic boot recovery** — rules survive reboots: a `service.d` script, a wake-up broadcast from the
-  module, and the app's own network callback cover each other.
-- **Screen-off secondary Wi-Fi keep-alive** — optional; prevents the OEM power policy from tearing the
-  secondary Wi-Fi link down when the screen turns off (Xiaomi dual Wi-Fi).
+  module, and the app's own network callback cover each other; restored on locked devices before first unlock.
+- **Automatic failover** — when an assigned link goes down, traffic automatically reroutes through the default network, and seamlessly migrates back once restored, with configurable hold-off debounce and lightweight connectivity probes.
+- **Built-in Dual Wi-Fi Manager** — bypasses system restrictions on secondary WLAN with 4 adaptation schemes (Auto, Xiaomi Slave, AOSP Overlay, Root Direct `SYSTEM_UID`), multi-band SSID isolation, and BSSID penalty reset. On Xiaomi devices, keepalive daemons are automatically engaged on connection.
 - **Channel details** — interface, addresses, gateway, DNS, MTU, metered state, SSID and **Wi-Fi band and
   channel**, plus a per-channel public-IP probe with presets or a custom endpoint.
 - **Appearance and language** — theme (follow system / light / dark, animated), Material You colour, and
   per-app language (follow system / 简体中文 / English).
 - **Module status** — reports precisely whether the hooks are installed, whether `system_server` is
   still running an older build, or whether the status record is stale.
-- **Diagnostics you can hand over** — one copyable snapshot with root and module state, Wi-Fi mapping,
-  rule effectiveness (configured vs. actually in the kernel), the boot-recovery log and recent kernel rules.
+- **Comprehensive system diagnostics** — diagnostic dialog supports one-tap copy, SAF file export, and system sharing, covering dual Wi-Fi status, route tables and gateways, upstream DNS and Private DNS (DoT), rule effectiveness, and filtered logcat output.
 - **No VPN** — traffic is routed in the kernel; no userspace TCP/IP stack, so throughput and latency stay
   close to native.
 
@@ -216,9 +215,9 @@ su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat 
 
 | Tab | What you do |
 | :-- | :-- |
-| **App routing** | Tap an app and choose a channel; a long press enters multi-select for batch assignment. Cloned apps appear as separate entries with their numeric space id. |
-| **Channels** | Inspect every active link (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel) and run a per-channel public-IP probe. |
-| **Settings** | Module status, root status, current kernel rules, appearance and language, and the keep-alive switches. **Copy diagnostic log** puts the full snapshot on the clipboard. |
+| **App routing** | Tap an app and choose a channel; a long press enters multi-select for batch assignment; clone apps listed independently; scenario profiles for automated switching based on network conditions. |
+| **Channels** | Inspect every active link (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel); built-in **Dual Wi-Fi Manager** (4 adaptation schemes, multi-band isolation, BSSID blocklist reset); per-channel egress probes. |
+| **Settings** | Module and root status, active kernel rules, cellular keepalive, DNS redirection, auto failover hold-off, config backup/restore, diagnostic log export/share/copy, and rule purge maintenance. |
 
 ---
 
@@ -242,8 +241,7 @@ address can never break resolution.
 
 **Framework layer (LSPosed).** Hooks inside `system_server` keep the *app-visible* network state
 consistent with the assignment (`ConnectivityService.getDefaultNetworkForUid`,
-`getActiveNetworkForUidInternal`, `getMobileDataPreferredUids`), and on Xiaomi ROMs also keep the
-secondary Wi-Fi link alive through screen-off.
+`getActiveNetworkForUidInternal`, `getMobileDataPreferredUids`); when connecting via Xiaomi Dedicated scheme, it coordinates hooks to keep the secondary Wi-Fi link alive while the screen is off.
 
 **Boot recovery.** Rules live in the kernel, so they must be restored after a reboot. Three mechanisms
 cover each other: a generated `service.d` script (applied as soon as the interfaces are ready), a
@@ -278,9 +276,7 @@ The Settings tab shows one of:
   then reboot or restart `system_server`.
 - **Module shows "loaded older build" after an update** — expected: the framework cannot hot-reload.
   Reboot, or `su -c 'setprop ctl.restart zygote'`.
-- **An assignment has no effect** — check **Settings → Copy diagnostic log**: section *rule
-  effectiveness* shows every configured UID with *in effect* or *not in effect*. A channel whose
-  interface has no default route at that moment is skipped, and the log says so.
+- **An assignment has no effect** — check **Settings → View diagnostic log** (supports clipboard copy, file export, or system share): section *rule effectiveness* shows every configured UID with *in effect* or *not in effect*. A channel whose interface has no default route at that moment is skipped, and the log says so.
 - **Rules disappeared after a reboot** — check the boot-recovery log in the same snapshot
   (section 3, `/data/adb/multiroute/last_boot_sync.log`). Also confirm KernelSU/Magisk/APatch executes
   `service.d` scripts on this ROM.
@@ -331,8 +327,7 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
   assignment does override that.
 - **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
   space name; only ROMs whose clone spaces are real Android users are covered.
-- **Screen-off keep-alive targets Xiaomi's dual Wi-Fi classes** (`SlaveWifiService`, `DualStaImpl`), and
-  the hooks are only installed while that switch is on. On other ROMs the switch is inert.
+- **Secondary Wi-Fi screen-off keepalive and device compatibility**: the legacy keepalive toggle has been consolidated into the **Dual Wi-Fi Assistant**. When connecting to secondary Wi-Fi using the "Xiaomi / HyperOS Dedicated" scheme, the module automatically activates the keepalive hooks targeting Xiaomi's private classes (`SlaveWifiService`, `DualStaImpl`) in the background, without requiring a manual toggle in Settings. On other platforms (AOSP, ColorOS, OriginOS, One UI, etc.), the assistant relies on native multi-network architecture (`AOSP_OVERLAY`) or Root direct connection (`ROOT_DIRECT`) combined with a foreground service to maintain concurrency.
 - **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
 - **Which interface sits on which band can change while the app is running** — that is exactly what the
   Wi-Fi band row is for.
@@ -353,7 +348,7 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
 ./gradlew assembleDebug
 ./gradlew assembleRelease
 
-# Unit tests (43 tests, pure logic only)
+# Unit tests (78 tests, pure logic only)
 ./gradlew testDebugUnitTest
 ```
 
