@@ -5,6 +5,26 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.4.0
+
+**中文**
+
+- **双 Wi-Fi 助手（STA + STA 并发管理）**：新增独立管理面板，支持副 Wi-Fi 的扫描、认证连接、状态诊断与断开全生命周期控制，实时检测双频硬件能力与网卡链路信息。
+- **多方案自适应分层连接架构**：支持智能自动（AUTO）、小米/HyperOS 专用（XIAOMI_SLAVE）、AOSP/Pixel 标准（AOSP_OVERLAY）与通用 Root 直连（ROOT_DIRECT）；通用模式借助 SYSTEM_UID 特权通道穿透定制 ROM 限制，实现免 Overlay 直连。
+- **同名 Wi-Fi（SSID）跨频段独立隔离**：彻底解决 2.4G / 5G / 6G 同名 Wi-Fi 被合并的问题，各频段独立呈现信号与状态，支持针对特定频段精准发起连接。
+- **可用 Wi-Fi 详情与连接诊断**：点击 Wi-Fi 卡片展开详情面板，直观查看物理 MAC (BSSID)、频段信道、信号强度、加密套件、凭据状态及并发评估；引入动态信号图标与多层级智能排序。
+- **运行诊断日志全面扩充与导出分享**：大幅丰富系统运行与诊断日志信息，新增双 Wi-Fi 硬件并发能力与芯片参数、各通道实际 DNS 与系统全局私有 DNS (DoT) 状态、各接口默认网关策略路由表，并拓宽 Logcat 抓取深度至 50 行覆盖 Wi-Fi 协议栈；支持一键将日志导出为文本文件或通过系统面板快速分享反馈。
+- **网络限制清理与体验优化**：新增一键清除底层 BSSID 惩罚黑名单功能；修复双 Wi-Fi 软硬件卡片背景透明度导致的灰色边框异常，优化卡片手势层级与文本表述。
+
+**English**
+
+- **Dual Wi-Fi Manager (STA + STA Concurrency):** Added a dedicated manager for scanning, connecting, diagnosing, and disconnecting the secondary Wi-Fi, alongside real-time hardware concurrency and link status tracking.
+- **Multi-tier Adaptive Architecture:** Introduced 4 connection schemes: AUTO, XIAOMI_SLAVE, AOSP_OVERLAY, and ROOT_DIRECT; the root scheme leverages a privileged SYSTEM_UID channel to bypass OEM restrictions without requiring overlays.
+- **Independent Cross-band Isolation for Identical SSIDs:** Fully disambiguates multi-band Wi-Fi sharing the same SSID (2.4G / 5G / 6G) into isolated entries with independent signal tracking and connection states.
+- **Wi-Fi Details & Diagnostics:** Tapping any Wi-Fi card opens an interactive sheet displaying BSSID, band, channel, signal strength, security suites, credentials, and concurrency readiness, with dynamic signal icons and prioritized sorting.
+- **Enhanced Diagnostic Log, Export & Share:** Substantially expanded diagnostic logs to include Dual Wi-Fi hardware concurrency and chipset specs, per-channel upstream DNS and Private DNS (DoT) status, interface default gateways, and an expanded 50-line Wi-Fi stack logcat trace; added SAF file export and system share sheet integration for quick feedback.
+- **Blocklist Reset & UI Polish:** Added a one-click action to clear system-level BSSID temporary penalties; fixed grey border rendering artifacts on hardware cards and refined gesture handling.
+
 ## v1.3.1-beta.1
 
 **中文**

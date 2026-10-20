@@ -69,8 +69,72 @@ object NetworkUtils {
      * Resolves currently connected Wi-Fi SSIDs per interface (wlan0, wlan1)
      * using dumpsys / shell status with fallback.
      */
-    fun getConnectedWifiSsids(): Map<String, String> {
-        val result = mutableMapOf<String, String>()
+    /**
+     * Detailed information about a connected Wi-Fi interface.
+     */
+    data class WifiConnectionDetails(
+        val ssid: String,
+        val bssid: String? = null,
+        val frequencyMhz: Int = 0
+    )
+
+    /**
+     * Resolves currently connected Wi-Fi details (SSID, BSSID, frequency) per interface (wlan0, wlan1)
+     * using cmd wifi status with shell/dumpsys fallback.
+     */
+    fun getConnectedWifiDetails(): Map<String, WifiConnectionDetails> {
+        val result = mutableMapOf<String, WifiConnectionDetails>()
+        // 1. Authoritative real-time source: cmd wifi status
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cmd wifi status"))
+            val lines = process.inputStream.bufferedReader().use { it.readLines() }
+            process.errorStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+            var currentIface: String? = null
+            var currentSsid: String? = null
+            var currentBssid: String? = null
+            var currentFreq = 0
+
+            lines.forEach { line ->
+                if (line.contains("iface=")) {
+                    val ifaceToSave = currentIface
+                    val ssidToSave = currentSsid
+                    if (ifaceToSave != null && ssidToSave != null) {
+                        result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq)
+                    }
+                    val iface = line.substringAfter("iface=").substringBefore(" ").substringBefore("}")
+                    currentIface = iface
+                    currentSsid = null
+                    currentBssid = null
+                    currentFreq = 0
+                } else if (line.contains("Wifi is connected to \"")) {
+                    val ssid = line.substringAfter("Wifi is connected to \"").substringBefore("\"")
+                    if (ssid.isNotEmpty() && ssid != "<unknown ssid>") {
+                        currentSsid = ssid
+                    }
+                } else if (line.contains("WifiInfo:") && currentIface != null) {
+                    val bssidMatch = Regex("""BSSID:\s*([0-9a-fA-F:]{17})""").find(line)
+                    if (bssidMatch != null && bssidMatch.groupValues[1] != "02:00:00:00:00:00") {
+                        currentBssid = bssidMatch.groupValues[1].lowercase()
+                    }
+                    val freqMatch = Regex("""Frequency:\s*(\d+)\s*MHz""").find(line)
+                    if (freqMatch != null) {
+                        currentFreq = freqMatch.groupValues[1].toIntOrNull() ?: 0
+                    }
+                }
+            }
+            val ifaceToSave = currentIface
+            val ssidToSave = currentSsid
+            if (ifaceToSave != null && ssidToSave != null) {
+                result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq)
+            }
+        } catch (_: Exception) {}
+
+        if (result.isNotEmpty()) {
+            return result
+        }
+
+        // 2. Fallback: dumpsys wifi (may retain historical current SSID(s) entries)
         try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "dumpsys wifi | grep 'current SSID(s)'"))
             val lines = process.inputStream.bufferedReader().use { it.readLines() }
@@ -83,35 +147,22 @@ object NetworkUtils {
                         val iface = match.groupValues[1].trim()
                         val ssid = match.groupValues[2].trim()
                         if (iface.isNotEmpty() && ssid.isNotEmpty() && ssid != "<unknown ssid>") {
-                            result[iface] = ssid
+                            result[iface] = WifiConnectionDetails(ssid = ssid)
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        // Fallback: If still empty, try parsing "cmd wifi status"
-        if (result.isEmpty()) {
-            try {
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cmd wifi status"))
-                val lines = process.inputStream.bufferedReader().use { it.readLines() }
-                process.errorStream.bufferedReader().use { it.readText() }
-                process.waitFor()
-                var currentIface: String? = null
-                lines.forEach { line ->
-                    if (line.contains("iface=")) {
-                        val iface = line.substringAfter("iface=").substringBefore(" ").substringBefore("}")
-                        currentIface = iface
-                    } else if (line.contains("Wifi is connected to \"") && currentIface != null) {
-                        val ssid = line.substringAfter("Wifi is connected to \"").substringBefore("\"")
-                        if (ssid.isNotEmpty() && ssid != "<unknown ssid>") {
-                            result[currentIface] = ssid
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
         return result
+    }
+
+    /**
+     * Resolves currently connected Wi-Fi SSIDs per interface (wlan0, wlan1)
+     * using dumpsys / shell status with fallback.
+     */
+    fun getConnectedWifiSsids(): Map<String, String> {
+        return getConnectedWifiDetails().mapValues { it.value.ssid }
     }
 
     /**

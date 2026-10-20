@@ -7,6 +7,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.multiroute.ui.main.MainScreen
+import com.multiroute.ui.wifi.DualWifiScreen
 
 @Composable
 fun MainNavigation() {
@@ -19,6 +20,9 @@ fun MainNavigation() {
       entryProvider {
         entry<Main> {
           MainScreen(onItemClick = { navKey -> backStack.add(navKey) }, modifier = Modifier.fillMaxSize())
+        }
+        entry<DualWifi> {
+          DualWifiScreen(onBack = { backStack.removeLastOrNull() }, modifier = Modifier.fillMaxSize())
         }
       },
   )

@@ -950,7 +950,7 @@ object SuHelper {
         sb.appendLine(context.getString(com.multiroute.R.string.diag_time, now))
         sb.appendLine()
 
-        // 1. 基础系统与权限
+        // 1. 核心权限与系统环境
         val diag = getDiagnosticInfo(context)
         sb.appendLine(context.getString(com.multiroute.R.string.diag_sec1))
         sb.appendLine(
@@ -970,8 +970,6 @@ object SuHelper {
         }
         sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_always_on, if (diag.mobileDataAlwaysOn) context.getString(com.multiroute.R.string.diag_on) else context.getString(com.multiroute.R.string.diag_off)))
         sb.appendLine(context.getString(com.multiroute.R.string.diag_keepalive, if (diag.isKeepSlaveWifiScreenOff) context.getString(com.multiroute.R.string.diag_keepalive_on) else context.getString(com.multiroute.R.string.diag_keepalive_off)))
-        // Which scenario plan is in effect, and why - the two questions a report about "a wrong route"
-        // always starts with. Only printed when plans exist, so the snapshot stays short for everyone else.
         if (com.multiroute.data.ScenarioStore.load(context).isNotEmpty()) {
             val resolution = resolveScenarioProfile(context, RouteConfigProvider.getUidRules(context))
             sb.appendLine(
@@ -986,7 +984,71 @@ object SuHelper {
         sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_uids, diag.mobileDataPreferredUids.ifEmpty { context.getString(com.multiroute.R.string.diag_empty) }))
         sb.appendLine()
 
-        // 2. 规则生效对照：配置的 uid→通道 与内核里的 pref 14500 规则逐条比对
+        // 2. 双 Wi-Fi 硬件与并发状态 (STA + STA)
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_dual_wifi))
+        try {
+            val wifiStatus = com.multiroute.wifi.DualWifiManager.status.value
+            val cap = if (wifiStatus.capability.romInfo.model.isNotEmpty()) {
+                wifiStatus.capability
+            } else {
+                com.multiroute.wifi.DualWifiManager.checkCapability(context)
+            }
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_hw, if (cap.hardwareSupported) "支持 (STA + STA Concurrency)" else "不支持"))
+            val chipset = cap.wifiChipset.ifEmpty { com.multiroute.wifi.DualWifiManager.detectWifiChipset() }
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_chip, chipset))
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_overlay, if (cap.configEnabled) "已开启 (Overlay 生效)" else "未开启 (默认禁用)"))
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_mode, if (cap.modeActive) "已激活 (Multi-AP 模式 2)" else "未激活"))
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_scheme, cap.configuredScheme.label, cap.effectiveScheme.label))
+
+            val pIface = wifiStatus.primaryIface ?: diag.wifiSsids.keys.firstOrNull() ?: "wlan0"
+            val pSsid = wifiStatus.primarySsid ?: diag.wifiSsids[pIface] ?: "(未连接)"
+            val pFreqStr = if (wifiStatus.primaryFreq > 0) " · ${wifiStatus.primaryFreq} MHz" else ""
+            val pIpStr = if (!wifiStatus.primaryIp.isNullOrEmpty()) " · ${wifiStatus.primaryIp}" else ""
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_primary, "$pIface -> $pSsid$pFreqStr$pIpStr"))
+
+            val sIface = wifiStatus.secondaryIface ?: "wlan1"
+            val sConnected = wifiStatus.secondaryConnected
+            val sSsid = wifiStatus.secondarySsid ?: if (sConnected) "(已连接)" else "(未连接)"
+            val sFreqStr = if (wifiStatus.secondaryFreq > 0) " · ${wifiStatus.secondaryFreq} MHz" else ""
+            val sIpStr = if (!wifiStatus.secondaryIp.isNullOrEmpty()) " · ${wifiStatus.secondaryIp}" else ""
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_secondary, "$sIface -> $sSsid$sFreqStr$sIpStr"))
+
+            val serviceRunning = com.multiroute.wifi.DualWifiService.isRunning
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_service, if (serviceRunning) "运行中 (常驻前台保活)" else "未运行"))
+        } catch (e: Exception) {
+            sb.appendLine("• 读取双 Wi-Fi 状态异常: ${e.message}")
+        }
+        sb.appendLine()
+
+        // 3. 各通道 DNS 与私有 DNS 状态
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_dns))
+        try {
+            val pDnsMode = runCatching { Settings.Global.getString(context.contentResolver, "private_dns_mode") }.getOrNull().orEmpty()
+            val pDnsSpec = runCatching { Settings.Global.getString(context.contentResolver, "private_dns_specifier") }.getOrNull().orEmpty()
+            val pDnsDesc = when (pDnsMode.lowercase()) {
+                "off" -> "关闭 (off)"
+                "hostname" -> "指定主机名: $pDnsSpec (strict)"
+                "opportunistic" -> "自动 / 机会性 (opportunistic)"
+                else -> if (pDnsMode.isEmpty()) "自动 (默认)" else pDnsMode
+            }
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_private_dns, pDnsDesc))
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_dns_follow_channel, if (RouteConfigProvider.isDnsFollowsChannel(context)) "已开启 (iptables 转发至通道 DNS)" else "未开启 (跟随系统默认解析)"))
+
+            val knownIfaces = (diag.activeTables + listOf("wlan0", "wlan1", "rmnet_data0", "ccmni0")).distinct()
+            val resolvers = getChannelResolvers(context, knownIfaces)
+            if (resolvers.isEmpty()) {
+                sb.appendLine(context.getString(com.multiroute.R.string.diag_no_channel_dns))
+            } else {
+                resolvers.forEach { (iface, dnsList) ->
+                    sb.appendLine(context.getString(com.multiroute.R.string.diag_channel_dns, iface, dnsList.joinToString(", ")))
+                }
+            }
+        } catch (e: Exception) {
+            sb.appendLine("• 读取 DNS 状态异常: ${e.message}")
+        }
+        sb.appendLine()
+
+        // 4. 规则生效对照：配置的 uid→通道 与内核里的 pref 14500 规则逐条比对
         sb.appendLine(context.getString(com.multiroute.R.string.diag_sec2))
         if (diag.configuredUidRules.isEmpty()) {
             sb.appendLine(context.getString(com.multiroute.R.string.diag_no_rules))
@@ -1003,27 +1065,21 @@ object SuHelper {
         }
         sb.appendLine()
 
-        // 3. 开机恢复日志（service.d 生成，锁屏状态下它是唯一的恢复路径）
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec3, RouteRuleBuilder.BOOT_LOG_PATH))
-        if (diag.bootRestoreLog.isEmpty()) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_boot_log))
-        } else {
-            diag.bootRestoreLog.forEach { sb.appendLine("  $it") }
-        }
-        sb.appendLine()
-
-        // 2. Wi-Fi 连接状态
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_wifi))
-        if (diag.wifiSsids.isEmpty()) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_wifi))
-        } else {
-            diag.wifiSsids.forEach { (iface, ssid) ->
-                sb.appendLine("• $iface -> $ssid")
+        // 5. 各网卡默认网关与策略路由表
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_routes))
+        try {
+            val routeLines = executeShellWithOutput("ip route show table all 2>/dev/null | grep -E 'default via|default dev'", timeoutSeconds = 3)
+            if (routeLines.isEmpty()) {
+                sb.appendLine(context.getString(com.multiroute.R.string.diag_no_routes))
+            } else {
+                routeLines.forEach { sb.appendLine("• $it") }
             }
+        } catch (e: Exception) {
+            sb.appendLine("• 读取路由表异常: ${e.message}")
         }
         sb.appendLine()
 
-        // 3. 内核策略路由规则 (pref 14500 & pref 14400)
+        // 6. 内核策略路由规则 (pref 14500 & pref 14400)
         sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_kernel))
         if (diag.kernelRules.isEmpty()) {
             sb.appendLine(context.getString(com.multiroute.R.string.diag_no_kernel_rules))
@@ -1034,20 +1090,29 @@ object SuHelper {
         }
         sb.appendLine()
 
-        // 4. 当前活动的网络接口与 IP
+        // 7. 当前活动的网络接口与 IP
         sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_ifaces))
         try {
-            val lines = executeShellWithOutput("ip -br addr; echo '---'; ip rule show | head -n 25", timeoutSeconds = 3)
+            val lines = executeShellWithOutput("ip -br addr; echo '---'; ip rule show | head -n 30", timeoutSeconds = 3)
             lines.forEach { sb.appendLine(it) }
         } catch (e: Exception) {
             sb.appendLine(context.getString(com.multiroute.R.string.diag_ifaces_failed, e.message ?: ""))
         }
         sb.appendLine()
 
-        // 5. 最近 Logcat 相关日志
+        // 8. 开机恢复日志（service.d 生成，锁屏状态下它是唯一的恢复路径）
+        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec3, RouteRuleBuilder.BOOT_LOG_PATH))
+        if (diag.bootRestoreLog.isEmpty()) {
+            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_boot_log))
+        } else {
+            diag.bootRestoreLog.forEach { sb.appendLine("  $it") }
+        }
+        sb.appendLine()
+
+        // 9. 最近 Logcat 相关日志 (扩充过滤与行数至 50 行)
         sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_logcat))
         try {
-            val lines = executeShellWithOutput("logcat -d -t 60 | grep -E 'MultiRoute|ConnectivityService|netd' | tail -n 25", timeoutSeconds = 3)
+            val lines = executeShellWithOutput("logcat -d -t 120 | grep -E 'MultiRoute|DualWifi|SlaveWifi|ConnectivityService|netd|wpa_supplicant' | tail -n 50", timeoutSeconds = 4)
             if (lines.isEmpty()) {
                 sb.appendLine(context.getString(com.multiroute.R.string.diag_no_logcat))
             } else {

@@ -5,6 +5,8 @@ import com.multiroute.util.NetworkUtils
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -195,11 +197,13 @@ fun MainScreen(
                 )
                 1 -> ChannelsTab(
                     uiState = uiState,
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onNavigate = onItemClick
                 )
                 2 -> SettingsTab(
                     uiState = uiState,
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onNavigate = onItemClick
                 )
             }
 
@@ -648,7 +652,8 @@ fun AppRulesTab(
 @Composable
 fun ChannelsTab(
     uiState: MainUiState,
-    viewModel: MainScreenViewModel
+    viewModel: MainScreenViewModel,
+    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxSize()
@@ -662,6 +667,59 @@ fun ChannelsTab(
         ) {
             item {
                 Spacer(modifier = Modifier.height(4.dp))
+                ElevatedCard(
+                    onClick = { onNavigate(com.multiroute.DualWifi) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WifiTethering,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_title),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+            }
+
+            item {
                 Text(
                     text = stringResource(com.multiroute.R.string.ui_active_channels, uiState.channels.size),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
@@ -790,7 +848,8 @@ fun ChannelsTab(
 @Composable
 fun SettingsTab(
     uiState: MainUiState,
-    viewModel: MainScreenViewModel
+    viewModel: MainScreenViewModel,
+    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
     val diag = uiState.diagnosticInfo
@@ -1000,6 +1059,7 @@ fun SettingsTab(
             }
         }
 
+
         item {
             // 网络运行参数设置 (蜂窝常活)
             ElevatedCard(
@@ -1037,31 +1097,7 @@ fun SettingsTab(
                         )
                     }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_keep_slave_wifi),
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_keep_slave_wifi_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                        Switch(
-                            checked = uiState.isKeepSlaveWifiScreenOff,
-                            onCheckedChange = { viewModel.toggleKeepSlaveWifiScreenOff() }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2701,6 +2737,68 @@ fun DiagnosticLogsDialog(
     onCopy: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { os ->
+                    os.write(logs.toByteArray(Charsets.UTF_8))
+                }
+            }.onSuccess {
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(com.multiroute.R.string.ui_log_exported, uri.lastPathSegment ?: ""),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }.onFailure { e ->
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(com.multiroute.R.string.ui_log_export_failed, e.message ?: ""),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    val onShare: () -> Unit = {
+        if (logs.isNotBlank()) {
+            runCatching {
+                val timestamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+                val cacheDir = java.io.File(context.cacheDir, "logs").apply { mkdirs() }
+                val logFile = java.io.File(cacheDir, "MultiRoute-diag-$timestamp.txt")
+                logFile.writeText(logs, Charsets.UTF_8)
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    logFile
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, context.getString(com.multiroute.R.string.ui_share_chooser_title))
+                    putExtra(Intent.EXTRA_TEXT, logs.take(2000))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(
+                    shareIntent,
+                    context.getString(com.multiroute.R.string.ui_share_chooser_title)
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            }.onFailure { e ->
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(com.multiroute.R.string.ui_log_export_failed, e.message ?: ""),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -2745,7 +2843,6 @@ fun DiagnosticLogsDialog(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                // 日志内容文本框（深色背景、等宽字体）
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -2774,23 +2871,50 @@ fun DiagnosticLogsDialog(
                     }
                 }
 
-                // 操作按钮
+                // 操作按钮栏：关闭在左，导出/分享/复制在右
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
                         Text(stringResource(com.multiroute.R.string.ui_close))
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = onCopy,
-                        shape = RoundedCornerShape(10.dp)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(com.multiroute.R.string.ui_copy_log))
+                        OutlinedButton(
+                            onClick = {
+                                val timestamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+                                exportLauncher.launch("MultiRoute-diag-$timestamp.txt")
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(com.multiroute.R.string.ui_export_log))
+                        }
+                        OutlinedButton(
+                            onClick = onShare,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(com.multiroute.R.string.ui_share_log))
+                        }
+                        Button(
+                            onClick = onCopy,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(com.multiroute.R.string.ui_copy_log))
+                        }
                     }
                 }
             }

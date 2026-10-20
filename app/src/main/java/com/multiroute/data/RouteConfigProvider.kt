@@ -58,6 +58,13 @@ class RouteConfigProvider : ContentProvider() {
          * or broken WAN links) trigger failover to keep apps reachable. Default: true.
          */
         const val KEY_FAILOVER_PROBE_INTERNET = "failover_probe_internet"
+        const val KEY_DUAL_WIFI_AUTO_RECONNECT = "dual_wifi_auto_reconnect"
+        const val KEY_DUAL_WIFI_LAST_SSID = "dual_wifi_last_ssid"
+        const val KEY_DUAL_WIFI_LAST_PASS = "dual_wifi_last_pass"
+        const val KEY_DUAL_WIFI_LAST_FREQ = "dual_wifi_last_freq"
+        const val KEY_DUAL_WIFI_LAST_BSSID = "dual_wifi_last_bssid"
+        const val KEY_DUAL_WIFI_LAST_CAPS = "dual_wifi_last_caps"
+        const val KEY_DUAL_WIFI_SCHEME = "dual_wifi_scheme"
 
         // --- Appearance / language. Stored here so the settings survive a reinstall of the rules file
         // --- and so everything the app needs at startup is read from one place.
@@ -136,6 +143,66 @@ class RouteConfigProvider : ContentProvider() {
         fun setFailoverProbeInternet(context: Context, enabled: Boolean) {
             context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_FAILOVER_PROBE_INTERNET, enabled).apply()
+        }
+
+        fun isDualWifiAutoReconnectEnabled(context: Context): Boolean {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getBoolean(KEY_DUAL_WIFI_AUTO_RECONNECT, true)
+        }
+
+        fun setDualWifiAutoReconnectEnabled(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_DUAL_WIFI_AUTO_RECONNECT, enabled).apply()
+        }
+
+        fun saveLastSecondaryWifi(
+            context: Context,
+            ssid: String,
+            pass: String?,
+            freq: Int,
+            bssid: String?,
+            caps: String?
+        ) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+                .putString(KEY_DUAL_WIFI_LAST_SSID, ssid)
+                .putString(KEY_DUAL_WIFI_LAST_PASS, pass ?: "")
+                .putInt(KEY_DUAL_WIFI_LAST_FREQ, freq)
+                .putString(KEY_DUAL_WIFI_LAST_BSSID, bssid ?: "")
+                .putString(KEY_DUAL_WIFI_LAST_CAPS, caps ?: "")
+                .apply()
+        }
+
+        fun getLastSecondaryWifi(context: Context): Map<String, Any?> {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            val ssid = sp.getString(KEY_DUAL_WIFI_LAST_SSID, null) ?: return emptyMap()
+            return mapOf(
+                "ssid" to ssid,
+                "pass" to sp.getString(KEY_DUAL_WIFI_LAST_PASS, ""),
+                "freq" to sp.getInt(KEY_DUAL_WIFI_LAST_FREQ, 0),
+                "bssid" to sp.getString(KEY_DUAL_WIFI_LAST_BSSID, null),
+                "caps" to sp.getString(KEY_DUAL_WIFI_LAST_CAPS, null)
+            )
+        }
+
+        fun clearLastSecondaryWifi(context: Context) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+                .remove(KEY_DUAL_WIFI_LAST_SSID)
+                .remove(KEY_DUAL_WIFI_LAST_PASS)
+                .remove(KEY_DUAL_WIFI_LAST_FREQ)
+                .remove(KEY_DUAL_WIFI_LAST_BSSID)
+                .remove(KEY_DUAL_WIFI_LAST_CAPS)
+                .apply()
+        }
+
+        fun getDualWifiScheme(context: Context): String {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getString(KEY_DUAL_WIFI_SCHEME, "auto") ?: "auto"
+        }
+
+        fun setDualWifiScheme(context: Context, scheme: String) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+                .putString(KEY_DUAL_WIFI_SCHEME, scheme)
+                .apply()
         }
 
         private val SAFE_PKG_REGEX = Regex("^[a-zA-Z0-9_.]+$")

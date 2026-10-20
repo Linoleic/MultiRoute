@@ -123,6 +123,52 @@ The on-device evidence behind this table — the commands used and what they ret
 
 ---
 
+## Dual Wi-Fi Management & Device Compatibility
+
+In stock Android, the framework maintains only a single active default internet gateway. While many modern smartphones and tablets feature **DBS (Dual-Band Simultaneous)** dual-radio Wi-Fi hardware, OEM ROMs frequently lock secondary Wi-Fi interfaces behind vendor-restricted features or tear them down aggressively during screen-off sleep.
+
+MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Manager)** that combines hardware chipset probing, tiered adaptation schemes, frequency conflict detection, and background keep-alive to enable simultaneous, independent dual-Wi-Fi connections across diverse device brands.
+
+### 1. Tiered Adaptation Schemes
+
+| Scheme | Mechanism | Target & Advantages |
+| :--- | :--- | :--- |
+| **Auto (Tiered Adaptation)**<br>`AUTO` | Automatically inspects manufacturer, ROM type, Wi-Fi chipset driver, and network interfaces to pick the optimal scheme. | **Default & Recommended**. Works out-of-the-box with graceful fallbacks. |
+| **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's proprietary `SlaveWifiService` / `DualStaImpl` driver and injects LSPosed hooks to prevent screen-off disconnection. | Xiaomi / Redmi / POCO stock ROMs with native dual-WLAN integration and screen-off keepalive. |
+| **AOSP / Pixel Standard**<br>`AOSP_OVERLAY` | Leverages native Android 13+ AOSP Multi-Internet mode (RRO Overlay activating `config_wifiMultiStaMultiInternetConcurrencyEnabled` in Multi-AP mode 2). | AOSP custom ROMs (LineageOS, crDroid, PixelOS, etc.) or devices running clean AOSP frameworks. |
+| **Generic Root Force Scheme**<br>`ROOT_DIRECT` | Uses Root (UID 0) and `SYSTEM_UID` privileges to register requests directly into the Android Wi-Fi stack, bypassing Framework Overlay requirements and system prompt dialogs. | **Universal penetration**. Works across OPPO/OnePlus (ColorOS), vivo/iQOO (OriginOS), Samsung (One UI), and other heavily modified OEM ROMs. |
+
+### 2. Hardware & Device Requirements
+
+* **System Requirements**:
+  * **Android 13 (API 33) or higher** (AOSP 13+ introduced native Multi-Internet and multi-ClientModeManager architecture).
+  * **Root Access** (KernelSU / APatch / Magisk).
+* **Hardware Radio Requirements (DBS / Dual STA Supported)**:
+  * **Qualcomm Snapdragon (FastConnect 6700 / 6800 / 6900 / 7800 / 7900)**:
+    * Flagship: Snapdragon 888 / 8 Gen 1 / 8+ Gen 1 / 8 Gen 2 / 8 Gen 3 / 8 Elite;
+    * Upper-Midrange: Snapdragon 7+ Gen 2 / 7+ Gen 3 / 8s Gen 3 / 7 Gen 3, etc.
+  * **MediaTek Dimensity (Filogic)**:
+    * Dimensity 8100 / 8200 / 8300 / 9000 / 9200 / 9300 / 9400 and related chipsets with dual-Wi-Fi acceleration.
+  * **Google Tensor**:
+    * Pixel 6 / 7 / 8 / 9 series (Broadcom BCM4389 / BCM4398 DBS chipsets).
+  * **Samsung Exynos**:
+    * Exynos 2100 / 2200 / 2400 flagship series.
+* **Unsupported Devices**:
+  * Budget or legacy chipsets equipped with only a single physical Wi-Fi radio/antenna (e.g. entry-level Snapdragon 4/6 series, low-end Helio/Unisoc);
+  * Android 12 and below (lacks the AOSP multi-internet routing framework).
+
+### 3. Usage Notes & Troubleshooting
+
+1. **Radio Band Complementarity**:
+   * DBS chipsets require the two connected Wi-Fi networks to operate on **complementary non-overlapping frequency bands** (e.g. 2.4GHz + 5GHz, or 5GHz Low 5.2GHz + 5GHz High 5.8GHz);
+   * Attempting concurrency on the exact same physical radio channel causes radio contention failure. The Wi-Fi list automatically tags candidates as "Recommended" or "Band Conflict".
+2. **Same-SSID Multi-Band Disambiguation**:
+   * For dual-band unified routers broadcasting identical SSIDs across 2.4GHz and 5GHz, MultiRoute disambiguates APs by their BSSID and frequency band, keeping primary and secondary connection states isolated.
+3. **Resetting Temporary Network Penalties**:
+   * Android may temporarily place an access point on an internal disable/blocklist after password mismatches or failed handshakes. Use the "Reset Network Temporary Restrictions" card button to clear the penalty blocklist instantly.
+
+---
+
 ## Installation
 
 1. Install the APK from the [releases page](https://github.com/Linoleic/MultiRoute/releases) — the asset
@@ -238,8 +284,7 @@ The Settings tab shows one of:
 - **Rules disappeared after a reboot** — check the boot-recovery log in the same snapshot
   (section 3, `/data/adb/multiroute/last_boot_sync.log`). Also confirm KernelSU/Magisk/APatch executes
   `service.d` scripts on this ROM.
-- **Secondary Wi-Fi channel is missing** — the hardware must support dual Wi-Fi and the ROM must have
-  it enabled and connected to a second access point.
+- **Secondary Wi-Fi channel is missing** — ensure the hardware supports dual Wi-Fi (DBS architecture) and runs Android 13+. In MultiRoute, open **Channels → Dual Wi-Fi Manager** to check capabilities and pick the appropriate adaptation scheme (Generic Root Force Scheme for OEM ROMs).
 - **DNS does not behave as expected** — only port 53 is redirected. If you use **Private DNS (DoT)** or
   DoH, that traffic is not rewritten; on a VPN it can therefore still resolve through the tunnel.
 - **Assignment seems to do nothing while a VPN is active** — see the VPN note under *Known limitations*.
