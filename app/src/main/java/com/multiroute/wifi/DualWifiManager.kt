@@ -1103,6 +1103,7 @@ DUALWIFI_EOF
         try {
             // 1. Clean up any existing requests and clear blocklist to ensure fresh attempt
             val prepScript = """
+                cmd wifi set-multi-internet-mode 2 2>/dev/null
                 cmd wifi remove-all-requests
                 cmd wifi clear-user-disabled-networks
                 cmd wifi allow-root-to-get-local-only-cmm enabled
@@ -1228,7 +1229,10 @@ DUALWIFI_EOF
         if (clearSavedPreference) {
             com.multiroute.data.RouteConfigProvider.clearLastSecondaryWifi(context)
         }
-        SuHelper.executeCommand("cmd wifi remove-all-requests", timeoutSeconds = 3)
+        val secIface = _status.value.secondaryIface
+            ?: _status.value.capability.secondaryIface
+            ?: "wlan1"
+
         DualWifiService.stop(context)
 
         _status.update {
@@ -1246,6 +1250,20 @@ DUALWIFI_EOF
         }
 
         scope.launch {
+            // Disconnect secondary STA, disable multi-AP auto-association (mode 1: DBS only),
+            // and flush interface link/addresses at kernel and framework levels
+            val disconnectScript = """
+                cmd wifi remove-all-requests 2>/dev/null
+                cmd wifi set-multi-internet-mode 1 2>/dev/null
+                ip -4 addr flush dev $secIface 2>/dev/null
+                ip -6 addr flush dev $secIface 2>/dev/null
+                ip link set dev $secIface down 2>/dev/null
+                sleep 0.1
+                ip link set dev $secIface up 2>/dev/null
+                cmd wifi clear-user-disabled-networks 2>/dev/null
+            """.trimIndent()
+            SuHelper.executeCommand(disconnectScript, timeoutSeconds = 5)
+            delay(400)
             refreshConnectionState(context)
             SuHelper.syncAllRouteRules(context)
         }

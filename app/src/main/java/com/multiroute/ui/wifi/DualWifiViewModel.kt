@@ -110,7 +110,11 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun disconnectSecondary() {
-        DualWifiManager.disconnectSecondaryWifi(getApplication())
+        viewModelScope.launch {
+            DualWifiManager.disconnectSecondaryWifi(getApplication())
+            kotlinx.coroutines.delay(600)
+            scanNetworks()
+        }
     }
 
     fun setAutoReconnect(enabled: Boolean) {
