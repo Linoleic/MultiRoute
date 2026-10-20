@@ -298,6 +298,7 @@ fun DualWifiScreen(
                     WifiScanRow(
                         item = item,
                         primaryFreq = status.primaryFreq,
+                        isSecondaryConnected = status.secondaryConnected,
                         isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
                         onCardClick = { selectedDetailItem = item },
                         onConnectClick = { viewModel.onSelectScanItem(item) }
@@ -394,6 +395,7 @@ fun DualWifiScreen(
             item = item,
             primarySsid = status.primarySsid,
             primaryFreq = status.primaryFreq,
+            isSecondaryConnected = status.secondaryConnected,
             isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
             onDismiss = { selectedDetailItem = null },
             onConnectClick = { viewModel.onSelectScanItem(item) },
@@ -929,7 +931,8 @@ private fun ActiveChannelsCard(
                             color = if (status.secondaryConnected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = status.secondarySsid ?: stringResource(R.string.dual_wifi_not_connected),
+                            text = (if (status.secondaryConnected) status.secondarySsid else null)
+                                ?: stringResource(R.string.dual_wifi_not_connected),
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
                         )
                         if (status.secondaryConnected && status.secondaryIp != null) {
@@ -989,6 +992,7 @@ private fun ActiveChannelsCard(
 private fun WifiScanRow(
     item: WifiScanItem,
     primaryFreq: Int = 0,
+    isSecondaryConnected: Boolean = false,
     isConnecting: Boolean,
     onCardClick: () -> Unit,
     onConnectClick: () -> Unit
@@ -1023,7 +1027,7 @@ private fun WifiScanRow(
                 },
                 badgeText = when {
                     item.isSecondary -> "2"
-                    item.isPrimary -> "1"
+                    item.isPrimary && isSecondaryConnected -> "1"
                     else -> null
                 },
                 modifier = Modifier.size(22.dp)
@@ -1292,6 +1296,7 @@ private fun WifiDetailBottomSheet(
     item: WifiScanItem,
     primarySsid: String?,
     primaryFreq: Int,
+    isSecondaryConnected: Boolean = false,
     isConnecting: Boolean,
     onDismiss: () -> Unit,
     onConnectClick: () -> Unit,
@@ -1331,7 +1336,7 @@ private fun WifiDetailBottomSheet(
                         tint = if (item.isPrimary || item.isSecondary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         badgeText = when {
                             item.isSecondary -> "2"
-                            item.isPrimary -> "1"
+                            item.isPrimary && isSecondaryConnected -> "1"
                             else -> null
                         },
                         modifier = Modifier.size(26.dp)

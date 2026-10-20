@@ -220,4 +220,64 @@ class DualWifiScanParsingTest {
         assertEquals(-55, primary.rssi)
         assertEquals(4, primary.level)
     }
+
+    @Test
+    fun testDisconnectedSecondaryDoesNotDesignatePrimaryAsSecondary() {
+        val connectedDetails = mapOf(
+            "wlan0" to NetworkUtils.WifiConnectionDetails(
+                ssid = "Wrt-F5G",
+                bssid = "40:31:3c:04:90:2e",
+                frequencyMhz = 5260,
+                rssi = -52,
+                iface = "wlan0",
+                isPrimary = true
+            )
+        )
+        val lines = listOf(
+            "    BSSID              Frequency      RSSI           Age(sec)     SSID                                 Flags",
+            "  40:31:3c:04:90:2e       5260    -46(0:-50/1:-49)     0.701    Wrt-F5G                           [WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS]",
+            "  40:31:3c:04:90:2d       2412    -60                  1.200    Wrt-F5G                           [WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS]",
+            "  12:34:56:78:9a:bc       2437    -70                  2.100    Guest_24G                         [WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS]"
+        )
+
+        val results = DualWifiManager.parseScanResultLines(
+            lines = lines,
+            connectedDetails = connectedDetails,
+            primarySsid = "Wrt-F5G",
+            primaryBssid = "40:31:3c:04:90:2e",
+            primaryFreq = 5260,
+            secondarySsid = null,
+            secondaryBssid = null,
+            secondaryFreq = 0,
+            isSecConnected = false
+        )
+
+        val primaryItem = results.find { it.isPrimary }
+        assertNotNull(primaryItem)
+        assertEquals("Wrt-F5G", primaryItem!!.ssid)
+        assertEquals(5260, primaryItem.frequencyMhz)
+
+        // No item should be designated as secondary when secondary is not connected
+        val secondaryItems = results.filter { it.isSecondary }
+        assertTrue(secondaryItems.isEmpty())
+    }
+
+    @Test
+    fun testResolvePrimarySecondaryIfacesAlwaysKeepsWlan0Primary() {
+        val ifaces = listOf("wlan0", "wlan1")
+        // Case 1: activeDefaultIface is null (e.g. app startup / background)
+        val (prim1, sec1) = DualWifiManager.resolvePrimarySecondaryIfaces(ifaces, null)
+        assertEquals("wlan0", prim1)
+        assertEquals("wlan1", sec1)
+
+        // Case 2: activeDefaultIface is tun0 (VPN active)
+        val (prim2, sec2) = DualWifiManager.resolvePrimarySecondaryIfaces(ifaces, "tun0")
+        assertEquals("wlan0", prim2)
+        assertEquals("wlan1", sec2)
+
+        // Case 3: activeDefaultIface is wlan0
+        val (prim3, sec3) = DualWifiManager.resolvePrimarySecondaryIfaces(ifaces, "wlan0")
+        assertEquals("wlan0", prim3)
+        assertEquals("wlan1", sec3)
+    }
 }

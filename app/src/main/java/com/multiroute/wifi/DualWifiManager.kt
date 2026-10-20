@@ -303,15 +303,15 @@ object DualWifiManager {
             cm?.getLinkProperties(net)?.interfaceName
         }.getOrNull()
 
-        val primary = activeDefaultIface?.takeIf { it.startsWith("wlan") }
-            ?: ifaces.firstOrNull { it == "wlan1" } ?: ifaces.firstOrNull()
-        val secondary = ifaces.firstOrNull { it != primary } ?: if (primary == "wlan1") "wlan0" else "wlan1"
+        // In Android dual STA architectures (Qualcomm FastConnect, MediaTek, Broadcom),
+        // wlan0 is the primary STA interface, and wlan1 is the dedicated secondary STA interface.
+        val (primary, secondary) = resolvePrimarySecondaryIfaces(ifaces, activeDefaultIface)
 
         // Extract physical link details for active Wi-Fi interfaces
         val statusOutput = SuHelper.executeShellWithOutput("cmd wifi status 2>/dev/null", timeoutSeconds = 3)
         val ifaceDetails = parseWifiStatus(statusOutput)
-        val primDet = primary?.let { ifaceDetails[it] } ?: ""
-        val secDet = secondary.let { ifaceDetails[it] } ?: ""
+        val primDet = ifaceDetails[primary] ?: ""
+        val secDet = ifaceDetails[secondary] ?: ""
 
         val cap = DualWifiCapability(
             hardwareSupported = hwSupported,
@@ -499,20 +499,21 @@ DUALWIFI_EOF
             val lines = SuHelper.executeShellWithOutput("cmd wifi list-scan-results 2>/dev/null", timeoutSeconds = 5)
             val savedPasswords = getSavedWifiPasswords()
             val detailsMap = NetworkUtils.getConnectedWifiDetails()
-            val primIface = _status.value.capability.primaryIface ?: "wlan0"
-            val secIface = _status.value.capability.secondaryIface ?: "wlan1"
+            val primIface = _status.value.capability.primaryIface?.takeIf { it != "wlan1" } ?: "wlan0"
+            val secIface = _status.value.capability.secondaryIface?.takeIf { it != primIface } ?: "wlan1"
             val primDetails = detailsMap[primIface]
-            val secDetails = detailsMap[secIface]
+            val secDetails = detailsMap[secIface]?.takeIf { it.iface != primIface }
 
             val primarySsid = _status.value.primarySsid ?: primDetails?.ssid
             val primaryBssid = _status.value.primaryBssid ?: primDetails?.bssid
             val primaryFreq = if (_status.value.primaryFreq > 0) _status.value.primaryFreq else (primDetails?.frequencyMhz ?: 0)
 
-            val isSecConnected = _status.value.secondaryConnected ||
-                (!secDetails?.ssid.isNullOrEmpty() && secDetails?.ssid != "<unknown ssid>")
-            val secondarySsid = if (isSecConnected) (_status.value.secondarySsid ?: secDetails?.ssid) else null
-            val secondaryBssid = if (isSecConnected) (_status.value.secondaryBssid ?: secDetails?.bssid) else null
-            val secondaryFreq = if (isSecConnected) (if (_status.value.secondaryFreq > 0) _status.value.secondaryFreq else (secDetails?.frequencyMhz ?: 0)) else 0
+            val isSecConnected = _status.value.secondaryConnected &&
+                !_status.value.secondarySsid.isNullOrEmpty() &&
+                _status.value.secondarySsid != "<unknown ssid>"
+            val secondarySsid = if (isSecConnected) _status.value.secondarySsid else null
+            val secondaryBssid = if (isSecConnected) _status.value.secondaryBssid else null
+            val secondaryFreq = if (isSecConnected) _status.value.secondaryFreq else 0
 
             val frameworkScanResults = runCatching {
                 (context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager)?.scanResults
@@ -953,6 +954,26 @@ DUALWIFI_EOF
     }
 
     /**
+     * Resolves primary and secondary Wi-Fi interface names deterministically.
+     * Guaranteed: primary and secondary are distinct; wlan0 is primary when present.
+     */
+    fun resolvePrimarySecondaryIfaces(
+        ifaces: List<String>,
+        activeDefaultIface: String? = null
+    ): Pair<String, String> {
+        val primary = when {
+            ifaces.contains("wlan0") -> "wlan0"
+            activeDefaultIface?.startsWith("wlan") == true -> activeDefaultIface
+            else -> ifaces.firstOrNull() ?: "wlan0"
+        }
+        val secondary = when {
+            primary != "wlan1" && ifaces.contains("wlan1") -> "wlan1"
+            else -> ifaces.firstOrNull { it != primary } ?: if (primary == "wlan0") "wlan1" else "wlan0"
+        }
+        return Pair(primary, secondary)
+    }
+
+    /**
      * Refreshes the currently connected primary and secondary Wi-Fi status.
      */
     suspend fun refreshConnectionState(context: Context) = withContext(Dispatchers.IO) {
@@ -960,8 +981,8 @@ DUALWIFI_EOF
         val activeDefault = cm?.activeNetwork
         val detailsMap = NetworkUtils.getConnectedWifiDetails()
 
-        val primaryTargetIface = _status.value.capability.primaryIface ?: "wlan0"
-        val secondaryTargetIface = _status.value.capability.secondaryIface ?: "wlan1"
+        val primaryTargetIface = _status.value.capability.primaryIface?.takeIf { it != "wlan1" } ?: "wlan0"
+        val secondaryTargetIface = _status.value.capability.secondaryIface?.takeIf { it != primaryTargetIface } ?: "wlan1"
 
         data class IfaceLink(val iface: String, val ip: String?, val isDefault: Boolean)
         val cmIfaces = mutableMapOf<String, IfaceLink>()
@@ -977,13 +998,13 @@ DUALWIFI_EOF
 
         // 1. Authoritative Primary Wi-Fi resolution (Targeting wlan0 / ROLE_CLIENT_PRIMARY)
         val primDetail = detailsMap[primaryTargetIface]
-            ?: detailsMap.values.firstOrNull { it.isPrimary || it.iface == primaryTargetIface }
+            ?: detailsMap.values.firstOrNull { it.isPrimary }
             ?: detailsMap.values.firstOrNull { it.iface == "wlan0" }
         val primCm = cmIfaces[primaryTargetIface]
-            ?: cmIfaces.values.firstOrNull { it.isDefault || it.iface == primaryTargetIface }
+            ?: cmIfaces.values.firstOrNull { it.isDefault }
             ?: cmIfaces.values.firstOrNull { it.iface == "wlan0" }
 
-        val primIface = primCm?.iface ?: primDetail?.iface ?: primaryTargetIface
+        val primIface = primDetail?.iface ?: primCm?.iface ?: primaryTargetIface
         val primSsid = primDetail?.ssid
         val primBssid = primDetail?.bssid
         val primFreq = primDetail?.frequencyMhz ?: 0
@@ -991,20 +1012,30 @@ DUALWIFI_EOF
         var primIp = primCm?.ip ?: primDetail?.ip
 
         // 2. Authoritative Secondary Wi-Fi resolution (Targeting wlan1 / ROLE_CLIENT_SECONDARY)
-        val secDetail = detailsMap[secondaryTargetIface]
-            ?: detailsMap.values.firstOrNull { !it.isPrimary && it.iface != primIface }
-            ?: detailsMap.values.firstOrNull { it.iface == "wlan1" && it.iface != primIface }
-        val secCm = cmIfaces[secondaryTargetIface]
-            ?: cmIfaces.values.firstOrNull { it.iface != primIface }
-            ?: cmIfaces.values.firstOrNull { it.iface == "wlan1" && it.iface != primIface }
+        // Secondary Wi-Fi is strictly separated from primary interface (primIface)
+        val secDetail = detailsMap[secondaryTargetIface]?.takeIf { it.iface != primIface }
+            ?: detailsMap.values.firstOrNull { !it.isPrimary && it.iface != primIface && it.iface == "wlan1" }
+        val secCm = cmIfaces[secondaryTargetIface]?.takeIf { it.iface != primIface }
+            ?: cmIfaces.values.firstOrNull { it.iface != primIface && it.iface == "wlan1" }
 
-        val secIface = secCm?.iface ?: secDetail?.iface ?: secondaryTargetIface
-        val secSsid = secDetail?.ssid
-        val secBssid = secDetail?.bssid
+        val secIface = secDetail?.iface ?: secCm?.iface ?: secondaryTargetIface
+        val candidateSecSsid = secDetail?.ssid?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
+        val candidateSecBssid = secDetail?.bssid
         val secFreq = secDetail?.frequencyMhz ?: 0
         val secRssi = secDetail?.rssi ?: 0
         var secIp = secCm?.ip ?: secDetail?.ip
-        val secConnected = !secSsid.isNullOrEmpty() && secSsid != "<unknown ssid>"
+
+        // Secondary is connected ONLY IF it has a distinct interface, a non-empty SSID, and does not collide with primary
+        val secConnected = secDetail != null &&
+            !candidateSecSsid.isNullOrEmpty() &&
+            secIface != primIface &&
+            (candidateSecSsid != primSsid || candidateSecBssid != primBssid || secIface != primIface)
+
+        val secSsid = if (secConnected) candidateSecSsid else null
+        val secBssid = if (secConnected) candidateSecBssid else null
+        val secIpFinal = if (secConnected) secIp else null
+        val secFreqFinal = if (secConnected) secFreq else 0
+        val secRssiFinal = if (secConnected) secRssi else 0
 
         // Fallback for IP from kernel if not exposed by ConnectivityManager/WifiInfo
         if (primIp == null && !primSsid.isNullOrEmpty()) {
@@ -1013,27 +1044,29 @@ DUALWIFI_EOF
                     Regex("""\b(\d{1,3}(?:\.\d{1,3}){3})\b""").find(line)?.value
                 }
         }
-        if (secIp == null && secConnected) {
-            secIp = SuHelper.executeShellWithOutput("ip -4 -br addr show dev $secIface 2>/dev/null", timeoutSeconds = 2)
+        val finalSecIpResolved = if (secIpFinal == null && secConnected) {
+            SuHelper.executeShellWithOutput("ip -4 -br addr show dev $secIface 2>/dev/null", timeoutSeconds = 2)
                 .firstOrNull()?.let { line ->
                     Regex("""\b(\d{1,3}(?:\.\d{1,3}){3})\b""").find(line)?.value
                 }
+        } else {
+            secIpFinal
         }
 
         _status.update {
             it.copy(
-                primaryIface = primIface ?: it.capability.primaryIface,
+                primaryIface = primIface,
                 primarySsid = primSsid,
                 primaryBssid = primBssid,
                 primaryIp = primIp,
                 primaryFreq = primFreq,
                 primaryRssi = primRssi,
-                secondaryIface = secIface ?: it.capability.secondaryIface,
+                secondaryIface = secIface,
                 secondarySsid = secSsid,
                 secondaryBssid = secBssid,
-                secondaryIp = secIp,
-                secondaryFreq = secFreq,
-                secondaryRssi = secRssi,
+                secondaryIp = finalSecIpResolved,
+                secondaryFreq = secFreqFinal,
+                secondaryRssi = secRssiFinal,
                 secondaryConnected = secConnected
             )
         }
@@ -1202,11 +1235,13 @@ DUALWIFI_EOF
             it.copy(
                 isConnecting = false,
                 connectingSsid = null,
-                        connectingBssid = null,
+                connectingBssid = null,
                 secondaryConnected = false,
                 secondarySsid = null,
                 secondaryBssid = null,
-                secondaryIp = null
+                secondaryIp = null,
+                secondaryFreq = 0,
+                secondaryRssi = 0
             )
         }
 
