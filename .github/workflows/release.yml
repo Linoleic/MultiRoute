@@ -138,7 +138,7 @@ jobs:
           fi
 
           # Release notes: the matching CHANGELOG section when there is one, generated notes otherwise.
-          awk -v v="$NAME" 'BEGIN{f=0} /^## /{f=($0 ~ ("(^| )v?" v "( |$)"))} f' CHANGELOG.md > NOTES.md || true
+          tr -d '\r' < CHANGELOG.md | awk -v v="$NAME" 'BEGIN{f=0} /^## /{f=($0 ~ ("(^| )v?" v "( |$)"))} f' > NOTES.md || true
           if [ ! -s NOTES.md ]; then rm -f NOTES.md; fi
 
       - name: Publish GitHub release
@@ -151,8 +151,11 @@ jobs:
             *-beta*|*-rc*|*-alpha*|*-preview*) EXTRA_ARGS+=(--prerelease) ;;
           esac
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; uploading the asset."
+            echo "Release $TAG already exists; uploading the asset and updating notes."
             gh release upload "$TAG" "$ASSET" --clobber
+            if [ -f NOTES.md ]; then
+              gh release edit "$TAG" --notes-file NOTES.md
+            fi
           else
             if [ -f NOTES.md ]; then
               gh release create "$TAG" "$ASSET" --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md "${EXTRA_ARGS[@]}"
@@ -180,11 +183,19 @@ jobs:
           # `gh` takes the repository through --repo; the OWNER/REPO@TAG shorthand is not valid here, and
           # hiding stderr made a wrong invocation look like a successful mirror.
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo "Mirror: release $TAG already exists; uploading the asset."
+            echo "Mirror: release $TAG already exists; uploading the asset and updating notes."
             gh release upload "$TAG" "$ASSET" --repo "$REPO" --clobber
+            if [ -f NOTES.md ]; then
+              gh release edit "$TAG" --repo "$REPO" --notes-file NOTES.md
+            fi
           else
-            gh release create "$TAG" "$ASSET" --repo "$REPO" \
-              --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes "${EXTRA_ARGS[@]}"
+            if [ -f NOTES.md ]; then
+              gh release create "$TAG" "$ASSET" --repo "$REPO" \
+                --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md "${EXTRA_ARGS[@]}"
+            else
+              gh release create "$TAG" "$ASSET" --repo "$REPO" \
+                --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes "${EXTRA_ARGS[@]}"
+            fi
           fi
           gh release view "$TAG" --repo "$REPO" --json tagName,assets \
             --jq '{tag: .tagName, assets: [.assets[].name]}'
