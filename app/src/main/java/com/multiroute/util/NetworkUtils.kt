@@ -75,7 +75,8 @@ object NetworkUtils {
     data class WifiConnectionDetails(
         val ssid: String,
         val bssid: String? = null,
-        val frequencyMhz: Int = 0
+        val frequencyMhz: Int = 0,
+        val rssi: Int = 0
     )
 
     /**
@@ -94,19 +95,21 @@ object NetworkUtils {
             var currentSsid: String? = null
             var currentBssid: String? = null
             var currentFreq = 0
+            var currentRssi = 0
 
             lines.forEach { line ->
                 if (line.contains("iface=")) {
                     val ifaceToSave = currentIface
                     val ssidToSave = currentSsid
                     if (ifaceToSave != null && ssidToSave != null) {
-                        result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq)
+                        result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq, currentRssi)
                     }
                     val iface = line.substringAfter("iface=").substringBefore(" ").substringBefore("}")
                     currentIface = iface
                     currentSsid = null
                     currentBssid = null
                     currentFreq = 0
+                    currentRssi = 0
                 } else if (line.contains("Wifi is connected to \"")) {
                     val ssid = line.substringAfter("Wifi is connected to \"").substringBefore("\"")
                     if (ssid.isNotEmpty() && ssid != "<unknown ssid>") {
@@ -121,12 +124,17 @@ object NetworkUtils {
                     if (freqMatch != null) {
                         currentFreq = freqMatch.groupValues[1].toIntOrNull() ?: 0
                     }
+                    val rssiMatch = Regex("""RSSI:\s*(-?\d+)""").find(line)
+                        ?: Regex("""SignalStrength:\s*(-?\d+)""").find(line)
+                    if (rssiMatch != null) {
+                        currentRssi = rssiMatch.groupValues[1].toIntOrNull() ?: 0
+                    }
                 }
             }
             val ifaceToSave = currentIface
             val ssidToSave = currentSsid
             if (ifaceToSave != null && ssidToSave != null) {
-                result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq)
+                result[ifaceToSave] = WifiConnectionDetails(ssidToSave, currentBssid, currentFreq, currentRssi)
             }
         } catch (_: Exception) {}
 

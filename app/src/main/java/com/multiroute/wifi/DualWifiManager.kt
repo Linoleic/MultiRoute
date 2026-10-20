@@ -142,11 +142,13 @@ data class DualWifiStatus(
     val secondaryIp: String? = null,
     val secondaryIface: String? = null,
     val secondaryFreq: Int = 0,
+    val secondaryRssi: Int = 0,
     val primarySsid: String? = null,
     val primaryBssid: String? = null,
     val primaryIp: String? = null,
     val primaryIface: String? = null,
     val primaryFreq: Int = 0,
+    val primaryRssi: Int = 0,
     val errorMessage: String? = null
 )
 
@@ -511,73 +513,23 @@ DUALWIFI_EOF
             val secondaryBssid = if (isSecConnected) (_status.value.secondaryBssid ?: secDetails?.bssid) else null
             val secondaryFreq = if (isSecConnected) (if (_status.value.secondaryFreq > 0) _status.value.secondaryFreq else (secDetails?.frequencyMhz ?: 0)) else 0
 
-            val itemsMap = mutableMapOf<String, WifiScanItem>()
+            val frameworkScanResults = runCatching {
+                (context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager)?.scanResults
+            }.getOrNull()
 
-            for (line in lines) {
-                val parts = line.trim().split(Regex("""\s+"""))
-                if (parts.size >= 5 && parts[0].matches(Regex("""([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}"""))) {
-                    val bssid = parts[0]
-                    val freq = parts[1].toIntOrNull() ?: 0
-                    val rssi = parts[2].toIntOrNull() ?: -99
-                    val flags = parts.last()
-                    val ssidParts = parts.subList(4, parts.size - 1)
-                    val ssid = ssidParts.joinToString(" ").trim()
-
-                    if (ssid.isEmpty() || ssid == "<unknown ssid>") {
-                        continue
-                    }
-
-                    // Key by SSID + Radio Band (allows both 2.4G and 5G bands of the same SSID to be selectable)
-                    val bandKey = when {
-                        freq in 2400..2500 -> "2.4G"
-                        freq in 4900..5350 -> "5G_LOW"
-                        freq in 5351..5900 -> "5G_HIGH"
-                        freq in 5925..7125 -> "6G"
-                        else -> "5G"
-                    }
-                    val dedupKey = "$ssid#$bandKey"
-
-                    val isSaved = savedPasswords.containsKey(ssid)
-                    val savedPass = savedPasswords[ssid]
-                    val isPrimary = matchesConnected(
-                        candidateSsid = ssid,
-                        candidateBssid = bssid,
-                        candidateFreq = freq,
-                        connectedSsid = primarySsid,
-                        connectedBssid = primaryBssid,
-                        connectedFreq = primaryFreq
-                    )
-                    val isSecondary = isSecConnected && matchesConnected(
-                        candidateSsid = ssid,
-                        candidateBssid = bssid,
-                        candidateFreq = freq,
-                        connectedSsid = secondarySsid,
-                        connectedBssid = secondaryBssid,
-                        connectedFreq = secondaryFreq
-                    )
-
-                    val candidate = WifiScanItem(
-                        ssid = ssid,
-                        bssid = bssid,
-                        frequencyMhz = freq,
-                        rssi = rssi,
-                        capabilities = flags,
-                        isSaved = isSaved,
-                        savedPassword = savedPass,
-                        isPrimary = isPrimary,
-                        isSecondary = isSecondary
-                    )
-
-                    val existing = itemsMap[dedupKey]
-                    if (existing == null ||
-                        candidate.isPrimary || candidate.isSecondary ||
-                        (!existing.isPrimary && !existing.isSecondary && candidate.rssi > existing.rssi)) {
-                        itemsMap[dedupKey] = candidate
-                    }
-                }
-            }
-
-            val items = itemsMap.values.toMutableList()
+            val items = parseScanResultLines(
+                lines = lines,
+                savedPasswords = savedPasswords,
+                connectedDetails = detailsMap,
+                primarySsid = primarySsid,
+                primaryBssid = primaryBssid,
+                primaryFreq = primaryFreq,
+                secondarySsid = secondarySsid,
+                secondaryBssid = secondaryBssid,
+                secondaryFreq = secondaryFreq,
+                isSecConnected = isSecConnected,
+                frameworkScanResults = frameworkScanResults
+            ).toMutableList()
 
             // Smart Multi-Tiered Sorting:
             // 1. Currently active secondary connection (STA2)
@@ -603,6 +555,274 @@ DUALWIFI_EOF
             _status.update { it.copy(isScanning = false, errorMessage = "扫描 Wi-Fi 失败: ${t.message}") }
             emptyList()
         }
+    }
+
+    /**
+     * Parses Wi-Fi scan results from shell command output (`cmd wifi list-scan-results` or `wpa_cli`)
+     * using an adaptive header-aware and token-classified heuristic parser.
+     */
+    fun parseScanResultLines(
+        lines: List<String>,
+        savedPasswords: Map<String, String> = emptyMap(),
+        connectedDetails: Map<String, NetworkUtils.WifiConnectionDetails> = emptyMap(),
+        primarySsid: String? = null,
+        primaryBssid: String? = null,
+        primaryFreq: Int = 0,
+        secondarySsid: String? = null,
+        secondaryBssid: String? = null,
+        secondaryFreq: Int = 0,
+        isSecConnected: Boolean = false,
+        frameworkScanResults: List<android.net.wifi.ScanResult>? = null
+    ): List<WifiScanItem> {
+        val itemsMap = mutableMapOf<String, WifiScanItem>()
+
+        // 1. Index framework ScanResults by lowercased BSSID
+        val frameworkRssiMap = mutableMapOf<String, Int>()
+        frameworkScanResults?.forEach { sr ->
+            val b = sr.BSSID?.lowercase()
+            if (!b.isNullOrEmpty() && sr.level in -120..0) {
+                frameworkRssiMap[b] = sr.level
+            }
+        }
+
+        // 2. Identify header column indices if header exists
+        val headerLine = lines.firstOrNull {
+            val upper = it.uppercase()
+            upper.contains("BSSID") && (upper.contains("SSID") || upper.contains("FREQ") || upper.contains("RSSI"))
+        }
+        val headerCols = headerLine?.trim()?.split(Regex("""[\s/|\t]+"""))?.filter { it.isNotBlank() }?.map { it.uppercase() } ?: emptyList()
+        val headerBssidIdx = headerCols.indexOfFirst { it.contains("BSSID") }
+        val headerFreqIdx = headerCols.indexOfFirst { it.contains("FREQ") }
+        val headerRssiIdx = headerCols.indexOfFirst { it.contains("RSSI") || it.contains("LEVEL") || it.contains("SIGNAL") }
+        val headerFlagsIdx = headerCols.indexOfFirst { it.contains("FLAG") || it.contains("CAPAB") }
+        val headerAgeIdx = headerCols.indexOfFirst { it.contains("AGE") }
+
+        fun tryParseRssi(token: String): Int? {
+            // Xiaomi HyperOS / Qualcomm devices append per-antenna MIMO metrics: -79(0:-80/1:-87)
+            val withoutMimo = token.substringBefore("(")
+            val clean = withoutMimo
+                .replace("dBm", "", ignoreCase = true)
+                .replace("RSSI:", "", ignoreCase = true)
+                .replace("Level:", "", ignoreCase = true)
+                .replace("Signal:", "", ignoreCase = true)
+                .trim()
+            val intVal = clean.toIntOrNull()
+            if (intVal != null && intVal in -120..0) return intVal
+            val floatVal = clean.toFloatOrNull()
+            if (floatVal != null && floatVal >= -120f && floatVal <= 0f) return floatVal.toInt()
+
+            // Fallback: extract leading signed integer (e.g. -79 from -79...)
+            val match = Regex("""^(-?\d+)""").find(clean)
+            if (match != null) {
+                val parsed = match.groupValues[1].toIntOrNull()
+                if (parsed != null && parsed in -120..0) return parsed
+            }
+            return null
+        }
+
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            // Must contain a valid MAC address (BSSID)
+            val bssidMatch = Regex("""\b([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b""").find(trimmed) ?: continue
+            val bssid = bssidMatch.value.lowercase()
+            val tokens = trimmed.split(Regex("""\s+""")).toMutableList()
+            if (tokens.size < 3) continue
+
+            // Skip if this is the header line itself
+            if (trimmed.equals(headerLine?.trim(), ignoreCase = true)) continue
+
+            // A. Locate Frequency
+            var freq = 0
+            var freqTokenIndex = -1
+            if (headerFreqIdx in tokens.indices) {
+                val f = tokens[headerFreqIdx].toIntOrNull()
+                if (f != null && (f in 2400..7200 || f in 1..14)) {
+                    freq = if (f in 1..14) (if (f == 14) 2484 else 2407 + f * 5) else f
+                    freqTokenIndex = headerFreqIdx
+                }
+            }
+            if (freq == 0) {
+                for (i in tokens.indices) {
+                    if (tokens[i].equals(bssid, ignoreCase = true)) continue
+                    val f = tokens[i].toIntOrNull()
+                    if (f != null && f in 2400..7200) {
+                        freq = f
+                        freqTokenIndex = i
+                        break
+                    }
+                }
+            }
+
+            // B. Locate RSSI
+            var parsedRssi: Int? = null
+            var rssiTokenIndex = -1
+            if (headerRssiIdx in tokens.indices) {
+                parsedRssi = tryParseRssi(tokens[headerRssiIdx])
+                if (parsedRssi != null) {
+                    rssiTokenIndex = headerRssiIdx
+                }
+            }
+            if (parsedRssi == null) {
+                for (i in tokens.indices) {
+                    if (i == freqTokenIndex) continue
+                    if (tokens[i].equals(bssid, ignoreCase = true)) continue
+                    val r = tryParseRssi(tokens[i])
+                    if (r != null) {
+                        parsedRssi = r
+                        rssiTokenIndex = i
+                        break
+                    }
+                }
+            }
+
+            // C. Locate Capabilities / Flags
+            var flags = ""
+            var flagsTokenIndex = -1
+            if (headerFlagsIdx in tokens.indices && tokens[headerFlagsIdx].startsWith("[")) {
+                flags = tokens[headerFlagsIdx]
+                flagsTokenIndex = headerFlagsIdx
+            } else {
+                for (i in tokens.indices.reversed()) {
+                    if (tokens[i].startsWith("[") && tokens[i].endsWith("]")) {
+                        flags = tokens[i]
+                        flagsTokenIndex = i
+                        break
+                    }
+                }
+                if (flags.isEmpty()) {
+                    for (i in tokens.indices.reversed()) {
+                        val u = tokens[i].uppercase()
+                        if (u.contains("WPA") || u.contains("RSN") || u.contains("ESS") || u.contains("PSK") || u.contains("SAE")) {
+                            flags = tokens[i]
+                            flagsTokenIndex = i
+                            break
+                        }
+                    }
+                }
+            }
+            if (flags.isEmpty()) flags = "[ESS]"
+
+            // D. Locate Age token if present
+            var ageTokenIndex = -1
+            if (headerAgeIdx in tokens.indices) {
+                ageTokenIndex = headerAgeIdx
+            } else {
+                for (i in tokens.indices) {
+                    if (i == freqTokenIndex || i == rssiTokenIndex || i == flagsTokenIndex) continue
+                    val tok = tokens[i]
+                    if (tok.startsWith(">") || (tok.contains(".") && tok.toFloatOrNull() != null && tok.toFloatOrNull()!! > 0)) {
+                        ageTokenIndex = i
+                        break
+                    }
+                }
+            }
+
+            // E. Extract SSID from all remaining tokens
+            val bssidIndex = tokens.indexOfFirst { it.equals(bssid, ignoreCase = true) }
+            val excludedIndices = setOf(bssidIndex, freqTokenIndex, rssiTokenIndex, flagsTokenIndex, ageTokenIndex)
+            val ssidTokens = tokens.filterIndexed { index, _ -> index !in excludedIndices }
+            val ssid = ssidTokens.joinToString(" ").trim('"', ' ')
+
+            if (ssid.isEmpty() || ssid == "<unknown ssid>") {
+                continue
+            }
+
+            // F. Secondary enrichment for RSSI:
+            val isPrimary = matchesConnected(
+                candidateSsid = ssid,
+                candidateBssid = bssid,
+                candidateFreq = freq,
+                connectedSsid = primarySsid,
+                connectedBssid = primaryBssid,
+                connectedFreq = primaryFreq
+            )
+            val isSecondary = isSecConnected && matchesConnected(
+                candidateSsid = ssid,
+                candidateBssid = bssid,
+                candidateFreq = freq,
+                connectedSsid = secondarySsid,
+                connectedBssid = secondaryBssid,
+                connectedFreq = secondaryFreq
+            )
+
+            var finalRssi = parsedRssi
+                ?: frameworkRssiMap[bssid]
+                ?: -99
+
+            // If this is an active primary/secondary connection, merge live connected RSSI from cmd wifi status
+            if (isPrimary || isSecondary) {
+                val connRssi = connectedDetails.values.firstOrNull {
+                    (!it.bssid.isNullOrEmpty() && it.bssid.equals(bssid, ignoreCase = true)) ||
+                    it.ssid.equals(ssid, ignoreCase = true)
+                }?.rssi
+                if (connRssi != null && connRssi in -120..-1) {
+                    finalRssi = connRssi
+                }
+            }
+
+            // Key by SSID + Radio Band (allows both 2.4G and 5G bands of the same SSID to be selectable)
+            val bandKey = when {
+                freq in 2400..2500 -> "2.4G"
+                freq in 4900..5350 -> "5G_LOW"
+                freq in 5351..5900 -> "5G_HIGH"
+                freq in 5925..7125 -> "6G"
+                else -> "5G"
+            }
+            val dedupKey = "$ssid#$bandKey"
+
+            val isSaved = savedPasswords.containsKey(ssid)
+            val savedPass = savedPasswords[ssid]
+
+            val candidate = WifiScanItem(
+                ssid = ssid,
+                bssid = bssid,
+                frequencyMhz = freq,
+                rssi = finalRssi,
+                capabilities = flags,
+                isSaved = isSaved,
+                savedPassword = savedPass,
+                isPrimary = isPrimary,
+                isSecondary = isSecondary
+            )
+
+            val existing = itemsMap[dedupKey]
+            if (existing == null ||
+                candidate.isPrimary || candidate.isSecondary ||
+                (!existing.isPrimary && !existing.isSecondary && candidate.rssi > existing.rssi)) {
+                itemsMap[dedupKey] = candidate
+            }
+        }
+
+        // G. Fallback: If primary connected Wi-Fi was not in scan results, synthesize it so it's always visible
+        if (!primarySsid.isNullOrEmpty() && primarySsid != "<unknown ssid>") {
+            val primBandKey = when {
+                primaryFreq in 2400..2500 -> "2.4G"
+                primaryFreq in 4900..5350 -> "5G_LOW"
+                primaryFreq in 5351..5900 -> "5G_HIGH"
+                primaryFreq in 5925..7125 -> "6G"
+                else -> "5G"
+            }
+            val primDedupKey = "$primarySsid#$primBandKey"
+            if (!itemsMap.containsKey(primDedupKey)) {
+                val connRssi = connectedDetails.values.firstOrNull { it.ssid == primarySsid }?.rssi
+                    ?.takeIf { it in -120..0 } ?: -60
+                itemsMap[primDedupKey] = WifiScanItem(
+                    ssid = primarySsid,
+                    bssid = primaryBssid ?: "02:00:00:00:00:00",
+                    frequencyMhz = primaryFreq,
+                    rssi = connRssi,
+                    capabilities = "[WPA2-PSK-CCMP][ESS]",
+                    isSaved = true,
+                    savedPassword = savedPasswords[primarySsid],
+                    isPrimary = true,
+                    isSecondary = false
+                )
+            }
+        }
+
+        return itemsMap.values.toList()
     }
 
     /**
@@ -716,12 +936,14 @@ DUALWIFI_EOF
         var primIp: String? = null
         var primIface: String? = null
         var primFreq = 0
+        var primRssi = 0
 
         var secSsid: String? = null
         var secBssid: String? = null
         var secIp: String? = null
         var secIface: String? = null
         var secFreq = 0
+        var secRssi = 0
         var secConnected = false
 
         for (network in cm.allNetworks) {
@@ -735,6 +957,7 @@ DUALWIFI_EOF
             val ssid = details?.ssid
             val bssid = details?.bssid
             val freq = details?.frequencyMhz ?: 0
+            val rssi = details?.rssi ?: 0
 
             val isDefault = (network == activeDefault)
             if (isDefault || iface == _status.value.capability.primaryIface || primIface == null) {
@@ -743,12 +966,14 @@ DUALWIFI_EOF
                 primBssid = bssid
                 primIp = ip
                 primFreq = freq
+                primRssi = rssi
             } else {
                 secIface = iface
                 secSsid = ssid
                 secBssid = bssid
                 secIp = ip
                 secFreq = freq
+                secRssi = rssi
                 secConnected = true
             }
         }
@@ -760,11 +985,13 @@ DUALWIFI_EOF
                 primaryBssid = primBssid,
                 primaryIp = primIp,
                 primaryFreq = primFreq,
+                primaryRssi = primRssi,
                 secondaryIface = secIface ?: it.capability.secondaryIface,
                 secondarySsid = secSsid,
                 secondaryBssid = secBssid,
                 secondaryIp = secIp,
                 secondaryFreq = secFreq,
+                secondaryRssi = secRssi,
                 secondaryConnected = secConnected
             )
         }
