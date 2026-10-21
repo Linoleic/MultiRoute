@@ -322,4 +322,62 @@ class DualWifiSchemeDetectionTest {
         assertFalse(cand24G_Primary)
         assertTrue(cand24G_Secondary)
     }
+
+    @Test
+    fun testPrimaryCollisionDetection() {
+        // 1. Same SSID matching primary Wi-Fi is detected as collision
+        val sameSsidCollision = DualWifiManager.isPrimaryCollision(
+            candidateSsid = "Wrt-F5G",
+            candidateBssid = "40:31:3c:04:90:2e",
+            primarySsid = "Wrt-F5G",
+            primaryBssid = "40:31:3c:04:90:2e"
+        )
+        assertTrue(sameSsidCollision)
+
+        // 2. Case-insensitive SSID match is detected as collision
+        val caseInsensitiveCollision = DualWifiManager.isPrimaryCollision(
+            candidateSsid = "wrt-f5g",
+            candidateBssid = null,
+            primarySsid = "Wrt-F5G",
+            primaryBssid = "40:31:3c:04:90:2e"
+        )
+        assertTrue(caseInsensitiveCollision)
+
+        // 3. Different SSID with same BSSID is detected as collision
+        val sameBssidCollision = DualWifiManager.isPrimaryCollision(
+            candidateSsid = "Wrt-F5G-Guest",
+            candidateBssid = "40:31:3C:04:90:2E",
+            primarySsid = "Wrt-F5G",
+            primaryBssid = "40:31:3c:04:90:2e"
+        )
+        assertTrue(sameBssidCollision)
+
+        // 4. Different secondary SSID and different BSSID is not a collision
+        val safeSecondary = DualWifiManager.isPrimaryCollision(
+            candidateSsid = "Hpkt",
+            candidateBssid = "7e:b5:66:c3:f7:fd",
+            primarySsid = "Wrt-F5G",
+            primaryBssid = "40:31:3c:04:90:2e"
+        )
+        assertFalse(safeSecondary)
+
+        // 5. When primary Wi-Fi is disconnected (null or empty), no collision
+        val noPrimary = DualWifiManager.isPrimaryCollision(
+            candidateSsid = "Hpkt",
+            candidateBssid = "7e:b5:66:c3:f7:fd",
+            primarySsid = null,
+            primaryBssid = null
+        )
+        assertFalse(noPrimary)
+
+        // 6. Masked BSSID (02:00:00:00:00:00) does not falsely trigger collision on different SSID
+        val maskedBssid = DualWifiManager.isPrimaryCollision(
+            candidateSsid = "Hpkt",
+            candidateBssid = "02:00:00:00:00:00",
+            primarySsid = "Wrt-F5G",
+            primaryBssid = "02:00:00:00:00:00"
+        )
+        assertFalse(maskedBssid)
+    }
+
 }

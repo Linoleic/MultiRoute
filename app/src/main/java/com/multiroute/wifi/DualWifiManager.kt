@@ -913,6 +913,26 @@ DUALWIFI_EOF
         return true
     }
 
+    /**
+     * Checks if a candidate secondary Wi-Fi AP collides with the currently active primary Wi-Fi,
+     * preventing conflicts that could tear down the primary STA connection.
+     */
+    fun isPrimaryCollision(
+        candidateSsid: String,
+        candidateBssid: String?,
+        primarySsid: String?,
+        primaryBssid: String?
+    ): Boolean {
+        if (primarySsid.isNullOrEmpty()) return false
+        if (candidateSsid.equals(primarySsid, ignoreCase = true)) return true
+        if (!candidateBssid.isNullOrEmpty() && !primaryBssid.isNullOrEmpty() &&
+            primaryBssid != "02:00:00:00:00:00" && primaryBssid != "00:00:00:00:00:00"
+        ) {
+            return candidateBssid.equals(primaryBssid, ignoreCase = true)
+        }
+        return false
+    }
+
     fun isBandConflicted(itemFreq: Int, primaryFreq: Int): Boolean {
         if (primaryFreq <= 0 || itemFreq <= 0) return false
         val primLow5G = primaryFreq in 5150..5350
@@ -1114,7 +1134,8 @@ DUALWIFI_EOF
             // 2. Resolve security type: open, owe, wpa2, wpa3, wep
             val secType = resolveSecurityType(capabilities, passphrase)
             val passArg = if (secType != "open" && secType != "owe" && !passphrase.isNullOrEmpty()) " \"$passphrase\"" else ""
-            SuHelper.executeCommand("cmd wifi add-network \"$ssid\" $secType$passArg", timeoutSeconds = 3)
+            // Include -d so primary STA (wlan0) autojoin never roams or connects to this network
+            SuHelper.executeCommand("cmd wifi add-network \"$ssid\" $secType$passArg -d", timeoutSeconds = 3)
 
             val bssidArg = if (!bssid.isNullOrEmpty()) " -b $bssid" else ""
 
@@ -1162,14 +1183,16 @@ DUALWIFI_EOF
 
             if (connected) {
                 val secState = _status.value
-                com.multiroute.data.RouteConfigProvider.saveLastSecondaryWifi(
-                    context,
-                    ssid = ssid,
-                    pass = passphrase,
-                    freq = frequencyMhz,
-                    bssid = bssid,
-                    caps = capabilities
-                )
+                if (ssid != secState.primarySsid) {
+                    com.multiroute.data.RouteConfigProvider.saveLastSecondaryWifi(
+                        context,
+                        ssid = ssid,
+                        pass = passphrase,
+                        freq = frequencyMhz,
+                        bssid = bssid,
+                        caps = capabilities
+                    )
+                }
                 DualWifiService.start(context, secState.secondarySsid ?: ssid, secState.secondaryIface ?: "wlan1")
                 scope.launch {
                     SuHelper.syncAllRouteRules(context)
@@ -1218,6 +1241,14 @@ DUALWIFI_EOF
         val bssid = lastWifi["bssid"] as? String
         val caps = lastWifi["caps"] as? String
 
+        val currentPrimarySsid = _status.value.primarySsid
+        val currentPrimaryBssid = _status.value.primaryBssid
+        if (isPrimaryCollision(ssid, bssid, currentPrimarySsid, currentPrimaryBssid)) {
+            Log.w(TAG, "Prevented secondary auto-reconnect: configured secondary '$ssid' matches active primary '$currentPrimarySsid'")
+            com.multiroute.data.RouteConfigProvider.clearLastSecondaryWifi(context)
+            return@withContext false
+        }
+
         Log.i(TAG, "Auto reconnecting secondary Wi-Fi: $ssid")
         connectSecondaryWifi(context, ssid, pass, freq, bssid, caps)
     }
@@ -1232,6 +1263,7 @@ DUALWIFI_EOF
         val secIface = _status.value.secondaryIface
             ?: _status.value.capability.secondaryIface
             ?: "wlan1"
+        val secSsid = _status.value.secondarySsid
 
         DualWifiService.stop(context)
 
@@ -1250,20 +1282,27 @@ DUALWIFI_EOF
         }
 
         scope.launch {
-            // Disconnect secondary STA, disable multi-AP auto-association (mode 1: DBS only),
+            // Disconnect secondary STA, forget secondary saved networks to stop auto-reconnection,
+            // invoke Xiaomi SlaveWifiService disconnect if on Xiaomi ROM,
             // and flush interface link/addresses at kernel and framework levels
+            val ssidFilter = if (!secSsid.isNullOrEmpty()) secSsid else ""
             val disconnectScript = """
                 cmd wifi remove-all-requests 2>/dev/null
+                if [ -n "$ssidFilter" ]; then
+                    cmd wifi remove-request "$ssidFilter" 2>/dev/null
+                    for id in $(cmd wifi list-networks 2>/dev/null | grep "$ssidFilter" | awk '{print ${'$'}1}'); do
+                        cmd wifi forget-network "${'$'}id" 2>/dev/null
+                    done
+                fi
                 cmd wifi set-multi-internet-mode 1 2>/dev/null
+                service call SlaveWifiService 3 s16 "android.net.wifi.ISlaveWifiManager" 2>/dev/null
                 ip -4 addr flush dev $secIface 2>/dev/null
                 ip -6 addr flush dev $secIface 2>/dev/null
                 ip link set dev $secIface down 2>/dev/null
-                sleep 0.1
-                ip link set dev $secIface up 2>/dev/null
                 cmd wifi clear-user-disabled-networks 2>/dev/null
             """.trimIndent()
             SuHelper.executeCommand(disconnectScript, timeoutSeconds = 5)
-            delay(400)
+            delay(500)
             refreshConnectionState(context)
             SuHelper.syncAllRouteRules(context)
         }
