@@ -1607,7 +1607,7 @@ private fun HotspotActiveCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+            containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Column(
@@ -1633,13 +1633,13 @@ private fun HotspotActiveCard(
                     Text(
                         text = stringResource(R.string.dual_wifi_hotspot_active_title),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
+                    color = MaterialTheme.colorScheme.tertiaryContainer
                 ) {
                     Text(
                         text = status.hotspotBand ?: "Hotspot",
@@ -1657,7 +1657,7 @@ private fun HotspotActiveCard(
                     "${status.hotspotBand ?: "未知频段"}${if (status.hotspotFreq > 0) " (${status.hotspotFreq} MHz)" else ""}"
                 ),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
             )
 
