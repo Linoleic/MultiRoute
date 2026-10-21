@@ -44,6 +44,15 @@ object ModuleStateParser {
      */
     const val ACTION_KEEPALIVE_CHANGED = "com.multiroute.ACTION_KEEPALIVE_CHANGED"
 
+    /** Broadcast dispatched to system_server to initiate secondary Wi-Fi connection via SlaveWifiService. */
+    const val ACTION_CONNECT_SLAVE_WIFI = "com.multiroute.ACTION_CONNECT_SLAVE_WIFI"
+
+    /** Broadcast dispatched to system_server to disconnect secondary Wi-Fi via SlaveWifiService. */
+    const val ACTION_DISCONNECT_SLAVE_WIFI = "com.multiroute.ACTION_DISCONNECT_SLAVE_WIFI"
+
+    const val EXTRA_NET_ID = "netId"
+    const val EXTRA_BSSID = "bssid"
+
     const val FORMAT_VERSION = 1
 
     private const val NO_PROC_SENTINEL = "__NO_PROC__"

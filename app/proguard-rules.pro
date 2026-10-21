@@ -46,6 +46,7 @@
 # -------------------------------------------------------------
 -keep class com.multiroute.MainActivity { *; }
 -keep class com.multiroute.ui.main.MainScreenViewModel { *; }
+-keep class com.multiroute.wifi.SlaveWifiBridge { *; }
 
 # -------------------------------------------------------------
 # 6. Jetpack Compose

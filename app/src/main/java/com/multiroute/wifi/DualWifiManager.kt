@@ -275,8 +275,20 @@ object DualWifiManager {
             val filter = android.content.IntentFilter("android.net.wifi.WIFI_AP_STATE_CHANGED")
             val receiver = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                    val apState = intent?.getIntExtra("wifi_state", 11) ?: 11
                     scope.launch {
                         refreshConnectionState(appContext)
+                        // If hotspot was just disabled, trigger secondary Wi-Fi auto-reconnection
+                        // after a short delay allowing kernel nl80211 to restore STA2 mode
+                        if (apState == 11 && !_status.value.secondaryConnected &&
+                            com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(appContext)
+                        ) {
+                            delay(1200)
+                            refreshConnectionState(appContext)
+                            if (!_status.value.secondaryConnected && !_status.value.isHotspotEnabled) {
+                                autoReconnectSecondary(appContext)
+                            }
+                        }
                     }
                 }
             }
@@ -1137,6 +1149,44 @@ DUALWIFI_EOF
     }
 
     /**
+     * Retrieves the framework network ID for a given SSID from `cmd wifi list-networks`.
+     */
+    suspend fun getNetworkIdForSsid(ssid: String): Int? = withContext(Dispatchers.IO) {
+        val lines = SuHelper.executeShellWithOutput("cmd wifi list-networks 2>/dev/null", timeoutSeconds = 3)
+        parseNetworkIdFromList(lines, ssid)
+    }
+
+    /**
+     * Parses the network ID for the specified SSID from `cmd wifi list-networks` output lines.
+     */
+    fun parseNetworkIdFromList(lines: List<String>, targetSsid: String): Int? {
+        val cleanTarget = targetSsid.trim().trim('"')
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("Network Id", ignoreCase = true)) continue
+            val match = Regex("""^(\d+)\s+(.+?)\s+(?:wpa|open|owe|wep)""", RegexOption.IGNORE_CASE).find(trimmed)
+            if (match != null) {
+                val id = match.groupValues[1].toIntOrNull()
+                val netSsid = match.groupValues[2].trim().trim('"')
+                if (id != null && netSsid.equals(cleanTarget, ignoreCase = true)) {
+                    return id
+                }
+            }
+            val tokens = trimmed.split(Regex("""\s+"""))
+            if (tokens.size >= 2) {
+                val id = tokens[0].toIntOrNull()
+                if (id != null) {
+                    val candidate = tokens.subList(1, tokens.size - 1).joinToString(" ").trim().trim('"')
+                    if (candidate.equals(cleanTarget, ignoreCase = true) || tokens[1].trim('"').equals(cleanTarget, ignoreCase = true)) {
+                        return id
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    /**
      * Resolves security type for cmd wifi add-network / add-request.
      * Supports: open, owe, wpa2, wpa3, wep.
      */
@@ -1356,16 +1406,47 @@ DUALWIFI_EOF
             // Include -d so primary STA (wlan0) autojoin never roams or connects to this network
             SuHelper.executeCommand("cmd wifi add-network \"$ssid\" $secType$passArg -d", timeoutSeconds = 3)
 
-            val bssidArg = if (!bssid.isNullOrEmpty()) " -b $bssid" else ""
+            val rom = detectRomType()
+            val configuredScheme = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
+            val effectiveScheme = getEffectiveScheme(configuredScheme, rom)
+            val isXiaomiSlave = effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || rom.romType == RomType.XIAOMI_HYPEROS
 
-            // 3. Issue add-request via root without -d (frequency bands specifier rejected by WifiNetworkFactory)
-            // and without -i to prevent NetworkMonitor from disconnecting wlan1 due to validation failure
-            val script = """
-                cmd wifi network-requests-set-user-approved android yes
-                cmd wifi add-request "$ssid" $secType$passArg$bssidArg
-                cmd wifi start-scan
-            """.trimIndent()
-            SuHelper.executeCommand(script, timeoutSeconds = 5)
+            var connectedViaSlaveService = false
+            if (isXiaomiSlave) {
+                val netId = getNetworkIdForSsid(ssid)
+                if (netId != null) {
+                    Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
+                    // 1. Send broadcast to MultiRouteModule in system_server (LSPosed path)
+                    val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI).apply {
+                        setPackage("android")
+                        putExtra(com.multiroute.util.ModuleStateParser.EXTRA_NET_ID, netId)
+                        if (!bssid.isNullOrEmpty()) {
+                            putExtra(com.multiroute.util.ModuleStateParser.EXTRA_BSSID, bssid)
+                        }
+                        addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
+                    }
+                    runCatching { context.sendBroadcast(slaveIntent) }
+
+                    // 2. Execute SlaveWifiBridge via app_process as Root (universal Root path)
+                    val apkPath = context.applicationInfo.sourceDir
+                    val bssidEscaped = if (!bssid.isNullOrEmpty()) " \"$bssid\"" else ""
+                    val bridgeCmd = "CLASSPATH=\"$apkPath\" app_process / com.multiroute.wifi.SlaveWifiBridge connect $netId$bssidEscaped"
+                    SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)
+                    connectedViaSlaveService = true
+                } else {
+                    Log.w(TAG, "Network ID not found for SSID '$ssid' in list-networks; falling back to cmd wifi add-request")
+                }
+            }
+
+            if (!connectedViaSlaveService) {
+                val bssidArg = if (!bssid.isNullOrEmpty()) " -b $bssid" else ""
+                val script = """
+                    cmd wifi network-requests-set-user-approved android yes
+                    cmd wifi add-request "$ssid" $secType$passArg$bssidArg
+                    cmd wifi start-scan
+                """.trimIndent()
+                SuHelper.executeCommand(script, timeoutSeconds = 5)
+            }
 
             // 4. Poll for secondary connection for up to 12 seconds with auth failure detection
             var connected = false
@@ -1510,6 +1591,14 @@ DUALWIFI_EOF
             // Disconnect secondary STA, forget secondary saved networks to stop auto-reconnection,
             // invoke Xiaomi SlaveWifiService disconnect if on Xiaomi ROM,
             // and flush interface link/addresses at kernel and framework levels
+            // Broadcast disconnect to system_server
+            val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI).apply {
+                setPackage("android")
+                addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
+            }
+            runCatching { context.sendBroadcast(slaveIntent) }
+
+            val apkPath = context.applicationInfo.sourceDir
             val ssidFilter = if (!secSsid.isNullOrEmpty()) secSsid else ""
             val disconnectScript = """
                 cmd wifi remove-all-requests 2>/dev/null
@@ -1520,7 +1609,8 @@ DUALWIFI_EOF
                     done
                 fi
                 cmd wifi set-multi-internet-mode 1 2>/dev/null
-                service call SlaveWifiService 3 s16 "android.net.wifi.ISlaveWifiManager" 2>/dev/null
+                service call SlaveWifiService 5 2>/dev/null
+                CLASSPATH="$apkPath" app_process / com.multiroute.wifi.SlaveWifiBridge disconnect 2>/dev/null
                 ip -4 addr flush dev $secIface 2>/dev/null
                 ip -6 addr flush dev $secIface 2>/dev/null
                 ip link set dev $secIface down 2>/dev/null

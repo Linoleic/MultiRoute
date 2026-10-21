@@ -724,22 +724,65 @@ class MultiRouteModule : XposedModule() {
                         return
                     }
 
-                    if (!isKeepSlaveWifiScreenOff()) {
-                        log(Log.INFO, TAG, "[KeepAlive] Switch is off; no hooks installed.")
-                        return
-                    }
-                    // Never hook on the system_server main thread.
-                    Thread {
-                        log(Log.INFO, TAG, "[KeepAlive] Switch is on; installing dual-Wi-Fi hooks now.")
-                        installSlaveWifiHooksOnDemand()
-                    }.apply {
-                        isDaemon = true
-                        name = "MultiRoute-KeepAliveHook"
-                        start()
+                    when (intent?.action) {
+                        ModuleStateParser.ACTION_KEEPALIVE_CHANGED -> {
+                            if (!isKeepSlaveWifiScreenOff()) {
+                                log(Log.INFO, TAG, "[KeepAlive] Switch is off; no hooks installed.")
+                                return
+                            }
+                            // Never hook on the system_server main thread.
+                            Thread {
+                                log(Log.INFO, TAG, "[KeepAlive] Switch is on; installing dual-Wi-Fi hooks now.")
+                                installSlaveWifiHooksOnDemand()
+                            }.apply {
+                                isDaemon = true
+                                name = "MultiRoute-KeepAliveHook"
+                                start()
+                            }
+                        }
+                        ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI -> {
+                            val netId = intent.getIntExtra(ModuleStateParser.EXTRA_NET_ID, -1)
+                            if (netId >= 0) {
+                                val bssid = intent.getStringExtra(ModuleStateParser.EXTRA_BSSID)
+                                Thread {
+                                    val binder = com.multiroute.wifi.SlaveWifiBridge.getSlaveWifiBinder()
+                                    if (binder != null) {
+                                        log(Log.INFO, TAG, "[SlaveWifi] Connecting secondary Wi-Fi in system_server: netId=$netId bssid=$bssid")
+                                        com.multiroute.wifi.SlaveWifiBridge.setWifiSlaveEnabled(binder, "android", true)
+                                        val ok = com.multiroute.wifi.SlaveWifiBridge.connectToSlaveAp(binder, netId, bssid)
+                                        log(Log.INFO, TAG, "[SlaveWifi] connectToSlaveAp returned $ok")
+                                    } else {
+                                        log(Log.WARN, TAG, "[SlaveWifi] SlaveWifiService binder is null in system_server")
+                                    }
+                                }.apply {
+                                    isDaemon = true
+                                    name = "MultiRoute-ConnectSlaveWifi"
+                                    start()
+                                }
+                            }
+                        }
+                        ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI -> {
+                            Thread {
+                                val binder = com.multiroute.wifi.SlaveWifiBridge.getSlaveWifiBinder()
+                                if (binder != null) {
+                                    log(Log.INFO, TAG, "[SlaveWifi] Disconnecting secondary Wi-Fi in system_server")
+                                    val ok = com.multiroute.wifi.SlaveWifiBridge.disconnectSlaveWifi(binder)
+                                    log(Log.INFO, TAG, "[SlaveWifi] disconnectSlaveWifi returned $ok")
+                                }
+                            }.apply {
+                                isDaemon = true
+                                name = "MultiRoute-DisconnectSlaveWifi"
+                                start()
+                            }
+                        }
                     }
                 }
             }
-            val filter = android.content.IntentFilter(ModuleStateParser.ACTION_KEEPALIVE_CHANGED)
+            val filter = android.content.IntentFilter().apply {
+                addAction(ModuleStateParser.ACTION_KEEPALIVE_CHANGED)
+                addAction(ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI)
+                addAction(ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI)
+            }
             if (android.os.Build.VERSION.SDK_INT >= 33) {
                 context.registerReceiver(receiver, filter, android.content.Context.RECEIVER_EXPORTED)
             } else {
