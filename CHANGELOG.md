@@ -5,6 +5,38 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.4.1
+
+**中文**
+
+- **热点与双 Wi-Fi 射频互斥与联动**：
+  - 支持检测本机个人热点（SoftAP）状态与频段，避免副 Wi-Fi 与热点占用相同射频产生冲突。
+  - 热点关闭后，若开启了自动重连，会自动尝试恢复连接副 Wi-Fi。
+- **小米 / HyperOS 双 Wi-Fi 连接优化**：
+  - 优化小米/HyperOS 机型连接副 Wi-Fi 的逻辑，协同系统 `SlaveWifiService`，避免发起连接时占用主 Wi-Fi 通道导致主连接断开或连接超时。
+  - 修复小米设备上部分 Wi-Fi 扫描结果信号强度显示为 -99 dBm 的问题。
+- **主副 Wi-Fi 防冲突与断开逻辑完善**：
+  - 限制不能将当前已连的主 Wi-Fi 作为副 Wi-Fi 连接。
+  - 优化副 Wi-Fi 断开流程，清理残留的网络请求与配置，避免偶发自动重连。
+- **UI 与细节调整**：
+  - 优化主界面 Wi-Fi 信号图标显示效果。
+  - 修复热点提示卡片在深色模式下的边框颜色显示问题。
+
+**English**
+
+- **Personal Hotspot Compatibility:**
+  - Detect active SoftAP hotspot state and frequency band to avoid concurrent radio conflicts on the secondary Wi-Fi.
+  - Automatically reconnect secondary Wi-Fi after Hotspot is turned off (when auto-reconnect is enabled).
+- **Xiaomi / HyperOS Compatibility:**
+  - Improve secondary Wi-Fi connection flow on Xiaomi/HyperOS via `SlaveWifiService`, preventing primary Wi-Fi disconnections and connection timeouts.
+  - Fix an issue where some Wi-Fi scan results showed -99 dBm on Xiaomi devices.
+- **Connection & Teardown Improvements:**
+  - Prevent connecting to the active primary Wi-Fi as secondary Wi-Fi.
+  - Clean up residual requests and configurations when disconnecting secondary Wi-Fi to prevent unintended auto-reconnection.
+- **UI Adjustments:**
+  - Refine main screen Wi-Fi signal icon style.
+  - Fix card border color in dark theme when hotspot is active.
+
 ## v1.4.0
 
 **中文**
