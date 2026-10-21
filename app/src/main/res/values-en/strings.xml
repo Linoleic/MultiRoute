@@ -401,6 +401,12 @@
     <string name="dual_wifi_detail_security">Security Protocols</string>
     <string name="dual_wifi_detail_saved">Credentials</string>
     <string name="dual_wifi_detail_concurrency">Dual Wi-Fi Compatibility</string>
+    <string name="dual_wifi_hotspot_active_title">Personal Hotspot Active (Radio Mutex)</string>
+    <string name="dual_wifi_hotspot_active_desc">Device hotspot is currently enabled%1$s. Mobile Wi-Fi chips only have 2 physical radio chains and cannot support 3 concurrent interfaces (STA + STA + SoftAP). Secondary Wi-Fi is suspended to avoid radio contention. Please turn off hotspot to use Dual Wi-Fi.</string>
+    <string name="dual_wifi_hotspot_btn">Hotspot Settings</string>
+    <string name="dual_wifi_hotspot_conflict_badge">Hotspot Mutex</string>
+    <string name="dual_wifi_hotspot_conflict_desc">⚠️ Conflicts with active hotspot (%1$s) frequency band, concurrency impossible</string>
+    <string name="dual_wifi_hotspot_error_blocked">Personal hotspot is currently active. Hardware radio is fully occupied. Please disable hotspot before connecting secondary Wi-Fi.</string>
     <string name="settings_dual_wifi_card_title">Dual Wi-Fi Activation &amp; Tier Settings</string>
     <string name="settings_dual_wifi_card_desc">Inspect chip capability, select adaptation scheme, and manage secondary Wi-Fi</string>
 </resources>

@@ -129,6 +129,20 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
         getApplication<Application>().startActivity(intent)
     }
 
+    fun openHotspotSettings() {
+        val intent = android.content.Intent("android.settings.TETHER_SETTINGS").apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        runCatching {
+            getApplication<Application>().startActivity(intent)
+        }.onFailure {
+            val fallback = android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            getApplication<Application>().startActivity(fallback)
+        }
+    }
+
     fun clearActivationResult() {
         _uiState.update { it.copy(activationResult = null) }
     }

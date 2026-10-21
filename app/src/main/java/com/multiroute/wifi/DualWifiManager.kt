@@ -129,6 +129,13 @@ data class WifiScanItem(
     }
 }
 
+data class HotspotInfo(
+    val isEnabled: Boolean = false,
+    val iface: String? = null,
+    val frequencyMhz: Int = 0,
+    val bandLabel: String? = null
+)
+
 data class DualWifiStatus(
     val capability: DualWifiCapability = DualWifiCapability(),
     val isScanning: Boolean = false,
@@ -149,6 +156,10 @@ data class DualWifiStatus(
     val primaryIface: String? = null,
     val primaryFreq: Int = 0,
     val primaryRssi: Int = 0,
+    val isHotspotEnabled: Boolean = false,
+    val hotspotIface: String? = null,
+    val hotspotFreq: Int = 0,
+    val hotspotBand: String? = null,
     val errorMessage: String? = null
 )
 
@@ -254,10 +265,37 @@ object DualWifiManager {
         }
     }
 
+    @Volatile
+    private var isHotspotReceiverRegistered = false
+
+    fun ensureHotspotReceiverRegistered(context: Context) {
+        if (isHotspotReceiverRegistered) return
+        val appContext = context.applicationContext
+        try {
+            val filter = android.content.IntentFilter("android.net.wifi.WIFI_AP_STATE_CHANGED")
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                    scope.launch {
+                        refreshConnectionState(appContext)
+                    }
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                appContext.registerReceiver(receiver, filter)
+            }
+            isHotspotReceiverRegistered = true
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to register WIFI_AP_STATE_CHANGED receiver: ${t.message}")
+        }
+    }
+
     /**
      * Checks whether the device hardware and framework support Dual Wi-Fi (STA + STA Concurrency).
      */
     suspend fun checkCapability(context: Context): DualWifiCapability = withContext(Dispatchers.IO) {
+        ensureHotspotReceiverRegistered(context)
         val lines = SuHelper.executeShellWithOutput(
             "dumpsys wifi 2>/dev/null | grep -E 'STA \\+ STA Concurrency Supported|config_wifiMultiStaMultiInternetConcurrencyEnabled|mStaConcurrencyMultiInternetMode' ; " +
             "ls -d /sys/class/net/wlan* 2>/dev/null",
@@ -955,6 +993,150 @@ DUALWIFI_EOF
     }
 
     /**
+     * Formats frequency into user-friendly Wi-Fi band label.
+     */
+    fun formatBand(freq: Int): String = when (freq) {
+        in 2400..2500 -> "2.4 GHz"
+        in 4900..5320 -> "5 GHz (低频)"
+        in 5321..5900 -> "5 GHz (高频)"
+        in 5925..7125 -> "6 GHz"
+        else -> if (freq > 0) "${freq}MHz" else "已开启"
+    }
+
+    /**
+     * Parses kernel nl80211 interface dump from `iw dev` to detect active SoftAP interface and operating frequency.
+     */
+    fun parseHotspotFromIwDev(output: List<String>): HotspotInfo {
+        var curIface: String? = null
+        var isAp = false
+        var freq = 0
+        val freqRegex = Regex("""\((\d{4})\s*MHz\)""")
+
+        for (line in output) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("Interface ")) {
+                if (isAp && curIface != null) {
+                    return HotspotInfo(
+                        isEnabled = true,
+                        iface = curIface,
+                        frequencyMhz = freq,
+                        bandLabel = formatBand(freq)
+                    )
+                }
+                curIface = trimmed.substringAfter("Interface ").trim()
+                isAp = false
+                freq = 0
+            } else if (trimmed == "type AP" || trimmed.startsWith("type AP ")) {
+                isAp = true
+            } else if (isAp && trimmed.startsWith("channel ") && freq == 0) {
+                freq = freqRegex.find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            }
+        }
+        if (isAp && curIface != null) {
+            return HotspotInfo(
+                isEnabled = true,
+                iface = curIface,
+                frequencyMhz = freq,
+                bandLabel = formatBand(freq)
+            )
+        }
+        return HotspotInfo(isEnabled = false)
+    }
+
+    /**
+     * Checks if a candidate secondary Wi-Fi AP frequency conflicts with the active hotspot's frequency band.
+     */
+    fun isHotspotConflicted(candidateFreq: Int, hotspotFreq: Int): Boolean {
+        if (hotspotFreq <= 0 || candidateFreq <= 0) return false
+        return isBandConflicted(candidateFreq, hotspotFreq)
+    }
+
+    /**
+     * Probes current personal hotspot (SoftAP) state and operating frequency.
+     */
+    fun checkHotspotState(context: Context): HotspotInfo {
+        // 1. Check sticky broadcast android.net.wifi.WIFI_AP_STATE_CHANGED
+        val stickyIntent = runCatching {
+            context.registerReceiver(null, android.content.IntentFilter("android.net.wifi.WIFI_AP_STATE_CHANGED"))
+        }.getOrNull()
+        val apState = stickyIntent?.getIntExtra("wifi_state", 11) ?: 11
+        val isApBroadcastActive = (apState == 13 || apState == 12)
+
+        // 2. Fallback check via WifiManager reflection if broadcast is absent
+        val isApManagerActive = if (!isApBroadcastActive) {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            runCatching {
+                val method = wm?.javaClass?.getMethod("isWifiApEnabled")
+                method?.isAccessible = true
+                (method?.invoke(wm) as? Boolean) ?: false
+            }.getOrDefault(false)
+        } else true
+
+        if (!isApBroadcastActive && !isApManagerActive) {
+            return HotspotInfo(isEnabled = false)
+        }
+
+        // 3. AP is active -> query active interface and frequency via `iw dev`
+        val iwLines = runCatching {
+            SuHelper.executeShellWithOutput("iw dev 2>/dev/null", timeoutSeconds = 2)
+        }.getOrDefault(emptyList())
+
+        val fromIw = parseHotspotFromIwDev(iwLines)
+        if (fromIw.isEnabled) {
+            return fromIw
+        }
+
+        // 4. Fallback for devices without `iw` (e.g. minimal AOSP / Pixel factory images): dumpsys wifi
+        val dumpsysLines = runCatching {
+            SuHelper.executeShellWithOutput("dumpsys wifi 2>/dev/null | grep -i -E 'SoftApInfo|channel_frequency|mApInterfaceName' | head -n 10", timeoutSeconds = 2)
+        }.getOrDefault(emptyList())
+        val fromDumpsys = parseHotspotFromDumpsysWifi(dumpsysLines)
+        if (fromDumpsys.isEnabled) {
+            return fromDumpsys
+        }
+
+        return HotspotInfo(isEnabled = true, bandLabel = "已开启")
+    }
+
+    /**
+     * Parses `dumpsys wifi` output as fallback when `iw` is not installed (e.g. clean AOSP/Pixel builds).
+     */
+    fun parseHotspotFromDumpsysWifi(lines: List<String>): HotspotInfo {
+        var iface: String? = null
+        var freq = 0
+        val freqRegex = Regex("""(?:frequency|channel_frequency)[=:\s]+(\d{4})""", RegexOption.IGNORE_CASE)
+        val ifaceRegex = Regex("""(?:SoftApInfo on\s+|mApInterfaceName\s*=\s*|iface=|\{)(\w+)(?=[=,}])""", RegexOption.IGNORE_CASE)
+
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (iface == null) {
+                val match = ifaceRegex.find(trimmed)?.groupValues?.getOrNull(1)
+                if (match != null && (match.startsWith("wlan") || match.startsWith("ap") || match.startsWith("softap"))) {
+                    iface = match
+                }
+            }
+            if (freq == 0) {
+                val matchFreq = freqRegex.find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                if (matchFreq != null && matchFreq > 0) {
+                    freq = matchFreq
+                }
+            }
+            if (iface != null && freq > 0) break
+        }
+
+        return if (freq > 0 || iface != null) {
+            HotspotInfo(
+                isEnabled = true,
+                iface = iface ?: "ap0",
+                frequencyMhz = freq,
+                bandLabel = formatBand(freq)
+            )
+        } else {
+            HotspotInfo(isEnabled = false)
+        }
+    }
+
+    /**
      * Resolves security type for cmd wifi add-network / add-request.
      * Supports: open, owe, wpa2, wpa3, wep.
      */
@@ -1073,6 +1255,8 @@ DUALWIFI_EOF
             secIpFinal
         }
 
+        val hotspotInfo = checkHotspotState(context)
+
         _status.update {
             it.copy(
                 primaryIface = primIface,
@@ -1087,7 +1271,11 @@ DUALWIFI_EOF
                 secondaryIp = finalSecIpResolved,
                 secondaryFreq = secFreqFinal,
                 secondaryRssi = secRssiFinal,
-                secondaryConnected = secConnected
+                secondaryConnected = secConnected,
+                isHotspotEnabled = hotspotInfo.isEnabled,
+                hotspotIface = hotspotInfo.iface,
+                hotspotFreq = hotspotInfo.frequencyMhz,
+                hotspotBand = hotspotInfo.bandLabel
             )
         }
     }
@@ -1119,10 +1307,41 @@ DUALWIFI_EOF
         bssid: String? = null,
         capabilities: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        // Prevent collision: Never allow connecting primary AP as secondary Wi-Fi
+        val primSsid = _status.value.primarySsid
+        val primBssid = _status.value.primaryBssid
+        if (isPrimaryCollision(ssid, bssid, primSsid, primBssid)) {
+            _status.update {
+                it.copy(
+                    isConnecting = false,
+                    connectingSsid = null,
+                    connectingBssid = null,
+                    errorMessage = "不能将当前主 Wi-Fi ($primSsid) 连接为副 Wi-Fi"
+                )
+            }
+            return@withContext false
+        }
+
+        // Prevent radio collision: Never allow connecting secondary Wi-Fi while personal hotspot is active
+        if (_status.value.isHotspotEnabled || checkHotspotState(context).isEnabled) {
+            val err = context.getString(com.multiroute.R.string.dual_wifi_hotspot_error_blocked)
+            _status.update {
+                it.copy(
+                    isConnecting = false,
+                    connectingSsid = null,
+                    connectingBssid = null,
+                    errorMessage = err
+                )
+            }
+            return@withContext false
+        }
+
         _status.update { it.copy(isConnecting = true, connectingSsid = ssid, connectingBssid = bssid, errorMessage = null) }
+        val secIface = _status.value.secondaryIface ?: _status.value.capability.secondaryIface ?: "wlan1"
         try {
-            // 1. Clean up any existing requests and clear blocklist to ensure fresh attempt
+            // 1. Clean up any existing requests, bring interface up, and clear blocklist
             val prepScript = """
+                ip link set dev $secIface up 2>/dev/null
                 cmd wifi set-multi-internet-mode 2 2>/dev/null
                 cmd wifi remove-all-requests
                 cmd wifi clear-user-disabled-networks
@@ -1233,6 +1452,12 @@ DUALWIFI_EOF
         }
         refreshConnectionState(context)
         if (_status.value.secondaryConnected) return@withContext true
+
+        // Yield radio resource to personal hotspot if enabled
+        if (_status.value.isHotspotEnabled || checkHotspotState(context).isEnabled) {
+            Log.i(TAG, "Secondary auto-reconnect skipped: Hotspot (SoftAP) is active, yielding radio chain")
+            return@withContext false
+        }
 
         val lastWifi = com.multiroute.data.RouteConfigProvider.getLastSecondaryWifi(context)
         val ssid = lastWifi["ssid"] as? String ?: return@withContext false

@@ -380,4 +380,119 @@ class DualWifiSchemeDetectionTest {
         assertFalse(maskedBssid)
     }
 
+    @Test
+    fun testParseHotspotFromIwDev() {
+        // Case 1: Active SoftAP on wlan2 (2.4GHz channel 6, 2437 MHz)
+        val iwOutputWlan2 = listOf(
+            "phy#0",
+            "\tInterface wlan0",
+            "\t\tifindex 31",
+            "\t\twdev 0x1",
+            "\t\taddr 48:74:12:34:56:78",
+            "\t\ttype managed",
+            "\t\tchannel 36 (5180 MHz), width: 80 MHz, center1: 5210 MHz",
+            "\tInterface wlan2",
+            "\t\tifindex 33",
+            "\t\twdev 0x3",
+            "\t\taddr 4a:74:12:34:56:7a",
+            "\t\ttype AP",
+            "\t\tchannel 6 (2437 MHz), width: 20 MHz, center1: 2437 MHz"
+        )
+        val hotspot1 = DualWifiManager.parseHotspotFromIwDev(iwOutputWlan2)
+        assertTrue(hotspot1.isEnabled)
+        assertEquals("wlan2", hotspot1.iface)
+        assertEquals(2437, hotspot1.frequencyMhz)
+        assertEquals("2.4 GHz", hotspot1.bandLabel)
+
+        // Case 2: Active SoftAP on ap0 (5GHz channel 149, 5745 MHz)
+        val iwOutputAp0 = listOf(
+            "phy#0",
+            "\tInterface wlan0",
+            "\t\ttype managed",
+            "\tInterface ap0",
+            "\t\ttype AP",
+            "\t\tchannel 149 (5745 MHz), width: 40 MHz"
+        )
+        val hotspot2 = DualWifiManager.parseHotspotFromIwDev(iwOutputAp0)
+        assertTrue(hotspot2.isEnabled)
+        assertEquals("ap0", hotspot2.iface)
+        assertEquals(5745, hotspot2.frequencyMhz)
+        assertEquals("5 GHz (高频)", hotspot2.bandLabel)
+
+        // Case 3: No active SoftAP (only managed clients)
+        val iwOutputNoAp = listOf(
+            "phy#0",
+            "\tInterface wlan0",
+            "\t\ttype managed",
+            "\tInterface wlan1",
+            "\t\ttype managed"
+        )
+        val hotspot3 = DualWifiManager.parseHotspotFromIwDev(iwOutputNoAp)
+        assertFalse(hotspot3.isEnabled)
+
+        // Case 4: SoftAP interface present without channel/frequency yet
+        val iwOutputApNoFreq = listOf(
+            "phy#0",
+            "\tInterface wlan2",
+            "\t\ttype AP"
+        )
+        val hotspot4 = DualWifiManager.parseHotspotFromIwDev(iwOutputApNoFreq)
+        assertTrue(hotspot4.isEnabled)
+        assertEquals("wlan2", hotspot4.iface)
+        assertEquals(0, hotspot4.frequencyMhz)
+        assertEquals("已开启", hotspot4.bandLabel)
+    }
+
+    @Test
+    fun testIsHotspotConflicted() {
+        // Hotspot on 2.4GHz (2412 MHz)
+        assertTrue(DualWifiManager.isHotspotConflicted(candidateFreq = 2437, hotspotFreq = 2412))
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 5180, hotspotFreq = 2412))
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 5745, hotspotFreq = 2412))
+
+        // Hotspot on Low 5GHz (5180 MHz)
+        assertTrue(DualWifiManager.isHotspotConflicted(candidateFreq = 5220, hotspotFreq = 5180))
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 5745, hotspotFreq = 5180))
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 2412, hotspotFreq = 5180))
+
+        // Hotspot on High 5GHz (5745 MHz)
+        assertTrue(DualWifiManager.isHotspotConflicted(candidateFreq = 5785, hotspotFreq = 5745))
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 5220, hotspotFreq = 5745))
+
+        // Invalid frequencies
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 2412, hotspotFreq = 0))
+        assertFalse(DualWifiManager.isHotspotConflicted(candidateFreq = 0, hotspotFreq = 2412))
+    }
+
+    @Test
+    fun testParseHotspotFromDumpsysWifi() {
+        // Case 1: Standard AOSP Pixel dumpsys wifi output with SoftApInfo
+        val linesPixel = listOf(
+            "mCurrentSoftApInfoMap {ap0=SoftApInfo{band=5GHz, frequency=5260, bandwidth=4, iface=ap0}}",
+            "event_type=0,channel_frequency=5260,num_connected_clients=0"
+        )
+        val info1 = DualWifiManager.parseHotspotFromDumpsysWifi(linesPixel)
+        assertTrue(info1.isEnabled)
+        assertEquals("ap0", info1.iface)
+        assertEquals(5260, info1.frequencyMhz)
+        assertEquals("5 GHz (低频)", info1.bandLabel)
+
+        // Case 2: 2.4GHz tethered event in dumpsys
+        val lines24G = listOf(
+            "mSoftApTetheredEvents:",
+            "event_type=0,channel_frequency=2437,num_connected_clients=1"
+        )
+        val info2 = DualWifiManager.parseHotspotFromDumpsysWifi(lines24G)
+        assertTrue(info2.isEnabled)
+        assertEquals(2437, info2.frequencyMhz)
+        assertEquals("2.4 GHz", info2.bandLabel)
+
+        // Case 3: Empty or irrelevant lines
+        val linesEmpty = listOf(
+            "mWifiLogProto.SoftApManagerReturnCodeCounts:",
+            "mWifiLogProto.numSetupSoftApInterfaceFailureDueToHal=0"
+        )
+        val info3 = DualWifiManager.parseHotspotFromDumpsysWifi(linesEmpty)
+        assertFalse(info3.isEnabled)
+    }
 }

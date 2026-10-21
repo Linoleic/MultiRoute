@@ -401,6 +401,12 @@
     <string name="dual_wifi_detail_security">加密与认证协议</string>
     <string name="dual_wifi_detail_saved">系统凭据</string>
     <string name="dual_wifi_detail_concurrency">双 Wi-Fi 并发评估</string>
+    <string name="dual_wifi_hotspot_active_title">个人热点运行中 (射频互斥)</string>
+    <string name="dual_wifi_hotspot_active_desc">系统已开启个人热点%1$s。手机 Wi-Fi 芯片仅具备 2 条物理射频链，硬件不支持 STA + STA + SoftAP 三链路并发。副 Wi-Fi 已主动避让暂停，关闭热点后即可恢复双 Wi-Fi。</string>
+    <string name="dual_wifi_hotspot_btn">热点设置</string>
+    <string name="dual_wifi_hotspot_conflict_badge">热点互斥</string>
+    <string name="dual_wifi_hotspot_conflict_desc">⚠️ 与当前运行的个人热点（%1$s）处于相同物理射频频段，硬件无法并发</string>
+    <string name="dual_wifi_hotspot_error_blocked">当前系统个人热点正在运行中，射频通道已被占用。请先关闭热点后再连接副 Wi-Fi。</string>
     <string name="settings_dual_wifi_card_title">双 Wi-Fi 激活与分层设置</string>
     <string name="settings_dual_wifi_card_desc">查看硬件芯片支持状态、切换系统适配方案与管理副网络</string>
 </resources>

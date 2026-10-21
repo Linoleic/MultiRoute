@@ -127,6 +127,16 @@ fun DualWifiScreen(
                 )
             }
 
+            // 3. 个人热点频段占用感知与冲突避让提示卡片
+            if (status.isHotspotEnabled) {
+                item {
+                    HotspotActiveCard(
+                        status = status,
+                        onOpenHotspotSettings = { viewModel.openHotspotSettings() }
+                    )
+                }
+            }
+
             // 4. 当前双 Wi-Fi 通道状态卡片
             item {
                 ActiveChannelsCard(
@@ -300,6 +310,8 @@ fun DualWifiScreen(
                         primaryFreq = status.primaryFreq,
                         isSecondaryConnected = status.secondaryConnected,
                         isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
+                        isHotspotEnabled = status.isHotspotEnabled,
+                        hotspotFreq = status.hotspotFreq,
                         onCardClick = { selectedDetailItem = item },
                         onConnectClick = { viewModel.onSelectScanItem(item) }
                     )
@@ -397,6 +409,9 @@ fun DualWifiScreen(
             primaryFreq = status.primaryFreq,
             isSecondaryConnected = status.secondaryConnected,
             isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
+            isHotspotEnabled = status.isHotspotEnabled,
+            hotspotBand = status.hotspotBand,
+            hotspotFreq = status.hotspotFreq,
             onDismiss = { selectedDetailItem = null },
             onConnectClick = { viewModel.onSelectScanItem(item) },
             onDisconnectClick = { viewModel.disconnectSecondary() },
@@ -994,6 +1009,8 @@ private fun WifiScanRow(
     primaryFreq: Int = 0,
     isSecondaryConnected: Boolean = false,
     isConnecting: Boolean,
+    isHotspotEnabled: Boolean = false,
+    hotspotFreq: Int = 0,
     onCardClick: () -> Unit,
     onConnectClick: () -> Unit
 ) {
@@ -1081,10 +1098,25 @@ private fun WifiScanRow(
                             (primLow5G && targetLow5G) || (primHigh5G && targetHigh5G) || (prim24 && target24) || (prim6G && target6G)
                         }
                     }
-                    if (isSameBandConflict) {
-                        SuggestionChip(
 
-                        onClick = onCardClick,
+                    if (isHotspotEnabled && !item.isPrimary && !item.isSecondary) {
+                        SuggestionChip(
+                            onClick = onCardClick,
+                            label = {
+                                Text(
+                                    stringResource(R.string.dual_wifi_hotspot_conflict_badge),
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                            ),
+                            modifier = Modifier.height(22.dp)
+                        )
+                    } else if (isSameBandConflict) {
+                        SuggestionChip(
+                            onClick = onCardClick,
                             label = { Text(stringResource(R.string.dual_wifi_band_conflict), fontSize = 10.sp, color = MaterialTheme.colorScheme.error) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
@@ -1093,8 +1125,7 @@ private fun WifiScanRow(
                         )
                     } else if (primaryFreq > 0 && !item.isPrimary && !item.isSecondary) {
                         SuggestionChip(
-
-                        onClick = onCardClick,
+                            onClick = onCardClick,
                             label = { Text(stringResource(R.string.dual_wifi_band_recommended), fontSize = 10.sp, color = MaterialTheme.colorScheme.tertiary) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
@@ -1106,8 +1137,7 @@ private fun WifiScanRow(
                     // Saved Tag
                     if (item.isSaved) {
                         SuggestionChip(
-
-                        onClick = onCardClick,
+                            onClick = onCardClick,
                             label = { Text(stringResource(R.string.dual_wifi_saved_badge), fontSize = 10.sp) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
@@ -1145,10 +1175,17 @@ private fun WifiScanRow(
                     Button(
                         onClick = onConnectClick,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        colors = if (isHotspotEnabled) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else ButtonDefaults.buttonColors()
                     ) {
                         Text(
-                            text = if (item.isSaved) stringResource(R.string.dual_wifi_quick_connect)
+                            text = if (isHotspotEnabled) stringResource(R.string.dual_wifi_hotspot_conflict_badge)
+                            else if (item.isSaved) stringResource(R.string.dual_wifi_quick_connect)
                             else stringResource(R.string.dual_wifi_connect_btn),
                             fontSize = 12.sp
                         )
@@ -1298,6 +1335,9 @@ private fun WifiDetailBottomSheet(
     primaryFreq: Int,
     isSecondaryConnected: Boolean = false,
     isConnecting: Boolean,
+    isHotspotEnabled: Boolean = false,
+    hotspotBand: String? = null,
+    hotspotFreq: Int = 0,
     onDismiss: () -> Unit,
     onConnectClick: () -> Unit,
     onDisconnectClick: () -> Unit,
@@ -1402,6 +1442,18 @@ private fun WifiDetailBottomSheet(
                     value = if (item.isSaved) "已保存网络凭据 (可一键直连)" else "未保存凭据 (需输入密码)"
                 )
 
+                if (isHotspotEnabled) {
+                    DetailInfoRow(
+                        icon = Icons.Default.WifiTethering,
+                        label = stringResource(R.string.dual_wifi_hotspot_active_title),
+                        value = stringResource(
+                            R.string.dual_wifi_hotspot_conflict_desc,
+                            hotspotBand ?: "未知频段"
+                        ),
+                        isWarning = true
+                    )
+                }
+
                 val isSameBandConflict = remember(item.frequencyMhz, primaryFreq) {
                     if (primaryFreq <= 0 || item.isPrimary) false
                     else {
@@ -1423,12 +1475,13 @@ private fun WifiDetailBottomSheet(
                     value = when {
                         item.isPrimary -> "当前网络为主 Wi-Fi (wlan0)，作为系统默认互联网出口"
                         item.isSecondary -> "当前已作为副 Wi-Fi (wlan1) 建立并发物理链路"
+                        isHotspotEnabled -> "⚠️ 个人热点正在占用物理射频链，硬件射频无法同时建立副 Wi-Fi 链路"
                         isSameBandConflict -> "⚠️ 与主 Wi-Fi (${primarySsid ?: "主网络"}, ${primaryFreq}MHz) 处于相同物理射频频段，DBS 芯片不支持同时并发连接"
                         primaryFreq > 0 -> "✅ 射频互补：与主 Wi-Fi (${primarySsid ?: "主网络"}, ${primaryFreq}MHz) 物理频段独立，完全支持双 Wi-Fi 硬件并发"
                         else -> "未连接主 Wi-Fi，无法评估频段并发互补性"
                     },
-                    isHighlight = !item.isPrimary && !item.isSecondary && !isSameBandConflict && primaryFreq > 0,
-                    isWarning = isSameBandConflict
+                    isHighlight = !item.isPrimary && !item.isSecondary && !isSameBandConflict && primaryFreq > 0 && !isHotspotEnabled,
+                    isWarning = isSameBandConflict || isHotspotEnabled
                 )
             }
 
@@ -1473,7 +1526,13 @@ private fun WifiDetailBottomSheet(
                         },
                         enabled = !isConnecting,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = if (isHotspotEnabled) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else ButtonDefaults.buttonColors()
                     ) {
                         if (isConnecting) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
@@ -1483,7 +1542,8 @@ private fun WifiDetailBottomSheet(
                             Icon(Icons.Default.WifiFind, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                if (item.isSaved) "一键连接为副 Wi-Fi"
+                                if (isHotspotEnabled) "热点运行中 (关闭热点后可连)"
+                                else if (item.isSaved) "一键连接为副 Wi-Fi"
                                 else "连接为副 Wi-Fi"
                             )
                         }
@@ -1537,5 +1597,87 @@ private fun DetailInfoRow(
         }
     }
 }
+
+@Composable
+private fun HotspotActiveCard(
+    status: com.multiroute.wifi.DualWifiStatus,
+    onOpenHotspotSettings: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WifiTethering,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary
+                    )
+                    Text(
+                        text = stringResource(R.string.dual_wifi_hotspot_active_title),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = status.hotspotBand ?: "Hotspot",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = stringResource(
+                    R.string.dual_wifi_hotspot_active_desc,
+                    status.hotspotIface ?: "wlan2",
+                    "${status.hotspotBand ?: "未知频段"}${if (status.hotspotFreq > 0) " (${status.hotspotFreq} MHz)" else ""}"
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
+                lineHeight = 18.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(
+                    onClick = onOpenHotspotSettings,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.dual_wifi_hotspot_btn), fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
 
 
