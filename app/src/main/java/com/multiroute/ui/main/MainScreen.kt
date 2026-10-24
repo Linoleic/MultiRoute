@@ -207,12 +207,12 @@ fun MainScreen(
                 )
             }
 
-            // 选择通道的模态底部抽屉 (ModalBottomSheet)
+            // 选择通道的模态底部抽屉 (ModalBottomSheet - 热点下行通道不参与应用分流)
             if (uiState.selectedAppForSheet != null) {
                 val app = uiState.selectedAppForSheet!!
                 ChannelSelectBottomSheet(
                     app = app,
-                    channels = uiState.channels,
+                    channels = uiState.channels.filter { !it.isHotspot },
                     onSelectChannel = { channelId ->
                         viewModel.updateRouteChannel(app, channelId)
                         viewModel.closeAppSheet()
@@ -221,11 +221,11 @@ fun MainScreen(
                 )
             }
 
-            // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet)
+            // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet - 热点下行通道不参与应用分流)
             if (uiState.showBatchAssignSheet) {
                 BatchChannelSelectBottomSheet(
                     selectedCount = uiState.selectedRuleKeys.size,
-                    channels = uiState.channels,
+                    channels = uiState.channels.filter { !it.isHotspot },
                     onSelectChannel = { channelId ->
                         viewModel.batchAssignChannel(channelId)
                     },
@@ -403,8 +403,8 @@ fun AppRulesTab(
                             }
                         )
 
-                        // 动态按在线物理通道过滤 (带具体 Wi-Fi 名称展示)
-                        for (channel in uiState.channels) {
+                        // 动态按在线物理通道过滤 (排除热点下行通道)
+                        for (channel in uiState.channels.filter { !it.isHotspot }) {
                             FilterChip(
                                 selected = uiState.filterChannelId == channel.id,
                                 onClick = {
@@ -2457,6 +2457,21 @@ fun ChannelDetailCard(
                             softWrap = false
                         )
                     }
+                } else if (channel.isHotspot) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Text(
+                            text = stringResource(com.multiroute.R.string.channel_badge_hotspot),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
 
                 Icon(
@@ -2475,7 +2490,11 @@ fun ChannelDetailCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(com.multiroute.R.string.ui_intranet_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip)),
+                    text = if (channel.isHotspot) {
+                        stringResource(com.multiroute.R.string.ui_hotspot_gateway_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip))
+                    } else {
+                        stringResource(com.multiroute.R.string.ui_intranet_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip))
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     fontFamily = FontFamily.Monospace
@@ -2490,10 +2509,14 @@ fun ChannelDetailCard(
             // 公网出口测试结果
             if (testResult != null) {
                 val isFailed = NetworkUtils.isFailure(testResult)
+                val isInfo = testResult.startsWith(NetworkUtils.INFO_PREFIX)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                    else Color(0xFFE8F5E9),
+                    color = when {
+                        isFailed -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                        isInfo -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+                        else -> Color(0xFFE8F5E9)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -2502,15 +2525,27 @@ fun ChannelDetailCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                            imageVector = when {
+                                isFailed -> Icons.Default.ErrorOutline
+                                isInfo -> Icons.Default.Info
+                                else -> Icons.Default.CheckCircle
+                            },
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                            tint = when {
+                                isFailed -> MaterialTheme.colorScheme.error
+                                isInfo -> MaterialTheme.colorScheme.tertiary
+                                else -> Color(0xFF2E7D32)
+                            }
                         )
                         Text(
                             text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
+                            color = when {
+                                isFailed -> MaterialTheme.colorScheme.error
+                                isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
+                                else -> Color(0xFF1B5E20)
+                            }
                         )
                     }
                 }
@@ -2594,6 +2629,18 @@ fun ChannelDetailBottomSheet(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                } else if (channel.isHotspot) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer
+                    ) {
+                        Text(
+                            text = stringResource(com.multiroute.R.string.channel_badge_hotspot),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                 }
@@ -2688,7 +2735,20 @@ fun ChannelDetailBottomSheet(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 )
             ) {
-                if (routedApps.isEmpty()) {
+                if (channel.isHotspot) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(com.multiroute.R.string.channel_hotspot_routing_forbidden),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                } else if (routedApps.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2741,89 +2801,115 @@ fun ChannelDetailBottomSheet(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            if (channel.isHotspot) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (testResult != null) {
-                        val isFailed = NetworkUtils.isFailure(testResult)
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                            else Color(0xFFE8F5E9),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                        Text(
+                            text = stringResource(com.multiroute.R.string.channel_hotspot_downlink_note),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (testResult != null) {
+                            val isFailed = NetworkUtils.isFailure(testResult)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                                else Color(0xFFE8F5E9),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                    )
+                                    Text(
+                                        text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.ui_not_tested),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+
+                        if (testServerName.isNotEmpty()) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                    imageVector = Icons.Default.Dns,
                                     contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                    modifier = Modifier.size(13.dp),
+                                    tint = MaterialTheme.colorScheme.outline
                                 )
                                 Text(
-                                    text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
+                                    text = stringResource(com.multiroute.R.string.ui_test_node_short, testServerName),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                    } else {
-                        Text(
-                            text = stringResource(com.multiroute.R.string.ui_not_tested),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
 
-                    if (testServerName.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Button(
+                            onClick = onTestChannel,
+                            enabled = !isTestingSingle,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Dns,
-                                contentDescription = null,
-                                modifier = Modifier.size(13.dp),
-                                tint = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.ui_test_node_short, testServerName),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = onTestChannel,
-                        enabled = !isTestingSingle,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        if (isTestingSingle) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(com.multiroute.R.string.ui_probing_channel, channel.interfaceName))
-                        } else {
-                            Icon(Icons.Default.NetworkCheck, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(com.multiroute.R.string.ui_test_channel_egress, channel.interfaceName))
+                            if (isTestingSingle) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(com.multiroute.R.string.ui_probing_channel, channel.interfaceName))
+                            } else {
+                                Icon(Icons.Default.NetworkCheck, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(com.multiroute.R.string.ui_test_channel_egress, channel.interfaceName))
+                            }
                         }
                     }
                 }
@@ -3276,6 +3362,7 @@ fun TestServerConfigDialog(
 fun getTransportIcon(transportType: String): ImageVector {
     return when (transportType) {
         "WLAN" -> Icons.Default.Wifi
+        "hotspot" -> Icons.Default.WifiTethering
         "cellular" -> Icons.Default.SignalCellularAlt
         "ethernet" -> Icons.Default.Lan
         "vpn" -> Icons.Default.VpnKey

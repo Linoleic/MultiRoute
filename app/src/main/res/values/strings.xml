@@ -171,7 +171,13 @@
     <string name="transport_ethernet">有线以太网 (%1$s)</string>
     <string name="transport_vpn">VPN通道 (%1$s)</string>
     <string name="transport_bluetooth">蓝牙网络 (%1$s)</string>
+    <string name="transport_hotspot">个人热点 (%1$s)</string>
     <string name="transport_other">通道 (%1$s)</string>
+    <string name="channel_hotspot_short">热点 (%1$s)</string>
+    <string name="channel_badge_hotspot">热点局域网</string>
+    <string name="channel_hotspot_downlink_note">热点局域网网关（下行服务，不测公网）</string>
+    <string name="channel_hotspot_routing_forbidden">热点下行通道为下挂设备提供网关服务，不可用于本机应用分流</string>
+    <string name="ui_hotspot_gateway_ip">热点网关 IP: %1$s</string>
     <string name="channel_iface_type">接口: %1$s · 类型: %2$s</string>
     <string name="egress_err_empty">返回内容为空</string>
     <string name="egress_err_iface_offline">接口离线</string>

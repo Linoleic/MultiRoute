@@ -287,6 +287,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun batchAssignChannel(channelId: String) {
+        if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
+            return
+        }
         // Selection is keyed by rule key (`pkg` or `pkg@userId`), so a clone-space install and the
         // primary install of the same package can be assigned independently.
         val keys = _uiState.value.selectedRuleKeys
@@ -950,6 +953,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun updateRouteChannel(app: AppItem, channelId: String) {
+        if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
+            return
+        }
         val context = getApplication<Application>()
 
         // Same rule as the batch path: while editing a plan, a single assignment belongs to that plan.

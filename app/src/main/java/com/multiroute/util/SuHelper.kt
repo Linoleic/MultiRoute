@@ -519,11 +519,14 @@ object SuHelper {
 
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
         val cellularUids = mutableSetOf<Int>()
+        val hotspotIface = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context).iface }.getOrNull()
 
         for ((uid, channelId) in uidRules) {
             if (channelId == CHANNEL_DEFAULT) continue
             if (!RouteRuleBuilder.isValidUid(uid)) continue
             if (!RouteRuleBuilder.isValidInterfaceName(channelId)) continue
+            // Downlink hotspot / SoftAP interfaces cannot be used as egress routes for local apps
+            if ((hotspotIface != null && channelId == hotspotIface) || channelId.startsWith("swlan") || channelId.startsWith("ap")) continue
 
             channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
             if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {

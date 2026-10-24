@@ -21,7 +21,8 @@ data class NetworkChannel(
     val uplinkBps: Int = 0,        // Uplink bandwidth in Kbps
     val isMetered: Boolean = false,// Whether network is metered
     val isDefault: Boolean = false,
-    val isValidated: Boolean = true
+    val isValidated: Boolean = true,
+    val isHotspot: Boolean = false
 )
 
 data class AppItem(

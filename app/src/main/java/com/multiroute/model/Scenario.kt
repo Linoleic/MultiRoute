@@ -59,11 +59,11 @@ data class ScenarioObservation(
     companion object {
         /** Builds the observation from the channel list the app already collects for the UI. */
         fun fromChannels(channels: List<NetworkChannel>): ScenarioObservation {
-            val wifi = channels.filter { it.transportType == "WLAN" }
+            val wifi = channels.filter { it.transportType == "WLAN" && !it.isHotspot }
             return ScenarioObservation(
                 wifiSsids = wifi.mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } },
                 wifiLinkCount = wifi.size,
-                hasCellular = channels.any { it.transportType == "cellular" },
+                hasCellular = channels.any { it.transportType == "cellular" && !it.isHotspot },
                 ssidToInterface = wifi.mapNotNull { channel ->
                     channel.ssid?.takeIf { it.isNotBlank() }?.let { it to channel.interfaceName }
                 }.toMap()
