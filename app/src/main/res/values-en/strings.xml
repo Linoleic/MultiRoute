@@ -409,4 +409,14 @@
     <string name="dual_wifi_hotspot_error_blocked">Personal hotspot is currently active. Hardware radio is fully occupied. Please disable hotspot before connecting secondary Wi-Fi.</string>
     <string name="settings_dual_wifi_card_title">Dual Wi-Fi Activation &amp; Tier Settings</string>
     <string name="settings_dual_wifi_card_desc">Inspect chip capability, select adaptation scheme, and manage secondary Wi-Fi</string>
+    <string name="dual_wifi_hotspot_upstream_title">Hotspot Upstream Steering</string>
+    <string name="dual_wifi_hotspot_upstream_desc">Designate the network export for connected hotspot clients independently from host default route.</string>
+    <string name="dual_wifi_hotspot_upstream_default">Default</string>
+    <string name="dual_wifi_hotspot_upstream_cellular">Cellular</string>
+    <string name="dual_wifi_hotspot_upstream_secondary">Secondary Wi-Fi</string>
+    <string name="dual_wifi_hotspot_upstream_active">Active: %1$s</string>
+    <string name="dual_wifi_hotspot_upstream_bpf">eBPF Offload Active</string>
+    <string name="dual_wifi_hotspot_upstream_native">Native Forwarding</string>
+    <string name="dual_wifi_hotspot_upstream_hook_warning">NetworkStack Hook beacon not detected. Ensure NetworkStack APEX is checked in LSPosed scope.</string>
+    <string name="dual_wifi_hotspot_upstream_sec_disconnected">Secondary Wi-Fi (Disconnected)</string>
 </resources>

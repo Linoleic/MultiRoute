@@ -409,4 +409,14 @@
     <string name="dual_wifi_hotspot_error_blocked">当前系统个人热点正在运行中，射频通道已被占用。请先关闭热点后再连接副 Wi-Fi。</string>
     <string name="settings_dual_wifi_card_title">双 Wi-Fi 激活与分层设置</string>
     <string name="settings_dual_wifi_card_desc">查看硬件芯片支持状态、切换系统适配方案与管理副网络</string>
+    <string name="dual_wifi_hotspot_upstream_title">热点上行出口指定</string>
+    <string name="dual_wifi_hotspot_upstream_desc">可自由指定连接此热点的设备流量出口通道，打破系统强制主 Wi-Fi 限制。</string>
+    <string name="dual_wifi_hotspot_upstream_default">系统默认</string>
+    <string name="dual_wifi_hotspot_upstream_cellular">移动蜂窝网络</string>
+    <string name="dual_wifi_hotspot_upstream_secondary">副 Wi-Fi</string>
+    <string name="dual_wifi_hotspot_upstream_active">实时生效：%1$s</string>
+    <string name="dual_wifi_hotspot_upstream_bpf">eBPF 硬件加速中</string>
+    <string name="dual_wifi_hotspot_upstream_native">原生协议栈转发</string>
+    <string name="dual_wifi_hotspot_upstream_hook_warning">未检测到 NetworkStack Hook 探针，请在 LSPosed 作用域中勾选网络栈 APEX</string>
+    <string name="dual_wifi_hotspot_upstream_sec_disconnected">副 Wi-Fi (未连接)</string>
 </resources>

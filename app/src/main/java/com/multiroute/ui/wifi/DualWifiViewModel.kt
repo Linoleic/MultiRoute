@@ -143,6 +143,12 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun setHotspotUpstream(target: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            DualWifiManager.setHotspotUpstream(target)
+        }
+    }
+
     fun clearActivationResult() {
         _uiState.update { it.copy(activationResult = null) }
     }

@@ -1181,4 +1181,61 @@ object SuHelper {
             emptyList()
         }
     }
+
+    private const val SETTING_HOTSPOT_UPSTREAM = "multiroute_hotspot_upstream"
+    private const val SETTING_HOTSPOT_STATUS = "multiroute_hotspot_status"
+    private const val ACTION_UPDATE_HOTSPOT_UPSTREAM = "com.multiroute.ACTION_UPDATE_HOTSPOT_UPSTREAM"
+
+    /**
+     * Sets the designated upstream interface/type for personal hotspot (SoftAP).
+     * @param target Interface name (e.g. "wlan1", "rmnet_data3") or "cellular", or "default" to clear.
+     */
+    fun setHotspotUpstream(target: String): Boolean {
+        val cleanTarget = target.trim()
+        val cmd = if (cleanTarget.isEmpty() || cleanTarget.equals("default", ignoreCase = true)) {
+            "settings put global $SETTING_HOTSPOT_UPSTREAM default; setprop persist.multiroute.hotspot_upstream ''"
+        } else {
+            "settings put global $SETTING_HOTSPOT_UPSTREAM '$cleanTarget'; setprop persist.multiroute.hotspot_upstream '$cleanTarget'"
+        }
+        val success = executeCommand(cmd)
+        // Trigger live re-evaluation in NetworkStack process
+        executeCommand("am broadcast -a $ACTION_UPDATE_HOTSPOT_UPSTREAM")
+        return success
+    }
+
+    /**
+     * Reads the currently designated hotspot upstream setting.
+     */
+    fun getHotspotUpstream(): String {
+        val lines = executeShellWithOutput("settings get global $SETTING_HOTSPOT_UPSTREAM")
+        val res = lines.firstOrNull()?.trim() ?: ""
+        return if (res.isEmpty() || res == "null") "default" else res
+    }
+
+    /**
+     * Reads the active upstream interface currently used by personal hotspot (SoftAP).
+     * Directly parses from the system Tethering service (e.g. "rmnet_data3", "wlan0", "wlan1", or "none").
+     */
+    fun getHotspotActiveUpstream(): String {
+        val lines = executeShellWithOutput("dumpsys tethering 2>/dev/null | grep -i 'current upstream interface'")
+        val line = lines.firstOrNull() ?: return "none"
+        val match = Regex("""\[(.*?)\]""").find(line)
+        return match?.groupValues?.get(1)?.trim()?.ifEmpty { "none" } ?: "none"
+    }
+
+    /**
+     * Reads the tethering hook status beacon written by com.android.networkstack.process.
+     */
+    fun getHotspotHookStatus(): String {
+        // 1. Try reading the status beacon written by NetworkStack process
+        val lines = executeShellWithOutput("cat /data/user/0/com.android.networkstack.tethering/cache/multiroute_hotspot_status 2>/dev/null")
+        val beacon = lines.firstOrNull()?.trim()
+        if (!beacon.isNullOrEmpty() && beacon.startsWith("v=1;")) {
+            return beacon
+        }
+        // 2. Fallback to parsing dumpsys tethering
+        val active = getHotspotActiveUpstream()
+        val target = getHotspotUpstream()
+        return "v=1;source=dumpsys;target=$target;active=$active"
+    }
 }

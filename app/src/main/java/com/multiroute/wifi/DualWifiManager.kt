@@ -160,6 +160,9 @@ data class DualWifiStatus(
     val hotspotIface: String? = null,
     val hotspotFreq: Int = 0,
     val hotspotBand: String? = null,
+    val hotspotUpstreamTarget: String = "default",
+    val hotspotUpstreamActive: String = "none",
+    val isHotspotHookLoaded: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -1325,7 +1328,26 @@ DUALWIFI_EOF
                 isHotspotEnabled = hotspotInfo.isEnabled,
                 hotspotIface = hotspotInfo.iface,
                 hotspotFreq = hotspotInfo.frequencyMhz,
-                hotspotBand = hotspotInfo.bandLabel
+                hotspotBand = hotspotInfo.bandLabel,
+                hotspotUpstreamTarget = if (hotspotInfo.isEnabled) SuHelper.getHotspotUpstream() else it.hotspotUpstreamTarget,
+                hotspotUpstreamActive = if (hotspotInfo.isEnabled) SuHelper.getHotspotActiveUpstream() else "none",
+                isHotspotHookLoaded = if (hotspotInfo.isEnabled) SuHelper.getHotspotHookStatus() != "not_loaded" else it.isHotspotHookLoaded
+            )
+        }
+    }
+
+    /**
+     * Sets the designated upstream export network for personal hotspot (SoftAP).
+     */
+    fun setHotspotUpstream(target: String) {
+        SuHelper.setHotspotUpstream(target)
+        val active = SuHelper.getHotspotActiveUpstream()
+        val hookLoaded = SuHelper.getHotspotHookStatus() != "not_loaded"
+        _status.update {
+            it.copy(
+                hotspotUpstreamTarget = target,
+                hotspotUpstreamActive = active,
+                isHotspotHookLoaded = hookLoaded
             )
         }
     }

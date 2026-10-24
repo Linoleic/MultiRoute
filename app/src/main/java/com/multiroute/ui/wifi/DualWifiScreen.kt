@@ -132,7 +132,8 @@ fun DualWifiScreen(
                 item {
                     HotspotActiveCard(
                         status = status,
-                        onOpenHotspotSettings = { viewModel.openHotspotSettings() }
+                        onOpenHotspotSettings = { viewModel.openHotspotSettings() },
+                        onSelectUpstream = { viewModel.setHotspotUpstream(it) }
                     )
                 }
             }
@@ -1601,7 +1602,8 @@ private fun DetailInfoRow(
 @Composable
 private fun HotspotActiveCard(
     status: com.multiroute.wifi.DualWifiStatus,
-    onOpenHotspotSettings: () -> Unit
+    onOpenHotspotSettings: () -> Unit,
+    onSelectUpstream: (String) -> Unit
 ) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -1614,7 +1616,7 @@ private fun HotspotActiveCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1661,18 +1663,133 @@ private fun HotspotActiveCard(
                 lineHeight = 18.sp
             )
 
-            Row(
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
-                    onClick = onOpenHotspotSettings,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(8.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.dual_wifi_hotspot_btn), fontSize = 12.sp)
+                    Text(
+                        text = stringResource(R.string.dual_wifi_hotspot_upstream_title),
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    if (status.hotspotUpstreamActive != "none") {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.dual_wifi_hotspot_upstream_active,
+                                        when {
+                                            status.hotspotUpstreamActive.startsWith("rmnet") -> "蜂窝 (${status.hotspotUpstreamActive})"
+                                            status.hotspotUpstreamActive == "wlan1" -> "副 Wi-Fi (wlan1)"
+                                            status.hotspotUpstreamActive == "wlan0" -> "主 Wi-Fi (wlan0)"
+                                            else -> status.hotspotUpstreamActive
+                                        }
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = stringResource(R.string.dual_wifi_hotspot_upstream_desc),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.outline
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val currentTarget = status.hotspotUpstreamTarget.lowercase()
+
+                    FilterChip(
+                        selected = currentTarget.isEmpty() || currentTarget == "default",
+                        onClick = { onSelectUpstream("default") },
+                        label = { Text(stringResource(R.string.dual_wifi_hotspot_upstream_default), fontSize = 12.sp) },
+                        leadingIcon = if (currentTarget.isEmpty() || currentTarget == "default") {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+
+                    val isCellularSelected = currentTarget == "cellular" || currentTarget == "mobile" || currentTarget.startsWith("rmnet")
+                    FilterChip(
+                        selected = isCellularSelected,
+                        onClick = { onSelectUpstream("cellular") },
+                        label = { Text(stringResource(R.string.dual_wifi_hotspot_upstream_cellular), fontSize = 12.sp) },
+                        leadingIcon = if (isCellularSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+
+                    val isSecSelected = currentTarget == "wlan1" || currentTarget == "slave_wifi"
+                    val canSelectSec = status.secondaryConnected
+                    FilterChip(
+                        selected = isSecSelected,
+                        enabled = canSelectSec,
+                        onClick = { onSelectUpstream("wlan1") },
+                        label = {
+                            Text(
+                                if (canSelectSec) stringResource(R.string.dual_wifi_hotspot_upstream_secondary)
+                                else stringResource(R.string.dual_wifi_hotspot_upstream_sec_disconnected),
+                                fontSize = 12.sp
+                            )
+                        },
+                        leadingIcon = if (isSecSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.dual_wifi_hotspot_upstream_bpf),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onOpenHotspotSettings,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(stringResource(R.string.dual_wifi_hotspot_btn), fontSize = 11.sp)
+                    }
                 }
             }
         }

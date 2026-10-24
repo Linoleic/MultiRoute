@@ -51,11 +51,28 @@ class MultiRouteModule : XposedModule() {
             "android.net.connectivity.com.android.server.ConnectivityService",
             "com.android.server.ConnectivityService"
         )
+
+        /** Mainline APEX package names that host the Tethering / NetworkStack service on Android 11+. */
+        private val TETHERING_PACKAGES = setOf(
+            "com.android.networkstack.tethering",
+            "com.google.android.networkstack.tethering",
+            "com.android.networkstack",
+            "com.google.android.networkstack"
+        )
+
+        private const val SETTING_HOTSPOT_UPSTREAM = "multiroute_hotspot_upstream"
+        private const val SETTING_HOTSPOT_STATUS = "multiroute_hotspot_status"
+        private const val ACTION_UPDATE_HOTSPOT_UPSTREAM = "com.multiroute.ACTION_UPDATE_HOTSPOT_UPSTREAM"
     }
 
     private var isConnectivityHooked = false
     private val isSlaveWifiHooked = AtomicBoolean(false)
     private val isDualStaHooked = AtomicBoolean(false)
+    @Volatile private var isTetheringHooked = false
+    @Volatile private var tetheringEventListener: Any? = null
+    @Volatile private var tetheringReceiverRegistered = false
+    @Volatile private var tetheringMonitorInstance: Any? = null
+    @Volatile private var tetheringMonitorClass: Class<*>? = null
 
     /** Keeps the "not installed because the keep-alive is off" note to one line per boot. */
     private val keepAliveSkippedLogged = AtomicBoolean(false)
@@ -192,6 +209,9 @@ class MultiRouteModule : XposedModule() {
             } catch (t: Throwable) {
                 log(Log.ERROR, TAG, "Failed to hook isModuleActiveInLSPosed in onPackageLoaded: ${t.message}", t)
             }
+        } else if (param.packageName in TETHERING_PACKAGES) {
+            log(Log.INFO, TAG, "[TetheringHook] NetworkStack package detected in onPackageLoaded: ${param.packageName}")
+            hookTetheringUpstream(param.defaultClassLoader)
         }
     }
 
@@ -1047,58 +1067,247 @@ class MultiRouteModule : XposedModule() {
     @Volatile
     private var systemServerClassLoader: ClassLoader? = null
 
-    /** Where the (read-only) tethering-surface discovery is written for the app to pick up. */
-    private val TETHER_SURFACE_PATH = "/data/system/multiroute_tether_surface"
-
     /**
-     * Read-only discovery for the hotspot-upstream work: logs which tethering classes this ROM has and which
-     * of their fields/methods mention an upstream or an interface type. It installs nothing, so the hook that
-     * follows can target names this ROM actually contains instead of what AOSP happens to look like - reading
-     * the APEX dex files on the device turned out to be unreliable (split apexes, oat artifacts, and `strings`
-     * not surfacing every name).
+     * Scheme A: Native Hook into Tethering Mainline APEX (com.android.networkstack.process).
+     *
+     * Hooks UpstreamNetworkMonitor.getCurrentPreferredUpstream() so that Tethering selects
+     * MultiRoute's designated network interface (e.g. wlan1, rmnet_data*, or tun0) as the upstream.
+     * When returning the designated UpstreamNetworkState, Android natively handles:
+     * 1. eBPF hardware offload (BpfCoordinator) with line-rate forwarding;
+     * 2. Linux policy routing (ip rule 21000);
+     * 3. Netfilter FORWARD and MASQUERADE;
+     * 4. DNS forwarder reconfiguration (setDnsForwarders).
      */
-    private fun logTetheringSurface(classLoader: ClassLoader) {
-        val candidates = listOf(
-            "com.android.server.connectivity.tethering.Tethering",
-            "com.android.server.connectivity.tethering.TetheringConfiguration",
-            "com.android.server.connectivity.tethering.UpstreamNetworkMonitor"
-        )
-        val report = StringBuilder()
-        // The tethering service lives in an APEX and is not reachable through the classloader the module is
-        // handed, so try every loader that could plausibly own it and report which one works.
-        val loaders = linkedMapOf<String, ClassLoader?>("param" to classLoader)
-        loaders["system"] = ClassLoader.getSystemClassLoader()
-        Thread.currentThread().contextClassLoader?.let { loaders["context"] = it }
-        javaClass.classLoader?.let { loaders["module"] = it }
-        for ((label, loader) in loaders) {
-            if (loader == null) continue
-            for (name in candidates) {
-                try {
-                    val clazz = Class.forName(name, false, loader)
-                    report.appendLine("[$label/${loader.javaClass.simpleName}] $name : loaded")
-                    clazz.declaredFields
-                        .filter { it.name.contains("pstream", true) || it.name.contains("IfaceType", true) }
-                        .forEach { report.appendLine("  field ${it.name} : ${it.type.simpleName}") }
-                    clazz.declaredMethods
-                        .filter { it.name.contains("pstream", true) || it.name.contains("IfaceType", true) }
-                        .forEach { method ->
-                            report.appendLine(
-                                "  method ${method.name}(" +
-                                        method.parameterTypes.joinToString { it.simpleName } + ")"
-                            )
+    private fun hookTetheringUpstream(classLoader: ClassLoader) {
+        if (isTetheringHooked) return
+        try {
+            log(Log.INFO, TAG, "[TetheringHook] NetworkStack package detected, attempting to hook UpstreamNetworkMonitor...")
+            val monitorClass = try {
+                Class.forName("com.android.networkstack.tethering.UpstreamNetworkMonitor", false, classLoader)
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "[TetheringHook] UpstreamNetworkMonitor not found in classloader: ${t.message}")
+                return
+            }
+
+            val getCurrentUpstreamMethod = monitorClass.declaredMethods.find {
+                it.name == "getCurrentPreferredUpstream" && it.parameterTypes.isEmpty()
+            } ?: run {
+                log(Log.ERROR, TAG, "[TetheringHook] getCurrentPreferredUpstream() method not found in UpstreamNetworkMonitor")
+                return
+            }
+
+            deoptimize(getCurrentUpstreamMethod)
+            hook(getCurrentUpstreamMethod).intercept { chain ->
+                val defaultResult = chain.proceed()
+                val thisObj = chain.thisObject ?: return@intercept defaultResult
+
+                val context = try {
+                    val f = monitorClass.declaredFields.find { it.name == "mContext" }?.apply { isAccessible = true }
+                    f?.get(thisObj) as? android.content.Context
+                } catch (_: Throwable) { null }
+
+                // Cache listener & ensure broadcast receiver and ContentObserver are registered
+                ensureTetheringReceiverRegistered(thisObj, monitorClass, context)
+
+                val targetSetting = readHotspotTargetUpstream(context)
+                if (targetSetting.isNullOrBlank() || targetSetting.equals("default", ignoreCase = true)) {
+                    publishTetherStatus(context, "default", defaultResult)
+                    return@intercept defaultResult
+                }
+
+                val isCellularTarget = targetSetting.equals("cellular", ignoreCase = true) ||
+                        targetSetting.equals("mobile", ignoreCase = true) ||
+                        targetSetting.startsWith("rmnet", ignoreCase = true) ||
+                        targetSetting.startsWith("ccmni", ignoreCase = true)
+
+                if (isCellularTarget) {
+                    try {
+                        val setTryCellMethod = monitorClass.declaredMethods.find {
+                            it.name == "setTryCell" && it.parameterTypes.size == 1 && it.parameterTypes[0] == Boolean::class.javaPrimitiveType
                         }
+                        setTryCellMethod?.isAccessible = true
+                        setTryCellMethod?.invoke(thisObj, true)
+                    } catch (_: Throwable) {}
+                }
+
+                // Query mNetworkMap
+                try {
+                    val networkMapField = monitorClass.declaredFields.find { it.name == "mNetworkMap" }?.apply { isAccessible = true }
+                    val networkMap = networkMapField?.get(thisObj) as? Map<*, *>
+                    if (networkMap != null && networkMap.isNotEmpty()) {
+                        for ((_, state) in networkMap) {
+                            if (state == null) continue
+                            val stateClass = state.javaClass
+                            val lp = try {
+                                val f = stateClass.declaredFields.find { it.name == "linkProperties" || it.type == android.net.LinkProperties::class.java }?.apply { isAccessible = true }
+                                f?.get(state) as? android.net.LinkProperties
+                            } catch (_: Throwable) { null }
+
+                            val nc = try {
+                                val f = stateClass.declaredFields.find { it.name == "networkCapabilities" || it.type == android.net.NetworkCapabilities::class.java }?.apply { isAccessible = true }
+                                f?.get(state) as? android.net.NetworkCapabilities
+                            } catch (_: Throwable) { null }
+
+                            val ifaceName = lp?.interfaceName
+                            val isMatch = when {
+                                isCellularTarget -> {
+                                    nc?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true ||
+                                            ifaceName?.startsWith("rmnet") == true ||
+                                            ifaceName?.startsWith("ccmni") == true
+                                }
+                                targetSetting.equals("slave_wifi", ignoreCase = true) || targetSetting.equals("wlan1", ignoreCase = true) -> {
+                                    ifaceName == "wlan1"
+                                }
+                                targetSetting.equals("primary_wifi", ignoreCase = true) || targetSetting.equals("wlan0", ignoreCase = true) -> {
+                                    ifaceName == "wlan0"
+                                }
+                                else -> {
+                                    ifaceName.equals(targetSetting, ignoreCase = true)
+                                }
+                            }
+
+                            if (isMatch) {
+                                log(Log.INFO, TAG, "[TetheringHook] Steered hotspot upstream -> target: $targetSetting, actual iface: $ifaceName, state: $state")
+                                publishTetherStatus(context, targetSetting, state)
+                                return@intercept state
+                            }
+                        }
+                    }
+                    log(Log.WARN, TAG, "[TetheringHook] Target upstream '$targetSetting' not present in mNetworkMap (count=${networkMap?.size ?: 0}), falling back to default ($defaultResult)")
                 } catch (t: Throwable) {
-                    report.appendLine("[$label] $name : ${t.javaClass.simpleName}")
+                    log(Log.ERROR, TAG, "[TetheringHook] Error inspecting mNetworkMap: ${t.message}", t)
+                }
+
+                publishTetherStatus(context, targetSetting, defaultResult)
+                defaultResult
+            }
+
+            isTetheringHooked = true
+            log(Log.INFO, TAG, "[TetheringHook] Successfully hooked UpstreamNetworkMonitor.getCurrentPreferredUpstream")
+            publishTetherStatus(null, "hooked", null)
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "[TetheringHook] Failed to hook UpstreamNetworkMonitor: ${t.message}", t)
+        }
+    }
+
+    private fun ensureTetheringReceiverRegistered(thisObj: Any, monitorClass: Class<*>, context: android.content.Context?) {
+        tetheringMonitorInstance = thisObj
+        tetheringMonitorClass = monitorClass
+        if (tetheringReceiverRegistered) return
+        val ctx = context ?: return
+        try {
+            val eventListenerField = monitorClass.declaredFields.find { it.name == "mEventListener" }?.apply { isAccessible = true }
+            tetheringEventListener = eventListenerField?.get(thisObj)
+
+            // 1. Register broadcast receiver
+            val filter = android.content.IntentFilter(ACTION_UPDATE_HOTSPOT_UPSTREAM)
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context?, intent: android.content.Intent?) {
+                    log(Log.INFO, TAG, "[TetheringHook] Received $ACTION_UPDATE_HOTSPOT_UPSTREAM broadcast, triggering upstream re-evaluation")
+                    triggerUpstreamReevaluation()
                 }
             }
-        }
-        report.lineSequence().forEach { log(Log.INFO, TAG, "[TetherSurface] $it") }
-        // Logs from inside system_server are not a dependable channel on every ROM, so the same text also
-        // lands in a file the app can read - the same pattern the rule cache already uses.
-        try {
-            java.io.File(TETHER_SURFACE_PATH).writeText(report.toString())
+
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                ctx.registerReceiver(receiver, filter, 2) // RECEIVER_EXPORTED = 0x2
+            } else {
+                ctx.registerReceiver(receiver, filter)
+            }
+
+            // 2. Register ContentObserver on Settings.Global
+            try {
+                val uri = android.provider.Settings.Global.getUriFor(SETTING_HOTSPOT_UPSTREAM)
+                val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) {
+                        log(Log.INFO, TAG, "[TetheringHook] Settings.Global $SETTING_HOTSPOT_UPSTREAM changed, triggering upstream re-evaluation")
+                        triggerUpstreamReevaluation()
+                    }
+                }
+                ctx.contentResolver.registerContentObserver(uri, false, observer)
+                log(Log.INFO, TAG, "[TetheringHook] Registered ContentObserver for $SETTING_HOTSPOT_UPSTREAM")
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "[TetheringHook] Failed to register ContentObserver: ${t.message}")
+            }
+
+            tetheringReceiverRegistered = true
+            log(Log.INFO, TAG, "[TetheringHook] Registered broadcast receiver and observer in NetworkStack process")
         } catch (t: Throwable) {
-            log(Log.WARN, TAG, "[TetherSurface] could not write $TETHER_SURFACE_PATH: ${t.message}")
+            log(Log.WARN, TAG, "[TetheringHook] Failed to register receiver: ${t.message}")
+        }
+    }
+
+    private fun triggerUpstreamReevaluation() {
+        try {
+            val monitor = tetheringMonitorInstance
+            val clazz = tetheringMonitorClass
+            val listenerObj = tetheringEventListener ?: run {
+                if (monitor != null && clazz != null) {
+                    val f = clazz.declaredFields.find { it.name == "mEventListener" }?.apply { isAccessible = true }
+                    f?.get(monitor)
+                } else null
+            } ?: return
+
+            val onUpstreamEventMethod = listenerObj.javaClass.methods.find {
+                it.name == "onUpstreamEvent" && it.parameterTypes.size == 2
+            } ?: return
+
+            val eventDefaultSwitched = clazz?.declaredFields
+                ?.find { it.name == "EVENT_DEFAULT_SWITCHED" }
+                ?.apply { isAccessible = true }
+                ?.getInt(null) ?: 4
+
+            onUpstreamEventMethod.invoke(listenerObj, eventDefaultSwitched, null)
+            log(Log.INFO, TAG, "[TetheringHook] Triggered onUpstreamEvent(EVENT_DEFAULT_SWITCHED=$eventDefaultSwitched) successfully")
+        } catch (t: Throwable) {
+            log(Log.WARN, TAG, "[TetheringHook] Could not trigger onUpstreamEvent: ${t.message}")
+        }
+    }
+
+    private fun readHotspotTargetUpstream(context: android.content.Context?): String? {
+        if (context != null) {
+            try {
+                val value = android.provider.Settings.Global.getString(
+                    context.contentResolver,
+                    SETTING_HOTSPOT_UPSTREAM
+                )
+                if (!value.isNullOrBlank()) {
+                    return value.trim()
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "[TetheringHook] Failed to read Settings.Global: ${t.message}")
+            }
+        }
+        return readSystemProperty("persist.multiroute.hotspot_upstream")
+            ?: readSystemProperty("sys.multiroute.hotspot_upstream")
+    }
+
+    private fun publishTetherStatus(context: android.content.Context?, target: String, activeState: Any?) {
+        try {
+            val lp = if (activeState != null) {
+                try {
+                    val f = activeState.javaClass.declaredFields.find { it.name == "linkProperties" || it.type == android.net.LinkProperties::class.java }?.apply { isAccessible = true }
+                    f?.get(activeState) as? android.net.LinkProperties
+                } catch (_: Throwable) { null }
+            } else null
+            val activeIface = lp?.interfaceName ?: "none"
+            val text = "v=1;pid=${android.os.Process.myPid()};ts=${System.currentTimeMillis()};target=$target;active=$activeIface"
+
+            if (context != null) {
+                try {
+                    val file = java.io.File(context.cacheDir, "multiroute_hotspot_status")
+                    file.writeText(text)
+                    file.setReadable(true, false)
+                } catch (_: Throwable) {}
+                try {
+                    android.provider.Settings.Global.putString(
+                        context.contentResolver,
+                        SETTING_HOTSPOT_STATUS,
+                        text
+                    )
+                } catch (_: Throwable) {}
+            }
+            log(Log.INFO, TAG, "[TetheringHook] Status beacon: $text")
+        } catch (_: Throwable) {
         }
     }
 
@@ -1169,10 +1378,6 @@ class MultiRouteModule : XposedModule() {
                 // SystemServiceManager interception) have either installed or failed, so the beacon
                 // published here is the authoritative one for this boot.
                 publishState("bootRestoreWatchdog", "ready")
-
-                // Discovery runs here, not at onSystemServerStarting: logs written that early are dropped
-                // before LSPosed's log daemon is attached, which made the first attempt look like dead code.
-                systemServerClassLoader?.let { logTetheringSurface(it) }
 
                 // Wake the app so it re-applies its own routing rules.
                 //
