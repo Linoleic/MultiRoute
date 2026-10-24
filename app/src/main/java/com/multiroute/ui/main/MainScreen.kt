@@ -730,7 +730,25 @@ fun ChannelsTab(
                             )
                         }
 
-                        // 下方状态简要显示
+                        // 下方状态简要显示（自适应长 SSID 边界情况）
+                        val isPrimaryConnected = dualWifiStatus.primarySsid != null
+                        val isSecondaryConnected = dualWifiStatus.secondaryConnected && dualWifiStatus.secondarySsid != null
+                        val primarySsid = dualWifiStatus.primarySsid ?: dualWifiStatus.primaryIface ?: "wlan0"
+                        val secondarySsid = dualWifiStatus.secondarySsid ?: dualWifiStatus.secondaryIface ?: "wlan1"
+
+                        // 弹性比例分配：单侧在线时在线侧占 70%，双侧在线时按长度在 35%~65% 自适应浮动
+                        val (primaryWeight, secondaryWeight) = when {
+                            isPrimaryConnected && !isSecondaryConnected -> 0.70f to 0.30f
+                            !isPrimaryConnected && isSecondaryConnected -> 0.30f to 0.70f
+                            isPrimaryConnected && isSecondaryConnected -> {
+                                val pLen = primarySsid.length.coerceAtLeast(3)
+                                val sLen = secondarySsid.length.coerceAtLeast(3)
+                                val ratio = (pLen.toFloat() / (pLen + sLen)).coerceIn(0.35f, 0.65f)
+                                ratio to (1f - ratio)
+                            }
+                            else -> 0.50f to 0.50f
+                        }
+
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
@@ -744,11 +762,10 @@ fun ChannelsTab(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 // 主 Wi-Fi 状态简要
-                                val isPrimaryConnected = dualWifiStatus.primarySsid != null
                                 Row(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(primaryWeight),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
@@ -760,20 +777,22 @@ fun ChannelsTab(
                                             )
                                     )
                                     Text(
-                                        text = if (isPrimaryConnected) {
-                                            stringResource(
-                                                com.multiroute.R.string.dual_wifi_status_primary_brief,
-                                                dualWifiStatus.primarySsid ?: dualWifiStatus.primaryIface ?: "wlan0"
-                                            )
-                                        } else {
-                                            stringResource(
-                                                com.multiroute.R.string.dual_wifi_status_primary_brief,
-                                                stringResource(com.multiroute.R.string.dual_wifi_status_unconnected)
-                                            )
-                                        },
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        text = stringResource(com.multiroute.R.string.dual_wifi_prefix_primary),
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = if (isPrimaryConnected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = if (isPrimaryConnected) primarySsid
+                                        else stringResource(com.multiroute.R.string.dual_wifi_status_unconnected),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                                         maxLines = 1,
+                                        softWrap = false,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
                                         color = if (isPrimaryConnected) MaterialTheme.colorScheme.onSurface
                                         else MaterialTheme.colorScheme.outline
                                     )
@@ -788,35 +807,37 @@ fun ChannelsTab(
 
                                 // 副 Wi-Fi 状态简要
                                 Row(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(secondaryWeight),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
                                             .background(
-                                                if (dualWifiStatus.secondaryConnected) MaterialTheme.colorScheme.secondary
+                                                if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
                                                 else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
                                             )
                                     )
                                     Text(
-                                        text = if (dualWifiStatus.secondaryConnected) {
-                                            stringResource(
-                                                com.multiroute.R.string.dual_wifi_status_secondary_brief,
-                                                dualWifiStatus.secondarySsid ?: dualWifiStatus.secondaryIface ?: "wlan1"
-                                            )
-                                        } else {
-                                            stringResource(
-                                                com.multiroute.R.string.dual_wifi_status_secondary_brief,
-                                                stringResource(com.multiroute.R.string.dual_wifi_status_unconnected)
-                                            )
-                                        },
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        text = stringResource(com.multiroute.R.string.dual_wifi_prefix_secondary),
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = if (isSecondaryConnected) secondarySsid
+                                        else stringResource(com.multiroute.R.string.dual_wifi_status_unconnected),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                                         maxLines = 1,
+                                        softWrap = false,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        color = if (dualWifiStatus.secondaryConnected) MaterialTheme.colorScheme.secondary
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        color = if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
                                         else MaterialTheme.colorScheme.outline
                                     )
                                 }

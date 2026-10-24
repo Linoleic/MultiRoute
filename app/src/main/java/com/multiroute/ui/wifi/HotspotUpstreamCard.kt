@@ -97,7 +97,7 @@ fun HotspotUpstreamCard(
 
                     Text(
                         text = if (status.isHotspotEnabled) {
-                            stringResource(R.string.settings_hotspot_card_desc, status.hotspotIface ?: "wlan2")
+                            stringResource(R.string.settings_hotspot_card_desc)
                         } else {
                             stringResource(R.string.settings_hotspot_card_desc_inactive)
                         },
@@ -243,8 +243,7 @@ fun HotspotUpstreamCard(
                         onClick = { onSetUpstream("wlan1") },
                         label = {
                             Text(
-                                if (canSelectSec) stringResource(R.string.dual_wifi_hotspot_upstream_secondary)
-                                else stringResource(R.string.dual_wifi_hotspot_upstream_sec_disconnected),
+                                stringResource(R.string.dual_wifi_hotspot_upstream_secondary),
                                 fontSize = 12.sp
                             )
                         },

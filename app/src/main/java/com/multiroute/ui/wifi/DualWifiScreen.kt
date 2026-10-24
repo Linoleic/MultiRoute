@@ -867,7 +867,9 @@ private fun ActiveChannelsCard(
                         )
                         Text(
                             text = status.primarySsid ?: stringResource(R.string.dual_wifi_not_connected),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         if (status.primaryIp != null) {
                             Text(
@@ -948,7 +950,9 @@ private fun ActiveChannelsCard(
                         Text(
                             text = (if (status.secondaryConnected) status.secondarySsid else null)
                                 ?: stringResource(R.string.dual_wifi_not_connected),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         if (status.secondaryConnected && status.secondaryIp != null) {
                             Text(

@@ -410,10 +410,12 @@
     <string name="settings_dual_wifi_card_title">Dual Wi-Fi Activation &amp; Management</string>
     <string name="settings_dual_wifi_card_desc">Inspect chip capability, select adaptation scheme, and manage secondary Wi-Fi</string>
     <string name="settings_hotspot_card_title">Hotspot Upstream</string>
-    <string name="settings_hotspot_card_desc">Steer client traffic independently (%1$s) with seamless offload</string>
+    <string name="settings_hotspot_card_desc">Designate network upstream for connected hotspot devices with seamless offload</string>
     <string name="settings_hotspot_card_desc_inactive">Preset hotspot upstream, automatically active when hotspot is enabled</string>
     <string name="hotspot_status_active">Hotspot Active</string>
     <string name="hotspot_status_inactive">Hotspot Inactive</string>
+    <string name="dual_wifi_prefix_primary">Pri: </string>
+    <string name="dual_wifi_prefix_secondary">Sec: </string>
     <string name="dual_wifi_status_primary_brief">Pri: %1$s</string>
     <string name="dual_wifi_status_secondary_brief">Sec: %1$s</string>
     <string name="dual_wifi_status_unconnected">Disconnected</string>

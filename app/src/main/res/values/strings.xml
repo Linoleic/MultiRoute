@@ -410,10 +410,12 @@
     <string name="settings_dual_wifi_card_title">双 Wi-Fi 激活与管理</string>
     <string name="settings_dual_wifi_card_desc">查看硬件芯片支持状态、切换系统适配方案与连接副 Wi-Fi</string>
     <string name="settings_hotspot_card_title">热点出口与分流</string>
-    <string name="settings_hotspot_card_desc">独立指定下挂设备出口（%1$s），支持蜂窝免断连分流</string>
+    <string name="settings_hotspot_card_desc">独立指定热点下挂设备网络出口，支持蜂窝免断连平滑分流</string>
     <string name="settings_hotspot_card_desc_inactive">预设热点上行出口，开启热点后自动生效</string>
     <string name="hotspot_status_active">热点已开启</string>
     <string name="hotspot_status_inactive">热点未开启</string>
+    <string name="dual_wifi_prefix_primary">主: </string>
+    <string name="dual_wifi_prefix_secondary">副: </string>
     <string name="dual_wifi_status_primary_brief">主: %1$s</string>
     <string name="dual_wifi_status_secondary_brief">副: %1$s</string>
     <string name="dual_wifi_status_unconnected">未连接</string>
