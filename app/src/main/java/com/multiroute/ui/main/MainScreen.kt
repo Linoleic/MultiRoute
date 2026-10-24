@@ -655,7 +655,7 @@ fun ChannelsTab(
     viewModel: MainScreenViewModel,
     onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
 ) {
-    val hotspotStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
+    val dualWifiStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -684,55 +684,152 @@ fun ChannelsTab(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Wifi,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_title),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+
                             Icon(
-                                imageVector = Icons.Default.Wifi,
+                                imageVector = Icons.Default.ChevronRight,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
+                                tint = MaterialTheme.colorScheme.outline
                             )
                         }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_title),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
+                        // 下方状态简要显示
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // 主 Wi-Fi 状态简要
+                                val isPrimaryConnected = dualWifiStatus.primarySsid != null
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isPrimaryConnected) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                            )
+                                    )
+                                    Text(
+                                        text = if (isPrimaryConnected) {
+                                            stringResource(
+                                                com.multiroute.R.string.dual_wifi_status_primary_brief,
+                                                dualWifiStatus.primarySsid ?: dualWifiStatus.primaryIface ?: "wlan0"
+                                            )
+                                        } else {
+                                            stringResource(
+                                                com.multiroute.R.string.dual_wifi_status_primary_brief,
+                                                stringResource(com.multiroute.R.string.dual_wifi_status_unconnected)
+                                            )
+                                        },
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        color = if (isPrimaryConnected) MaterialTheme.colorScheme.onSurface
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                }
 
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline
-                        )
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .height(12.dp)
+                                        .background(MaterialTheme.colorScheme.outlineVariant)
+                                )
+
+                                // 副 Wi-Fi 状态简要
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (dualWifiStatus.secondaryConnected) MaterialTheme.colorScheme.secondary
+                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                            )
+                                    )
+                                    Text(
+                                        text = if (dualWifiStatus.secondaryConnected) {
+                                            stringResource(
+                                                com.multiroute.R.string.dual_wifi_status_secondary_brief,
+                                                dualWifiStatus.secondarySsid ?: dualWifiStatus.secondaryIface ?: "wlan1"
+                                            )
+                                        } else {
+                                            stringResource(
+                                                com.multiroute.R.string.dual_wifi_status_secondary_brief,
+                                                stringResource(com.multiroute.R.string.dual_wifi_status_unconnected)
+                                            )
+                                        },
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        color = if (dualWifiStatus.secondaryConnected) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // 与“双 Wi-Fi 激活与管理”并列的“热点出口与分流管理”卡片
+            // 与“双 Wi-Fi 激活与管理”并列的“热点出口与分流”卡片
             item {
                 com.multiroute.ui.wifi.HotspotUpstreamCard(
-                    status = hotspotStatus,
-                    onOpenHotspotSettings = { viewModel.openHotspotSettings() },
+                    status = dualWifiStatus,
                     onSetUpstream = { viewModel.setHotspotUpstream(it) }
                 )
             }

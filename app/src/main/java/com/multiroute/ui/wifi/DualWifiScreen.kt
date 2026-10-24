@@ -132,7 +132,6 @@ fun DualWifiScreen(
                 item {
                     HotspotUpstreamCard(
                         status = status,
-                        onOpenHotspotSettings = { viewModel.openHotspotSettings() },
                         onSetUpstream = { viewModel.setHotspotUpstream(it) }
                     )
                 }

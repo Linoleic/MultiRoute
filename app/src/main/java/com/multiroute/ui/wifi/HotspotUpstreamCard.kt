@@ -4,27 +4,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,18 +34,17 @@ import com.multiroute.R
 import com.multiroute.wifi.DualWifiStatus
 
 /**
- * 个人热点出口与分流管理卡片 (Hotspot Upstream Steering Card)
+ * 个人热点出口与分流卡片 (Hotspot Upstream Steering Card)
  *
  * 作为与“双 Wi-Fi 激活与管理”并列的一级卡片，支持：
  * 1. 实时热点激活状态、工作射频接口与频段展示
- * 2. 毫秒级动态上行出口切换（系统默认 / 移动蜂窝 / 副 Wi-Fi）
+ * 2. 毫秒级动态上行出口切换（系统默认 / 蜂窝网络 / 副 Wi-Fi）
  * 3. 实时生效上游出口指示与 eBPF 硬件加速标识
- * 4. 热点未开启时的预设上行配置与快捷跳转系统热点设置
+ * 4. 热点未开启时的预设上行配置
  */
 @Composable
 fun HotspotUpstreamCard(
     status: DualWifiStatus,
-    onOpenHotspotSettings: () -> Unit,
     onSetUpstream: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -112,46 +106,29 @@ fun HotspotUpstreamCard(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (status.isHotspotEnabled) MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (status.isHotspotEnabled) MaterialTheme.colorScheme.tertiaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Text(
-                            text = if (status.isHotspotEnabled) {
-                                status.hotspotBand
-                                    ?: if (status.hotspotFreq > 0) "${if (status.hotspotFreq > 4900) "5G" else "2.4G"} 已开启"
-                                    else stringResource(R.string.hotspot_status_active)
-                            } else {
-                                stringResource(R.string.hotspot_status_inactive)
-                            },
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            maxLines = 1,
-                            softWrap = false,
-                            color = if (status.isHotspotEnabled) MaterialTheme.colorScheme.onTertiaryContainer
-                            else MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onOpenHotspotSettings,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.hotspot_open_settings),
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    Text(
+                        text = if (status.isHotspotEnabled) {
+                            status.hotspotBand
+                                ?: if (status.hotspotFreq > 0) "${if (status.hotspotFreq > 4900) "5G" else "2.4G"} 已开启"
+                                else stringResource(R.string.hotspot_status_active)
+                        } else {
+                            stringResource(R.string.hotspot_status_inactive)
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        maxLines = 1,
+                        softWrap = false,
+                        color = if (status.isHotspotEnabled) MaterialTheme.colorScheme.onTertiaryContainer
+                        else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
                 }
             }
 
@@ -275,31 +252,6 @@ fun HotspotUpstreamCard(
                             { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
                         } else null
                     )
-                }
-            }
-
-            // 热点未开启时的快捷操作行
-            if (!status.isHotspotEnabled) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    OutlinedButton(
-                        onClick = onOpenHotspotSettings,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.WifiTethering,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = stringResource(R.string.hotspot_enable_btn),
-                            fontSize = 11.sp
-                        )
-                    }
                 }
             }
         }

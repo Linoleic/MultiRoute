@@ -414,8 +414,9 @@
     <string name="settings_hotspot_card_desc_inactive">Preset hotspot upstream, automatically active when hotspot is enabled</string>
     <string name="hotspot_status_active">Hotspot Active</string>
     <string name="hotspot_status_inactive">Hotspot Inactive</string>
-    <string name="hotspot_open_settings">Hotspot Settings</string>
-    <string name="hotspot_enable_btn">Enable Hotspot</string>
+    <string name="dual_wifi_status_primary_brief">Pri: %1$s</string>
+    <string name="dual_wifi_status_secondary_brief">Sec: %1$s</string>
+    <string name="dual_wifi_status_unconnected">Disconnected</string>
     <string name="dual_wifi_hotspot_upstream_title">Hotspot Upstream Steering</string>
     <string name="dual_wifi_hotspot_upstream_desc">Designate the network export for connected hotspot clients independently from host default route.</string>
     <string name="dual_wifi_hotspot_upstream_default">Default</string>

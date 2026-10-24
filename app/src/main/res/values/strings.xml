@@ -414,12 +414,13 @@
     <string name="settings_hotspot_card_desc_inactive">预设热点上行出口，开启热点后自动生效</string>
     <string name="hotspot_status_active">热点已开启</string>
     <string name="hotspot_status_inactive">热点未开启</string>
-    <string name="hotspot_open_settings">热点设置</string>
-    <string name="hotspot_enable_btn">开启热点</string>
+    <string name="dual_wifi_status_primary_brief">主: %1$s</string>
+    <string name="dual_wifi_status_secondary_brief">副: %1$s</string>
+    <string name="dual_wifi_status_unconnected">未连接</string>
     <string name="dual_wifi_hotspot_upstream_title">热点上行出口指定</string>
     <string name="dual_wifi_hotspot_upstream_desc">可自由指定连接此热点的设备流量出口通道，打破系统强制主 Wi-Fi 限制。</string>
     <string name="dual_wifi_hotspot_upstream_default">系统默认</string>
-    <string name="dual_wifi_hotspot_upstream_cellular">移动蜂窝网络</string>
+    <string name="dual_wifi_hotspot_upstream_cellular">蜂窝网络</string>
     <string name="dual_wifi_hotspot_upstream_secondary">副 Wi-Fi</string>
     <string name="dual_wifi_hotspot_upstream_active">实时生效：%1$s</string>
     <string name="dual_wifi_hotspot_upstream_bpf">eBPF 硬件加速中</string>
