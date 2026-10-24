@@ -655,6 +655,15 @@ fun ChannelsTab(
     viewModel: MainScreenViewModel,
     onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
 ) {
+    val hotspotStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.multiroute.wifi.DualWifiManager.refreshConnectionState(context)
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -690,7 +699,7 @@ fun ChannelsTab(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.WifiTethering,
+                                imageVector = Icons.Default.Wifi,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(24.dp)
@@ -717,6 +726,15 @@ fun ChannelsTab(
                         )
                     }
                 }
+            }
+
+            // 与“双 Wi-Fi 激活与管理”并列的“热点出口与分流管理”卡片
+            item {
+                com.multiroute.ui.wifi.HotspotUpstreamCard(
+                    status = hotspotStatus,
+                    onOpenHotspotSettings = { viewModel.openHotspotSettings() },
+                    onSetUpstream = { viewModel.setHotspotUpstream(it) }
+                )
             }
 
             item {

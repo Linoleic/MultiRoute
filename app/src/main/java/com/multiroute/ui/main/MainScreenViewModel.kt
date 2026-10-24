@@ -1150,4 +1150,25 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             configuredAppsCount = configuredCount
         )
     }
+
+    fun setHotspotUpstream(target: String) {
+        com.multiroute.wifi.DualWifiManager.setHotspotUpstream(target)
+    }
+
+    fun openHotspotSettings() {
+        val app = getApplication<Application>()
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            app.startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                app.startActivity(intent)
+            } catch (_: Exception) {}
+        }
+    }
 }

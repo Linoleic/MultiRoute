@@ -123,8 +123,11 @@ Current upstream interface(s): [rmnet_data3]
 | `app/src/main/java/com/multiroute/util/SuHelper.kt` | 实现 `setHotspotUpstream`、`getHotspotUpstream`、`getHotspotHookStatus` 及基于 `dumpsys tethering` 的 `getHotspotActiveUpstream` 状态探测 |
 | `app/src/main/java/com/multiroute/wifi/DualWifiManager.kt` | 状态轮询增加热点出口目标、活跃出口与 Hook 生效检测，提供 `setHotspotUpstream` API |
 | `app/src/main/java/com/multiroute/ui/wifi/DualWifiViewModel.kt` | 提供热点上行出口控制流与状态观察绑定 |
-| `app/src/main/java/com/multiroute/ui/wifi/DualWifiScreen.kt` | 升级 `HotspotActiveCard`：支持频段标识、上行出口切换单选（系统默认/移动蜂窝/副Wi-Fi）、活跃出口徽标与 eBPF 加速标识 |
-| `app/src/main/res/values/strings.xml` | 中文多语言文案适配 |
+| `app/src/main/java/com/multiroute/ui/wifi/HotspotUpstreamCard.kt` | 新建独立热点管理卡片组件：支持频段徽标、状态胶囊、上行单选（系统默认/移动蜂窝/副Wi-Fi）、活跃出口与 eBPF 加速指示 |
+| `app/src/main/java/com/multiroute/ui/main/MainScreen.kt` | 在「网络通道」Tab 顶层将热点出口提升为与「双 Wi-Fi 激活与管理」并列的独立一级卡片 |
+| `app/src/main/java/com/multiroute/ui/main/MainScreenViewModel.kt` | 增加热点出口指定及系统热点设置快捷跳转控制方法 |
+| `app/src/main/java/com/multiroute/ui/wifi/DualWifiScreen.kt` | 统一复用 `HotspotUpstreamCard`，消除重复布局代码 |
+| `app/src/main/res/values/strings.xml` | 中文多语言文案适配（更新“双 Wi-Fi 激活与管理”及热点卡片文案） |
 | `app/src/main/res/values-en/strings.xml` | 英文多语言文案适配 |
 
 ---
