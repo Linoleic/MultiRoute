@@ -45,6 +45,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.repeatOnLifecycle
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.ScenarioProfile
@@ -66,6 +67,18 @@ fun MainScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
+    val importContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(uiState.configAppearanceImported) {
+        if (uiState.configAppearanceImported) {
+            viewModel.consumeConfigAppearanceImport()
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                val tag = RouteConfigProvider.getLanguage(importContext)
+                importContext.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales =
+                    if (tag.isEmpty()) android.os.LocaleList.getEmptyLocaleList() else android.os.LocaleList.forLanguageTags(tag)
+            }
+            (importContext as? android.app.Activity)?.recreate()
+        }
+    }
 
     LaunchedEffect(uiState.snackBarMessage) {
         uiState.snackBarMessage?.let {
@@ -207,12 +220,12 @@ fun MainScreen(
                 )
             }
 
-            // 选择通道的模态底部抽屉 (ModalBottomSheet)
+            // 选择通道的模态底部抽屉 (ModalBottomSheet - 热点下行通道不参与应用分流)
             if (uiState.selectedAppForSheet != null) {
                 val app = uiState.selectedAppForSheet!!
                 ChannelSelectBottomSheet(
                     app = app,
-                    channels = uiState.channels,
+                    channels = uiState.channels.filter { !it.isHotspot },
                     onSelectChannel = { channelId ->
                         viewModel.updateRouteChannel(app, channelId)
                         viewModel.closeAppSheet()
@@ -221,11 +234,11 @@ fun MainScreen(
                 )
             }
 
-            // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet)
+            // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet - 热点下行通道不参与应用分流)
             if (uiState.showBatchAssignSheet) {
                 BatchChannelSelectBottomSheet(
                     selectedCount = uiState.selectedRuleKeys.size,
-                    channels = uiState.channels,
+                    channels = uiState.channels.filter { !it.isHotspot },
                     onSelectChannel = { channelId ->
                         viewModel.batchAssignChannel(channelId)
                     },
@@ -403,8 +416,8 @@ fun AppRulesTab(
                             }
                         )
 
-                        // 动态按在线物理通道过滤 (带具体 Wi-Fi 名称展示)
-                        for (channel in uiState.channels) {
+                        // 动态按在线物理通道过滤 (排除热点下行通道)
+                        for (channel in uiState.channels.filter { !it.isHotspot }) {
                             FilterChip(
                                 selected = uiState.filterChannelId == channel.id,
                                 onClick = {
@@ -655,6 +668,19 @@ fun ChannelsTab(
     viewModel: MainScreenViewModel,
     onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
 ) {
+    val dualWifiStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    androidx.compose.runtime.LaunchedEffect(lifecycleOwner, context) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                com.multiroute.wifi.DualWifiManager.refreshConnectionState(context)
+                kotlinx.coroutines.delay(1500)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -675,48 +701,175 @@ fun ChannelsTab(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Wifi,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_title),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+
                             Icon(
-                                imageVector = Icons.Default.WifiTethering,
+                                imageVector = Icons.Default.ChevronRight,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
+                                tint = MaterialTheme.colorScheme.outline
                             )
                         }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_title),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
+                        // 下方状态简要显示（自适应长 SSID 边界情况）
+                        val isPrimaryConnected = dualWifiStatus.primarySsid != null
+                        val isSecondaryConnected = dualWifiStatus.secondaryConnected && dualWifiStatus.secondarySsid != null
+                        val primarySsid = dualWifiStatus.primarySsid ?: dualWifiStatus.primaryIface ?: "wlan0"
+                        val secondarySsid = dualWifiStatus.secondarySsid ?: dualWifiStatus.secondaryIface ?: "wlan1"
+
+                        // 弹性比例分配：单侧在线时在线侧占 70%，双侧在线时按长度在 35%~65% 自适应浮动
+                        val (primaryWeight, secondaryWeight) = when {
+                            isPrimaryConnected && !isSecondaryConnected -> 0.70f to 0.30f
+                            !isPrimaryConnected && isSecondaryConnected -> 0.30f to 0.70f
+                            isPrimaryConnected && isSecondaryConnected -> {
+                                val pLen = primarySsid.length.coerceAtLeast(3)
+                                val sLen = secondarySsid.length.coerceAtLeast(3)
+                                val ratio = (pLen.toFloat() / (pLen + sLen)).coerceIn(0.35f, 0.65f)
+                                ratio to (1f - ratio)
+                            }
+                            else -> 0.50f to 0.50f
                         }
 
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // 主 Wi-Fi 状态简要
+                                Row(
+                                    modifier = Modifier.weight(primaryWeight),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isPrimaryConnected) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                            )
+                                    )
+                                    Text(
+                                        text = stringResource(com.multiroute.R.string.dual_wifi_prefix_primary),
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = if (isPrimaryConnected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = if (isPrimaryConnected) primarySsid
+                                        else stringResource(com.multiroute.R.string.dual_wifi_status_unconnected),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        color = if (isPrimaryConnected) MaterialTheme.colorScheme.onSurface
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .height(12.dp)
+                                        .background(MaterialTheme.colorScheme.outlineVariant)
+                                )
+
+                                // 副 Wi-Fi 状态简要
+                                Row(
+                                    modifier = Modifier.weight(secondaryWeight),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
+                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                            )
+                                    )
+                                    Text(
+                                        text = stringResource(com.multiroute.R.string.dual_wifi_prefix_secondary),
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = if (isSecondaryConnected) secondarySsid
+                                        else stringResource(com.multiroute.R.string.dual_wifi_status_unconnected),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        color = if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
+            }
+
+            // 与“双 Wi-Fi 激活与管理”并列的“热点出口与分流”卡片
+            item {
+                com.multiroute.ui.wifi.HotspotUpstreamCard(
+                    status = dualWifiStatus,
+                    onSetUpstream = { viewModel.setHotspotUpstream(it) }
+                )
             }
 
             item {
@@ -1723,12 +1876,27 @@ fun ChannelSelectBottomSheet(
             // 2. 动态扫描到的活跃通道选项
             for (channel in channels) {
                 val wifiBadge = if (channel.ssid != null) " [${channel.ssid}]" else ""
+                val isForbidden = channel.isVpn && (
+                    (channel.vpnOwnerUid > 0 && channel.vpnOwnerUid == app.uid) ||
+                    app.packageName.contains("clash", ignoreCase = true) ||
+                    app.packageName.contains("v2ray", ignoreCase = true) ||
+                    app.packageName.contains("wireguard", ignoreCase = true) ||
+                    app.packageName.contains("singbox", ignoreCase = true) ||
+                    app.packageName.contains("nekobox", ignoreCase = true) ||
+                    app.packageName.contains("shadowsocks", ignoreCase = true)
+                )
+                val subtitle = if (isForbidden) {
+                    stringResource(com.multiroute.R.string.channel_vpn_self_forbidden)
+                } else {
+                    stringResource(com.multiroute.R.string.channel_subtitle, channel.interfaceName, wifiBadge, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_ip)) + if (channel.isDefault) stringResource(com.multiroute.R.string.channel_current_default) else ""
+                }
                 SelectableChannelOption(
                     title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
-                    subtitle = stringResource(com.multiroute.R.string.channel_subtitle, channel.interfaceName, wifiBadge, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_ip)) + if (channel.isDefault) stringResource(com.multiroute.R.string.channel_current_default) else "",
+                    subtitle = subtitle,
                     icon = getTransportIcon(channel.transportType),
                     isSelected = app.targetChannelId == channel.id,
-                    onClick = { onSelectChannel(channel.id) }
+                    enabled = !isForbidden,
+                    onClick = { if (!isForbidden) onSelectChannel(channel.id) }
                 )
             }
 
@@ -1804,16 +1972,45 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
 
     if (uiState.showConfigImportConfirm) {
         AlertDialog(
-            onDismissRequest = { viewModel.cancelConfigImport() },
+            onDismissRequest = { if (!uiState.isConfigBusy) viewModel.cancelConfigImport() },
             title = { Text(stringResource(com.multiroute.R.string.config_import_title)) },
-            text = { Text(stringResource(com.multiroute.R.string.config_import_message)) },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(stringResource(com.multiroute.R.string.config_import_message))
+                    uiState.configImportPreview?.let { preview ->
+                        Text(stringResource(com.multiroute.R.string.config_preview_counts,
+                            preview.document.assignments.size, preview.document.profiles.size))
+                        preview.document.sections.forEach { section ->
+                            Row(Modifier.fillMaxWidth().clickable(enabled = !uiState.isConfigBusy) { viewModel.toggleConfigImportSection(section) },
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = section in uiState.configImportSections, enabled = !uiState.isConfigBusy,
+                                    onCheckedChange = { viewModel.toggleConfigImportSection(section) })
+                                Text(stringResource(when (section) {
+                                    com.multiroute.data.ConfigTransfer.Section.ASSIGNMENTS -> com.multiroute.R.string.config_section_assignments
+                                    com.multiroute.data.ConfigTransfer.Section.SCENARIOS -> com.multiroute.R.string.config_section_scenarios
+                                    com.multiroute.data.ConfigTransfer.Section.ROUTING -> com.multiroute.R.string.config_section_routing
+                                    com.multiroute.data.ConfigTransfer.Section.DUAL_WIFI -> com.multiroute.R.string.config_section_dual_wifi
+                                    com.multiroute.data.ConfigTransfer.Section.HOTSPOT -> com.multiroute.R.string.config_section_hotspot
+                                    com.multiroute.data.ConfigTransfer.Section.APPEARANCE -> com.multiroute.R.string.config_section_appearance
+                                    com.multiroute.data.ConfigTransfer.Section.TEST_SERVER -> com.multiroute.R.string.config_section_test_server
+                                }))
+                            }
+                        }
+                        if (preview.document.ignored > 0) Text(stringResource(com.multiroute.R.string.config_ignored_entries, preview.document.ignored))
+                        if (preview.missingApps.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_missing_apps, preview.missingApps.joinToString()))
+                        if (preview.unavailableChannels.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_offline_channels, preview.unavailableChannels.joinToString()))
+                        if (preview.incompatibleScheme) Text(stringResource(com.multiroute.R.string.config_scheme_fallback))
+                    }
+                }
+            },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { viewModel.confirmConfigImport() }) {
+                androidx.compose.material3.TextButton(onClick = { viewModel.confirmConfigImport() }, enabled = !uiState.isConfigBusy && uiState.configImportSections.isNotEmpty()) {
                     Text(stringResource(com.multiroute.R.string.config_import_confirm))
                 }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { viewModel.cancelConfigImport() }) {
+                androidx.compose.material3.TextButton(onClick = { viewModel.cancelConfigImport() }, enabled = !uiState.isConfigBusy) {
                     Text(stringResource(com.multiroute.R.string.ui_cancel))
                 }
             }
@@ -2197,15 +2394,16 @@ fun SelectableChannelOption(
     subtitle: String,
     icon: ImageVector,
     isSelected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() },
+            .clickable(enabled = enabled) { onClick() },
         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.35f else 0.15f),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
@@ -2216,25 +2414,30 @@ fun SelectableChannelOption(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                tint = if (!enabled) MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+                else if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline
             )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    else if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = if (!enabled) MaterialTheme.colorScheme.error.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline
                 )
             }
 
             RadioButton(
                 selected = isSelected,
-                onClick = onClick
+                enabled = enabled,
+                onClick = if (enabled) onClick else null
             )
         }
     }
@@ -2297,7 +2500,11 @@ fun ChannelDetailCard(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid)) + if (channel.ssid != null) " · SSID: ${channel.ssid}" else "",
+                            text = if (channel.isVpn && channel.underlyingIface != null) {
+                                stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid)) + " · " + stringResource(com.multiroute.R.string.channel_vpn_underlying, channel.underlyingIface)
+                            } else {
+                                stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid)) + if (channel.ssid != null) " · SSID: ${channel.ssid}" else ""
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline,
                             maxLines = 1,
@@ -2306,20 +2513,53 @@ fun ChannelDetailCard(
                     }
                 }
 
-                if (channel.isDefault) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
-                        Text(
-                            text = stringResource(com.multiroute.R.string.vm_system_default),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (channel.isVpn) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.channel_badge_vpn),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                    if (channel.isDefault) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.vm_system_default),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    } else if (channel.isHotspot) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.channel_badge_hotspot),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
 
@@ -2339,7 +2579,13 @@ fun ChannelDetailCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(com.multiroute.R.string.ui_intranet_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip)),
+                    text = if (channel.isHotspot) {
+                        stringResource(com.multiroute.R.string.ui_hotspot_gateway_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip))
+                    } else if (channel.isVpn) {
+                        stringResource(com.multiroute.R.string.ui_vpn_tunnel_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip))
+                    } else {
+                        stringResource(com.multiroute.R.string.ui_intranet_ip, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_intranet_ip))
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     fontFamily = FontFamily.Monospace
@@ -2354,10 +2600,14 @@ fun ChannelDetailCard(
             // 公网出口测试结果
             if (testResult != null) {
                 val isFailed = NetworkUtils.isFailure(testResult)
+                val isInfo = testResult.startsWith(NetworkUtils.INFO_PREFIX)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                    else Color(0xFFE8F5E9),
+                    color = when {
+                        isFailed -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                        isInfo -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+                        else -> Color(0xFFE8F5E9)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -2366,15 +2616,27 @@ fun ChannelDetailCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                            imageVector = when {
+                                isFailed -> Icons.Default.ErrorOutline
+                                isInfo -> Icons.Default.Info
+                                else -> Icons.Default.CheckCircle
+                            },
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                            tint = when {
+                                isFailed -> MaterialTheme.colorScheme.error
+                                isInfo -> MaterialTheme.colorScheme.tertiary
+                                else -> Color(0xFF2E7D32)
+                            }
                         )
                         Text(
                             text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
+                            color = when {
+                                isFailed -> MaterialTheme.colorScheme.error
+                                isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
+                                else -> Color(0xFF1B5E20)
+                            }
                         )
                     }
                 }
@@ -2442,23 +2704,57 @@ fun ChannelDetailBottomSheet(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = stringResource(com.multiroute.R.string.ui_underlying_iface, channel.interfaceName) + if (channel.ssid != null) " (SSID: ${channel.ssid})" else "",
+                        text = if (channel.isVpn && channel.underlyingIface != null) {
+                            stringResource(com.multiroute.R.string.ui_underlying_iface, channel.interfaceName) + " · " + stringResource(com.multiroute.R.string.channel_vpn_underlying, channel.underlyingIface)
+                        } else {
+                            stringResource(com.multiroute.R.string.ui_underlying_iface, channel.interfaceName) + if (channel.ssid != null) " (SSID: ${channel.ssid})" else ""
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
 
-                if (channel.isDefault) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = stringResource(com.multiroute.R.string.vm_system_default),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (channel.isVpn) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.channel_badge_vpn),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                    if (channel.isDefault) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.vm_system_default),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    } else if (channel.isHotspot) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.channel_badge_hotspot),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
                     }
                 }
 
@@ -2493,6 +2789,31 @@ fun ChannelDetailBottomSheet(
                 ) {
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid))
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_kernel_iface), value = channel.interfaceName)
+                    if (channel.isVpn) {
+                        if (channel.underlyingIface != null) {
+                            DetailPropertyRow(
+                                label = stringResource(com.multiroute.R.string.ui_vpn_underlying),
+                                value = channel.underlyingIface
+                            )
+                        }
+                        if (channel.vpnOwnerUid > 0) {
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            val ownerAppName = remember(channel.vpnOwnerUid) {
+                                runCatching {
+                                    val pkg = context.packageManager.getPackagesForUid(channel.vpnOwnerUid)?.firstOrNull()
+                                    if (pkg != null) {
+                                        context.packageManager.getApplicationLabel(
+                                            context.packageManager.getApplicationInfo(pkg, 0)
+                                        ).toString() + " ($pkg)"
+                                    } else null
+                                }.getOrNull()
+                            }
+                            DetailPropertyRow(
+                                label = stringResource(com.multiroute.R.string.ui_vpn_creator_label),
+                                value = ownerAppName ?: "UID ${channel.vpnOwnerUid}"
+                            )
+                        }
+                    }
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
                     }
@@ -2507,7 +2828,10 @@ fun ChannelDetailBottomSheet(
                             )
                         )
                     }
-                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_primary_ip), value = channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_none))
+                    DetailPropertyRow(
+                        label = if (channel.isVpn) stringResource(com.multiroute.R.string.ui_vpn_tunnel_ip_label) else stringResource(com.multiroute.R.string.ui_primary_ip),
+                        value = channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_none)
+                    )
                     if (channel.allIpAddresses.isNotEmpty()) {
                         DetailPropertyRow(
                             label = stringResource(com.multiroute.R.string.ui_assigned_ips),
@@ -2552,7 +2876,20 @@ fun ChannelDetailBottomSheet(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 )
             ) {
-                if (routedApps.isEmpty()) {
+                if (channel.isHotspot) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(com.multiroute.R.string.channel_hotspot_routing_forbidden),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                } else if (routedApps.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2605,89 +2942,115 @@ fun ChannelDetailBottomSheet(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            if (channel.isHotspot) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (testResult != null) {
-                        val isFailed = NetworkUtils.isFailure(testResult)
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                            else Color(0xFFE8F5E9),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                        Text(
+                            text = stringResource(com.multiroute.R.string.channel_hotspot_downlink_note),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (testResult != null) {
+                            val isFailed = NetworkUtils.isFailure(testResult)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isFailed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                                else Color(0xFFE8F5E9),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                    )
+                                    Text(
+                                        text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = stringResource(com.multiroute.R.string.ui_not_tested),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+
+                        if (testServerName.isNotEmpty()) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                    imageVector = Icons.Default.Dns,
                                     contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                    modifier = Modifier.size(13.dp),
+                                    tint = MaterialTheme.colorScheme.outline
                                 )
                                 Text(
-                                    text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF1B5E20)
+                                    text = stringResource(com.multiroute.R.string.ui_test_node_short, testServerName),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                    } else {
-                        Text(
-                            text = stringResource(com.multiroute.R.string.ui_not_tested),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
 
-                    if (testServerName.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Button(
+                            onClick = onTestChannel,
+                            enabled = !isTestingSingle,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Dns,
-                                contentDescription = null,
-                                modifier = Modifier.size(13.dp),
-                                tint = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.ui_test_node_short, testServerName),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = onTestChannel,
-                        enabled = !isTestingSingle,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        if (isTestingSingle) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(com.multiroute.R.string.ui_probing_channel, channel.interfaceName))
-                        } else {
-                            Icon(Icons.Default.NetworkCheck, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(com.multiroute.R.string.ui_test_channel_egress, channel.interfaceName))
+                            if (isTestingSingle) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(com.multiroute.R.string.ui_probing_channel, channel.interfaceName))
+                            } else {
+                                Icon(Icons.Default.NetworkCheck, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(com.multiroute.R.string.ui_test_channel_egress, channel.interfaceName))
+                            }
                         }
                     }
                 }
@@ -3140,6 +3503,7 @@ fun TestServerConfigDialog(
 fun getTransportIcon(transportType: String): ImageVector {
     return when (transportType) {
         "WLAN" -> Icons.Default.Wifi
+        "hotspot" -> Icons.Default.WifiTethering
         "cellular" -> Icons.Default.SignalCellularAlt
         "ethernet" -> Icons.Default.Lan
         "vpn" -> Icons.Default.VpnKey

@@ -1,5 +1,6 @@
 import java.io.StringReader
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins {
   alias(libs.plugins.android.application)
@@ -76,12 +77,11 @@ fun isWorkTreeDirty(): Boolean = try {
 }
 
 /**
- * Version identity, using the scheme LSPosed applies to its own releases: the code is the upstream
- * commit count plus a fixed offset, and the name comes from the latest tag.
+ * Version identity: the code is the larger available upstream/HEAD commit count plus a fixed offset,
+ * and the name comes from the latest reachable tag.
  *
- * - Counting `origin/master` instead of the local HEAD means CI, a fresh clone and a fork that added
- *   its own commits all produce the same code for the same upstream state, which is what makes a
- *   self-built APK comparable with an official one.
+ * - Taking the larger count keeps local commits reflected before a push. A fork with more commits
+ *   can therefore have a different code from the upstream build.
  * - The offset keeps the code above every number this project has shipped under any earlier scheme, so
  *   an update is never mistaken for a downgrade.
  * - A working tree with uncommitted changes is named `-local`, and both fields can be overridden for
@@ -125,6 +125,18 @@ fun getGitBuildId(): String {
     return sha.ifEmpty { "unknown" } + if (dirty) "-dirty" else ""
 }
 
+// Separate source fingerprint: two local builds at the same dirty Git revision can differ.
+val hotspotHookDigest = MessageDigest.getInstance("SHA-256").apply {
+    listOf(
+        "hook/MultiRouteModule.kt", "hook/NetworkAgentRegistry.kt", "hook/TetheringUpstreamController.kt",
+        "util/HotspotUpstreamPolicy.kt", "util/HotspotHookState.kt"
+    ).forEach { relative ->
+        update(relative.toByteArray(Charsets.UTF_8))
+        update(providers.fileContents(layout.projectDirectory.file("src/main/java/com/multiroute/$relative"))
+            .asText.get().toByteArray(Charsets.UTF_8))
+    }
+}.digest().joinToString("") { "%02x".format(it) }.take(16)
+
 android {
     namespace = "com.multiroute"
     compileSdk = 36
@@ -144,6 +156,7 @@ android {
         // loaded inside system_server. Unlike versionCode this also changes for local uncommitted builds,
         // which is what makes "an update has not been applied yet" detectable during development.
         buildConfigField("String", "HOOK_BUILD_ID", "\"${getGitBuildId()}\"")
+        buildConfigField("String", "HOTSPOT_HOOK_BUILD_ID", "\"$hotspotHookDigest\"")
     }
 
     signingConfigs {
@@ -224,6 +237,8 @@ dependencies {
 
   // Local tests: jUnit, coroutines, Android runner
   testImplementation(libs.junit)
+  // Android's org.json implementation is a throwing stub in local JVM tests.
+  testImplementation("org.json:json:20240303")
   testImplementation(libs.kotlinx.coroutines.test)
 
   // Instrumented tests: jUnit rules and runners

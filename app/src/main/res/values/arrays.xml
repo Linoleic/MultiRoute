@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposed_scope">
+        <item>android</item>
+        <item>com.android.networkstack.tethering</item>
+        <item>com.google.android.networkstack.tethering</item>
+        <item>com.android.networkstack</item>
+        <item>com.google.android.networkstack</item>
+    </string-array>
+</resources>

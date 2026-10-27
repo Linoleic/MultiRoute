@@ -47,3 +47,9 @@ desktop.ini
 # ---------------------------------------------------------------------------
 TODO.md
 ROADMAP.md
+HANDOFF.md
+/docs/
+/scratch/
+
+# Python release tooling
+__pycache__/

@@ -238,7 +238,10 @@ class RouteConfigProvider : ContentProvider() {
          */
         fun isValidRuleKey(key: String): Boolean {
             val (pkg, userId) = com.multiroute.util.RouteRuleBuilder.parseRuleKey(key)
-            return isValidPackageName(pkg) && userId in 0..999
+            // Settings share this preference file. A setting such as dual_wifi_last_pass is not
+            // a package, even though its characters are safe to pass to a shell.
+            return isValidPackageName(pkg) && userId in 0..999 &&
+                (pkg == "android" || Regex("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+").matches(pkg))
         }
 
         fun setTargetChannel(context: Context, target: RuleTarget, channelId: String) {
@@ -282,17 +285,7 @@ class RouteConfigProvider : ContentProvider() {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val result = mutableMapOf<String, String>()
             sp.all.forEach { (key, value) ->
-                if (!key.startsWith("uid_") &&
-                    key != KEY_KEEP_SLAVE_WIFI_SCREEN_OFF &&
-                    key != KEY_MERGED_CELLULAR_UIDS &&
-                    key != KEY_THEME_MODE &&
-                    key != KEY_LANGUAGE &&
-                    key != KEY_DNS_FOLLOWS_CHANNEL &&
-                    key != KEY_AUTO_FAILOVER_ENABLED &&
-                    key != KEY_FAILOVER_HOLD_OFF_SECONDS &&
-                    key != KEY_FAILOVER_PROBE_INTERNET &&
-                    value is String
-                ) {
+                if (isValidRuleKey(key) && value is String && isValidChannelId(value)) {
                     result[key] = value
                 }
             }
@@ -314,19 +307,14 @@ class RouteConfigProvider : ContentProvider() {
 
         fun clearAllRules(context: Context) {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val keepScreenOff = sp.getBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, false)
-            val keepDnsFollows = sp.getBoolean(KEY_DNS_FOLLOWS_CHANNEL, true)
-            val autoFailover = sp.getBoolean(KEY_AUTO_FAILOVER_ENABLED, true)
-            val holdOffSecs = sp.getInt(KEY_FAILOVER_HOLD_OFF_SECONDS, 3)
-            val probeInternet = sp.getBoolean(KEY_FAILOVER_PROBE_INTERNET, true)
-            sp.edit().clear()
-                .putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, keepScreenOff)
-                .putBoolean(KEY_DNS_FOLLOWS_CHANNEL, keepDnsFollows)
-                .putBoolean(KEY_AUTO_FAILOVER_ENABLED, autoFailover)
-                .putInt(KEY_FAILOVER_HOLD_OFF_SECONDS, holdOffSecs)
-                .putBoolean(KEY_FAILOVER_PROBE_INTERNET, probeInternet)
-                .apply()
+            val editor = sp.edit()
+            sp.all.keys.filter(::isStoredRuleKey).forEach(editor::remove)
+            // Keep cellular UID ownership until the next sync can remove our platform entries.
+            editor.apply()
         }
+
+        internal fun isStoredRuleKey(key: String): Boolean =
+            isValidRuleKey(key) || Regex("uid_[0-9]+").matches(key)
     }
 
     override fun onCreate(): Boolean = true

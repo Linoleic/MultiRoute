@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
+import android.os.Build
 import com.multiroute.data.TestServerManager
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.TestServerConfig
@@ -202,6 +203,43 @@ object NetworkUtils {
     }
 
     /**
+     * Detailed information about a connected VPN interface.
+     */
+    data class VpnConnectionDetails(
+        val ownerUid: Int = -1,
+        val underlyingIface: String? = null
+    )
+
+    /**
+     * Resolves active VPN connection details (ownerUid, underlying network interface) from dumpsys connectivity.
+     */
+    fun getVpnDetailsFromDumpsys(): Map<String, VpnConnectionDetails> {
+        val result = mutableMapOf<String, VpnConnectionDetails>()
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "dumpsys connectivity"))
+            val text = process.inputStream.bufferedReader().use { it.readText() }
+            process.errorStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+
+            val netIdToIface = mutableMapOf<String, String>()
+            val netRegex = Regex("""NetworkAgentInfo\{network\{(\d+)\}.*?lp\{\{InterfaceName:\s*([a-zA-Z0-9_.-]+)""", RegexOption.DOT_MATCHES_ALL)
+            netRegex.findAll(text).forEach { m ->
+                netIdToIface[m.groupValues[1]] = m.groupValues[2]
+            }
+
+            val vpnRegex = Regex("""NetworkAgentInfo\{network\{(\d+)\}.*?ni\{VPN.*?lp\{\{InterfaceName:\s*([a-zA-Z0-9_.-]+).*?nc\{.*?OwnerUid:\s*(\d+).*?UnderlyingNetworks:\s*(?:\[(\d+)\]|Null)""", RegexOption.DOT_MATCHES_ALL)
+            vpnRegex.findAll(text).forEach { m ->
+                val vpnIface = m.groupValues[2]
+                val ownerUid = m.groupValues[3].toIntOrNull() ?: -1
+                val underlyingNetId = m.groupValues.getOrNull(4)
+                val underlyingIface = if (!underlyingNetId.isNullOrEmpty()) netIdToIface[underlyingNetId] else null
+                result[vpnIface] = VpnConnectionDetails(ownerUid = ownerUid, underlyingIface = underlyingIface)
+            }
+        } catch (_: Exception) {}
+        return result
+    }
+
+    /**
      * Dynamically discovers all active network channels present on the device
      * (WLAN0, WLAN1, Cellular 5G/4G, Ethernet, USB tethering, VPN, etc.).
      */
@@ -210,6 +248,7 @@ object NetworkUtils {
         val activeDefault = cm.activeNetwork
         val result = mutableListOf<NetworkChannel>()
         val wifiSsids = getConnectedWifiSsids()
+        val hotspotInfo = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context) }.getOrNull()
 
         for (network in cm.allNetworks) {
             val caps = cm.getNetworkCapabilities(network) ?: continue
@@ -217,12 +256,38 @@ object NetworkUtils {
             val iface = link.interfaceName ?: continue
             if (iface.isEmpty() || iface == "lo" || iface.startsWith("dummy") || iface.startsWith("ifb")) continue
 
+            val isHotspot = isHotspotNetwork(iface, caps, hotspotInfo)
+            val isVpn = !isHotspot && (
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                iface.startsWith("tun") || iface.startsWith("wg") || iface.startsWith("ppp") || iface.startsWith("tap")
+            )
+            val directOwnerUid = if (isVpn) runCatching { caps.ownerUid }.getOrDefault(-1) else -1
+            val directUnderlyingIface = if (isVpn) {
+                runCatching {
+                    val method = caps.javaClass.getMethod("getUnderlyingNetworks")
+                    @Suppress("UNCHECKED_CAST")
+                    val list = method.invoke(caps) as? List<Network>
+                    list?.firstOrNull()?.let { underlyingNet ->
+                        cm.getLinkProperties(underlyingNet)?.interfaceName
+                    }
+                }.getOrNull()
+            } else null
+
             val transportType: String
             val shortName: String
             var wifiSsid: String? = null
             var wifiFrequency = 0
 
             when {
+                isHotspot -> {
+                    transportType = "hotspot"
+                    wifiFrequency = hotspotInfo?.frequencyMhz ?: 0
+                    shortName = context.getString(com.multiroute.R.string.channel_hotspot_short, iface)
+                }
+                isVpn -> {
+                    transportType = "vpn"
+                    shortName = context.getString(com.multiroute.R.string.channel_vpn_short, iface)
+                }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
                     transportType = "WLAN"
                     val wifiInfo = caps.transportInfo as? WifiInfo
@@ -241,10 +306,6 @@ object NetworkUtils {
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {
                     transportType = "ethernet"
-                    shortName = iface
-                }
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
-                    transportType = "vpn"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> {
@@ -289,7 +350,11 @@ object NetworkUtils {
                     uplinkBps = upBandwidth,
                     isMetered = isMetered,
                     isDefault = isDefault,
-                    isValidated = isValidated
+                    isValidated = isValidated,
+                    isHotspot = isHotspot,
+                    isVpn = isVpn,
+                    vpnOwnerUid = directOwnerUid,
+                    underlyingIface = directUnderlyingIface
                 )
             )
         }
@@ -307,9 +372,26 @@ object NetworkUtils {
             }
         }
 
-        // Sort: default network first, then wifi, cellular, ethernet
+        // Fill missing VPN details (ownerUid and underlyingIface) from dumpsys connectivity if needed
+        if (result.any { it.isVpn && (it.vpnOwnerUid <= 0 || it.underlyingIface == null) }) {
+            val vpnMap = getVpnDetailsFromDumpsys()
+            for (i in result.indices) {
+                val ch = result[i]
+                if (ch.isVpn) {
+                    val details = vpnMap[ch.interfaceName] ?: continue
+                    result[i] = ch.copy(
+                        vpnOwnerUid = if (ch.vpnOwnerUid > 0) ch.vpnOwnerUid else details.ownerUid,
+                        underlyingIface = ch.underlyingIface ?: details.underlyingIface
+                    )
+                }
+            }
+        }
+
+        // Sort: default network first, then non-hotspot uplinks, then VPN tunnels, then hotspot downlink, then by interface
         result.sortWith(
             compareByDescending<NetworkChannel> { it.isDefault }
+                .thenBy { it.isHotspot }
+                .thenBy { it.isVpn }
                 .thenBy { it.transportType }
                 .thenBy { it.interfaceName }
         )
@@ -414,6 +496,9 @@ object NetworkUtils {
         channel: NetworkChannel,
         config: TestServerConfig? = null
     ): String = withContext(Dispatchers.IO) {
+        if (channel.isHotspot) {
+            return@withContext INFO_HOTSPOT_DOWNLINK
+        }
         val serverConfig = config ?: TestServerManager.getConfig(context)
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val targetNetwork = cm.allNetworks.firstOrNull { net ->
@@ -448,13 +533,17 @@ object NetworkUtils {
 
         val deferredList = channels.map { channel ->
             async {
-                val net = ifaceToNetworkMap[channel.interfaceName]
-                val ipOrError = if (net != null) {
-                    fetchPublicIpViaNetwork(net, serverConfig)
+                if (channel.isHotspot) {
+                    channel.id to INFO_HOTSPOT_DOWNLINK
                 } else {
-                    ERR_IFACE_OFFLINE
+                    val net = ifaceToNetworkMap[channel.interfaceName]
+                    val ipOrError = if (net != null) {
+                        fetchPublicIpViaNetwork(net, serverConfig)
+                    } else {
+                        ERR_IFACE_OFFLINE
+                    }
+                    channel.id to ipOrError
                 }
-                channel.id to ipOrError
             }
         }
 
@@ -514,6 +603,30 @@ object NetworkUtils {
     }
 
     /**
+     * Identifies whether a given network interface is an active personal hotspot (SoftAP) downlink interface.
+     */
+    fun isHotspotNetwork(
+        iface: String,
+        caps: NetworkCapabilities,
+        hotspotInfo: com.multiroute.wifi.HotspotInfo?
+    ): Boolean {
+        if (hotspotInfo != null && hotspotInfo.isEnabled && hotspotInfo.iface == iface) {
+            return true
+        }
+        val isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        val hasNoInternet = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val isLocalNetwork = if (Build.VERSION.SDK_INT >= 34) {
+            caps.hasCapability(36 /* NetworkCapabilities.NET_CAPABILITY_LOCAL_NETWORK */)
+        } else {
+            false
+        }
+        if (isWifi && (isLocalNetwork || (hasNoInternet && (iface.startsWith("swlan") || iface.startsWith("ap") || iface == "wlan2")))) {
+            return true
+        }
+        return false
+    }
+
+    /**
      * Display label of a channel.
      *
      * The transport values above are a contract with the code that compares them (icons, sorting), so
@@ -527,6 +640,7 @@ object NetworkUtils {
     ): String {
         val base = when (transportType) {
             "WLAN" -> context.getString(com.multiroute.R.string.transport_wlan, iface)
+            "hotspot" -> context.getString(com.multiroute.R.string.transport_hotspot, iface)
             "cellular" -> context.getString(com.multiroute.R.string.transport_cellular, iface)
             "ethernet" -> context.getString(com.multiroute.R.string.transport_ethernet, iface)
             "vpn" -> context.getString(com.multiroute.R.string.transport_vpn, iface)
@@ -538,6 +652,8 @@ object NetworkUtils {
 
     // Egress test results are language-neutral codes so the UI can colour and translate them; anything
     // that is not a code is a real result (an IP, possibly with a location).
+    const val INFO_PREFIX = "INFO_"
+    const val INFO_HOTSPOT_DOWNLINK = "INFO_HOTSPOT_DOWNLINK"
     const val ERR_PREFIX = "ERR_"
     const val ERR_EMPTY_BODY = "ERR_EMPTY_BODY"
     const val ERR_IFACE_OFFLINE = "ERR_IFACE_OFFLINE"
@@ -550,6 +666,7 @@ object NetworkUtils {
 
     /** Renders a result for display: codes become a translated message, anything else is shown as is. */
     fun egressResultLabel(context: Context, result: String): String = when {
+        result == INFO_HOTSPOT_DOWNLINK -> context.getString(com.multiroute.R.string.channel_hotspot_downlink_note)
         result == ERR_EMPTY_BODY -> context.getString(com.multiroute.R.string.egress_err_empty)
         result == ERR_IFACE_OFFLINE -> context.getString(com.multiroute.R.string.egress_err_iface_offline)
         result == ERR_TIMEOUT -> context.getString(com.multiroute.R.string.egress_err_timeout)

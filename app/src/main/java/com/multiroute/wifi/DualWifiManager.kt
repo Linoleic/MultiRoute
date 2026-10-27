@@ -11,6 +11,7 @@ import android.os.Build
 import android.util.Log
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.SuHelper
+import com.multiroute.util.HotspotHookState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 import java.lang.reflect.Method
 
 enum class DualWifiScheme(val id: String, val label: String) {
@@ -160,18 +164,50 @@ data class DualWifiStatus(
     val hotspotIface: String? = null,
     val hotspotFreq: Int = 0,
     val hotspotBand: String? = null,
+    val hotspotUpstreamTarget: String = "default",
+    val hotspotUpstreamActive: String = "none",
+    val hotspotHookState: HotspotHookState = HotspotHookState.UNKNOWN,
+    val isHotspotSwitching: Boolean = false,
+    val hotspotUpdateFailed: Boolean = false,
     val errorMessage: String? = null
-)
+) {
+    val isHotspotHookLoaded: Boolean get() = hotspotHookState == HotspotHookState.LOADED
+}
 
 object DualWifiManager {
     private const val TAG = "MultiRoute-DualWifi"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val hotspotMutex = Mutex()
+    private val secondaryConnections = SecondaryConnectionCoordinator()
+    private const val SHELL_REQUEST_PREF = "dual_wifi_shell_request_ssid"
+    internal suspend fun <T> withHotspotPreferenceLock(block: suspend () -> T): T = hotspotMutex.withLock { block() }
+    private val hotspotRequestId = AtomicLong()
 
     private val _status = MutableStateFlow(DualWifiStatus())
     val status: StateFlow<DualWifiStatus> = _status.asStateFlow()
 
     private var activeCallback: ConnectivityManager.NetworkCallback? = null
     private var activeNetwork: Network? = null
+
+    private fun releaseOwnedShellRequest(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(com.multiroute.data.RouteConfigProvider.PREF_NAME, Context.MODE_PRIVATE)
+        val requestKey = prefs.getString(SHELL_REQUEST_PREF, null) ?: return true
+        val removed = SuHelper.executeCommand(WifiShellCommands.removeRequest(requestKey))
+        val empty = if (!removed) SuHelper.executeShellWithOutput("cmd wifi list-requests").any { it.contains("No active requests") } else true
+        if (empty) prefs.edit().remove(SHELL_REQUEST_PREF).commit()
+        return empty
+    }
+
+    private fun releaseSlaveConnection(context: Context) {
+        // The bridge is synchronous. A second broadcast would escape the connection lock and
+        // could disconnect a newer attempt after this operation has already completed.
+        SuHelper.executeCommand(WifiShellCommands.slaveDisconnect(context.applicationInfo.sourceDir), timeoutSeconds = 5)
+    }
+
+    internal fun secondaryServiceGeneration(): Long? = secondaryConnections.monitoringTicket()?.generation
+
+    internal fun isSecondaryServiceCurrent(generation: Long): Boolean =
+        secondaryServiceGeneration() == generation
 
     /**
      * Detects current device ROM / system customization layer.
@@ -458,7 +494,6 @@ object DualWifiManager {
                     cmd wifi force-overlay-config-value bool config_wifiMultiStaMultiInternetConcurrencyEnabled enabled true
                     cmd wifi force-overlay-config-value bool config_wifiAllowMultiInternetConnectDual5GFrequency enabled true
                     cmd wifi set-multi-internet-mode 2
-                    cmd wifi clear-user-disabled-networks
                     
                     mkdir -p /data/adb/service.d
                     cat << 'DUALWIFI_EOF' > /data/adb/service.d/01-multiroute-dualwifi.sh
@@ -477,7 +512,6 @@ DUALWIFI_EOF
                 SuHelper.setKeepSlaveWifiScreenOff(context, true)
                 val script = """
                     cmd wifi set-multi-internet-mode 2 2>/dev/null
-                    cmd wifi clear-user-disabled-networks 2>/dev/null
                 """.trimIndent()
                 SuHelper.executeCommand(script, timeoutSeconds = 5)
                 true
@@ -485,14 +519,13 @@ DUALWIFI_EOF
             DualWifiScheme.ROOT_DIRECT, DualWifiScheme.AUTO -> {
                 val script = """
                     cmd wifi set-multi-internet-mode 2 2>/dev/null
-                    cmd wifi clear-user-disabled-networks 2>/dev/null
                 """.trimIndent()
                 SuHelper.executeCommand(script, timeoutSeconds = 5)
             }
         }
 
-        checkCapability(context)
-        success
+        val capability = checkCapability(context)
+        success && capability.isFullyReady
     }
 
     /**
@@ -547,7 +580,8 @@ DUALWIFI_EOF
             kotlinx.coroutines.delay(1200)
 
             val lines = SuHelper.executeShellWithOutput("cmd wifi list-scan-results 2>/dev/null", timeoutSeconds = 5)
-            val savedPasswords = getSavedWifiPasswords()
+            val savedNetworks = getSavedNetworkIds()
+            val savedPasswords = if (connectionScheme(context) == DualWifiScheme.XIAOMI_SLAVE) getSavedWifiPasswords() else emptyMap()
             val detailsMap = NetworkUtils.getConnectedWifiDetails()
             val primIface = _status.value.capability.primaryIface?.takeIf { it != "wlan1" } ?: "wlan0"
             val secIface = _status.value.capability.secondaryIface?.takeIf { it != primIface } ?: "wlan1"
@@ -580,7 +614,8 @@ DUALWIFI_EOF
                 secondaryBssid = secondaryBssid,
                 secondaryFreq = secondaryFreq,
                 isSecConnected = isSecConnected,
-                frameworkScanResults = frameworkScanResults
+                frameworkScanResults = frameworkScanResults,
+                savedNetworkSsids = savedNetworks.keys
             ).toMutableList()
 
             // Smart Multi-Tiered Sorting:
@@ -624,7 +659,8 @@ DUALWIFI_EOF
         secondaryBssid: String? = null,
         secondaryFreq: Int = 0,
         isSecConnected: Boolean = false,
-        frameworkScanResults: List<android.net.wifi.ScanResult>? = null
+        frameworkScanResults: List<android.net.wifi.ScanResult>? = null,
+        savedNetworkSsids: Set<String> = savedPasswords.keys
     ): List<WifiScanItem> {
         val itemsMap = mutableMapOf<String, WifiScanItem>()
 
@@ -824,7 +860,7 @@ DUALWIFI_EOF
             }
             val dedupKey = "$ssid#$bandKey"
 
-            val isSaved = savedPasswords.containsKey(ssid)
+            val isSaved = ssid in savedNetworkSsids
             val savedPass = savedPasswords[ssid]
 
             val candidate = WifiScanItem(
@@ -1152,38 +1188,42 @@ DUALWIFI_EOF
      * Retrieves the framework network ID for a given SSID from `cmd wifi list-networks`.
      */
     suspend fun getNetworkIdForSsid(ssid: String): Int? = withContext(Dispatchers.IO) {
-        val lines = SuHelper.executeShellWithOutput("cmd wifi list-networks 2>/dev/null", timeoutSeconds = 3)
-        parseNetworkIdFromList(lines, ssid)
+        getSavedNetworkIds()[ssid.trim().trim('"')]
+    }
+
+    private suspend fun getSavedNetworkIds(): Map<String, Int> {
+        val lines = SuHelper.executeShellWithOutput("cmd wifi list-networks", timeoutSeconds = 3)
+        return parseSavedNetworkListing(lines)
+    }
+
+    internal fun parseSavedNetworkListing(lines: List<String>): Map<String, Int> {
+        check(lines.any { it.trim() == "No networks" || Regex("^Network\\s+Id\\s+SSID", RegexOption.IGNORE_CASE).containsMatchIn(it.trim()) }) {
+            "Unable to read system Wi-Fi configurations"
+        }
+        return parseSavedNetworkIds(lines)
     }
 
     /**
      * Parses the network ID for the specified SSID from `cmd wifi list-networks` output lines.
      */
     fun parseNetworkIdFromList(lines: List<String>, targetSsid: String): Int? {
-        val cleanTarget = targetSsid.trim().trim('"')
+        return parseSavedNetworkIds(lines)[targetSsid.trim().trim('"')]
+    }
+
+    internal fun parseSavedNetworkIds(lines: List<String>): Map<String, Int> {
+        val networks = mutableMapOf<String, Int>()
         for (line in lines) {
             val trimmed = line.trim()
             if (trimmed.isEmpty() || trimmed.startsWith("Network Id", ignoreCase = true)) continue
-            val match = Regex("""^(\d+)\s+(.+?)\s+(?:wpa|open|owe|wep)""", RegexOption.IGNORE_CASE).find(trimmed)
+            // Security is the final column; words such as "open" may also occur inside an SSID.
+            val match = Regex("""^(\d+)\s+(.+?)\s+\S+$""").matchEntire(trimmed)
             if (match != null) {
                 val id = match.groupValues[1].toIntOrNull()
                 val netSsid = match.groupValues[2].trim().trim('"')
-                if (id != null && netSsid.equals(cleanTarget, ignoreCase = true)) {
-                    return id
-                }
-            }
-            val tokens = trimmed.split(Regex("""\s+"""))
-            if (tokens.size >= 2) {
-                val id = tokens[0].toIntOrNull()
-                if (id != null) {
-                    val candidate = tokens.subList(1, tokens.size - 1).joinToString(" ").trim().trim('"')
-                    if (candidate.equals(cleanTarget, ignoreCase = true) || tokens[1].trim('"').equals(cleanTarget, ignoreCase = true)) {
-                        return id
-                    }
-                }
+                if (id != null) networks[netSsid] = id
             }
         }
-        return null
+        return networks
     }
 
     /**
@@ -1307,26 +1347,61 @@ DUALWIFI_EOF
 
         val hotspotInfo = checkHotspotState(context)
 
-        _status.update {
-            it.copy(
-                primaryIface = primIface,
-                primarySsid = primSsid,
-                primaryBssid = primBssid,
-                primaryIp = primIp,
-                primaryFreq = primFreq,
-                primaryRssi = primRssi,
-                secondaryIface = secIface,
-                secondarySsid = secSsid,
-                secondaryBssid = secBssid,
-                secondaryIp = finalSecIpResolved,
-                secondaryFreq = secFreqFinal,
-                secondaryRssi = secRssiFinal,
-                secondaryConnected = secConnected,
-                isHotspotEnabled = hotspotInfo.isEnabled,
-                hotspotIface = hotspotInfo.iface,
-                hotspotFreq = hotspotInfo.frequencyMhz,
-                hotspotBand = hotspotInfo.bandLabel
-            )
+        hotspotMutex.withLock {
+            val hotspotTarget = SuHelper.getHotspotUpstream()
+            val hotspotActive = if (hotspotInfo.isEnabled) SuHelper.getHotspotActiveUpstream() else "none"
+            val hookState = SuHelper.getHotspotHookStatus()
+            _status.update {
+                it.copy(
+                    primaryIface = primIface,
+                    primarySsid = primSsid,
+                    primaryBssid = primBssid,
+                    primaryIp = primIp,
+                    primaryFreq = primFreq,
+                    primaryRssi = primRssi,
+                    secondaryIface = secIface,
+                    secondarySsid = secSsid,
+                    secondaryBssid = secBssid,
+                    secondaryIp = finalSecIpResolved,
+                    secondaryFreq = secFreqFinal,
+                    secondaryRssi = secRssiFinal,
+                    secondaryConnected = secConnected,
+                    isHotspotEnabled = hotspotInfo.isEnabled,
+                    hotspotIface = hotspotInfo.iface,
+                    hotspotFreq = hotspotInfo.frequencyMhz,
+                    hotspotBand = hotspotInfo.bandLabel,
+                    hotspotUpstreamTarget = hotspotTarget,
+                    hotspotUpstreamActive = hotspotActive,
+                    hotspotHookState = hookState
+                )
+            }
+        }
+    }
+
+    /** Serializes root commands off the main thread; obsolete requests cannot publish stale state. */
+    suspend fun setHotspotUpstream(target: String) {
+        val requestId = hotspotRequestId.incrementAndGet()
+        withContext(Dispatchers.IO) {
+            hotspotMutex.withLock {
+                if (requestId != hotspotRequestId.get()) return@withLock
+                _status.update { it.copy(isHotspotSwitching = true, hotspotUpdateFailed = false) }
+                try {
+                    val success = SuHelper.setHotspotUpstream(target)
+                    val actualTarget = SuHelper.getHotspotUpstream()
+                    val active = SuHelper.getHotspotActiveUpstream()
+                    val hookState = SuHelper.getHotspotHookStatus()
+                    if (requestId == hotspotRequestId.get()) {
+                        _status.update { it.copy(
+                            hotspotUpstreamTarget = actualTarget,
+                            hotspotUpstreamActive = active,
+                            hotspotHookState = hookState,
+                            hotspotUpdateFailed = !success
+                        ) }
+                    }
+                } finally {
+                    _status.update { it.copy(isHotspotSwitching = false) }
+                }
+            }
         }
     }
 
@@ -1341,9 +1416,23 @@ DUALWIFI_EOF
         bssid: String? = null,
         capabilities: String? = null
     ) {
+        val ticket = secondaryConnections.connect()
         scope.launch {
-            connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities)
+            secondaryConnections.withConnection(ticket) {
+                connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities, ticket)
+            }
         }
+    }
+
+    private fun connectionScheme(context: Context): DualWifiScheme {
+        val rom = detectRomType()
+        val configured = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
+        return getEffectiveScheme(configured, rom)
+    }
+
+    internal suspend fun secondaryNetworkEntry(context: Context, item: WifiScanItem): SecondaryNetworkPolicy.Entry = withContext(Dispatchers.IO) {
+        SecondaryNetworkPolicy.entry(connectionScheme(context) == DualWifiScheme.XIAOMI_SLAVE,
+            item.isSecure, !item.savedPassword.isNullOrEmpty()) { getNetworkIdForSsid(item.ssid) }
     }
 
     /**
@@ -1356,96 +1445,113 @@ DUALWIFI_EOF
         frequencyMhz: Int,
         bssid: String? = null,
         capabilities: String? = null
+    ): Boolean {
+        val ticket = secondaryConnections.connect()
+        return secondaryConnections.withConnection(ticket) {
+            connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities, ticket)
+        }
+    }
+
+    private suspend fun connectSecondaryWifi(
+        context: Context,
+        ssid: String,
+        passphrase: String?,
+        frequencyMhz: Int,
+        bssid: String?,
+        capabilities: String?,
+        ticket: SecondaryConnectionCoordinator.Ticket
     ): Boolean = withContext(Dispatchers.IO) {
+      secondaryConnections.serialized {
+        if (!secondaryConnections.isCurrent(ticket)) return@serialized false
         // Prevent collision: Never allow connecting primary AP as secondary Wi-Fi
         val primSsid = _status.value.primarySsid
         val primBssid = _status.value.primaryBssid
         if (isPrimaryCollision(ssid, bssid, primSsid, primBssid)) {
-            _status.update {
+            secondaryConnections.publish(ticket) { _status.update {
                 it.copy(
                     isConnecting = false,
                     connectingSsid = null,
                     connectingBssid = null,
                     errorMessage = "不能将当前主 Wi-Fi ($primSsid) 连接为副 Wi-Fi"
                 )
-            }
-            return@withContext false
+            } }
+            return@serialized false
         }
 
         // Prevent radio collision: Never allow connecting secondary Wi-Fi while personal hotspot is active
         if (_status.value.isHotspotEnabled || checkHotspotState(context).isEnabled) {
             val err = context.getString(com.multiroute.R.string.dual_wifi_hotspot_error_blocked)
-            _status.update {
+            secondaryConnections.publish(ticket) { _status.update {
                 it.copy(
                     isConnecting = false,
                     connectingSsid = null,
                     connectingBssid = null,
                     errorMessage = err
                 )
-            }
-            return@withContext false
+            } }
+            return@serialized false
         }
 
-        _status.update { it.copy(isConnecting = true, connectingSsid = ssid, connectingBssid = bssid, errorMessage = null) }
-        val secIface = _status.value.secondaryIface ?: _status.value.capability.secondaryIface ?: "wlan1"
+        secondaryConnections.publish(ticket) {
+            _status.update { it.copy(isConnecting = true, connectingSsid = ssid, connectingBssid = bssid, errorMessage = null) }
+        }
+        var connectionAccepted = false
+        var requestChanged = false
+        var slaveRequestStarted = false
         try {
-            // 1. Clean up any existing requests, bring interface up, and clear blocklist
+            checkCurrentSecondaryIntent(ticket)
+            val isXiaomiSlave = connectionScheme(context) == DualWifiScheme.XIAOMI_SLAVE
+            check(SecondaryNetworkPolicy.canConnect(isXiaomiSlave) { getNetworkIdForSsid(ssid) }) {
+                context.getString(com.multiroute.R.string.dual_wifi_saved_network_required)
+            }
+            // Resolve and validate the request before releasing the current link.
+            val savedRequest = if (!isXiaomiSlave) {
+                val ap = bssid?.takeIf { it.isNotBlank() } ?: parseScanResultLines(
+                    SuHelper.executeShellWithOutput("cmd wifi list-scan-results 2>/dev/null", timeoutSeconds = 3)
+                ).firstOrNull { it.ssid == ssid && isSameBand(it.frequencyMhz, frequencyMhz) }?.bssid
+                checkNotNull(ap) { context.getString(com.multiroute.R.string.dual_wifi_rescan_required) }
+                WifiShellCommands.savedInternetRequest(ap, frequencyMhz)
+            } else null
+            checkCurrentSecondaryIntent(ticket)
+            // Only replace requests created by this app; other shell clients retain their requests.
+            requestChanged = true
+            check(releaseOwnedShellRequest(context)) { "无法释放之前的副 Wi-Fi 请求" }
+            val existing = SuHelper.executeShellWithOutput("cmd wifi list-requests")
+            check(existing.isEmpty() || existing.all { it.isBlank() || it.contains("No active requests") }) {
+                "系统存在其他 Wi-Fi 连接请求，请结束后再试"
+            }
             val prepScript = """
-                ip link set dev $secIface up 2>/dev/null
                 cmd wifi set-multi-internet-mode 2 2>/dev/null
-                cmd wifi remove-all-requests
-                cmd wifi clear-user-disabled-networks
-                cmd wifi allow-root-to-get-local-only-cmm enabled
                 cmd wifi network-requests-set-user-approved android yes
             """.trimIndent()
-            SuHelper.executeCommand(prepScript, timeoutSeconds = 5)
+            check(SuHelper.executeCommand(prepScript, timeoutSeconds = 5))
+            checkCurrentSecondaryIntent(ticket)
 
-            // 2. Resolve security type: open, owe, wpa2, wpa3, wep
-            val secType = resolveSecurityType(capabilities, passphrase)
-            val passArg = if (secType != "open" && secType != "owe" && !passphrase.isNullOrEmpty()) " \"$passphrase\"" else ""
-            // Include -d so primary STA (wlan0) autojoin never roams or connects to this network
-            SuHelper.executeCommand("cmd wifi add-network \"$ssid\" $secType$passArg -d", timeoutSeconds = 3)
-
-            val rom = detectRomType()
-            val configuredScheme = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
-            val effectiveScheme = getEffectiveScheme(configuredScheme, rom)
-            val isXiaomiSlave = effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || rom.romType == RomType.XIAOMI_HYPEROS
-
-            var connectedViaSlaveService = false
             if (isXiaomiSlave) {
-                val netId = getNetworkIdForSsid(ssid)
-                if (netId != null) {
-                    Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
-                    // 1. Send broadcast to MultiRouteModule in system_server (LSPosed path)
-                    val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI).apply {
-                        setPackage("android")
-                        putExtra(com.multiroute.util.ModuleStateParser.EXTRA_NET_ID, netId)
-                        if (!bssid.isNullOrEmpty()) {
-                            putExtra(com.multiroute.util.ModuleStateParser.EXTRA_BSSID, bssid)
-                        }
-                        addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
-                    }
-                    runCatching { context.sendBroadcast(slaveIntent) }
-
-                    // 2. Execute SlaveWifiBridge via app_process as Root (universal Root path)
-                    val apkPath = context.applicationInfo.sourceDir
-                    val bssidEscaped = if (!bssid.isNullOrEmpty()) " \"$bssid\"" else ""
-                    val bridgeCmd = "CLASSPATH=\"$apkPath\" app_process / com.multiroute.wifi.SlaveWifiBridge connect $netId$bssidEscaped"
-                    SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)
-                    connectedViaSlaveService = true
-                } else {
-                    Log.w(TAG, "Network ID not found for SSID '$ssid' in list-networks; falling back to cmd wifi add-request")
+                // SlaveWifiService requires a saved netId. Reuse existing configurations untouched.
+                if (getNetworkIdForSsid(ssid) == null) {
+                    val secType = resolveSecurityType(capabilities, passphrase)
+                    val passArg = if (secType != "open" && secType != "owe" && !passphrase.isNullOrEmpty()) " " + WifiShellCommands.quote(passphrase) else ""
+                    check(SuHelper.executeCommand("cmd wifi add-network ${WifiShellCommands.quote(ssid)} $secType$passArg -d",
+                        timeoutSeconds = 3, sensitive = true))
                 }
-            }
-
-            if (!connectedViaSlaveService) {
-                val bssidArg = if (!bssid.isNullOrEmpty()) " -b $bssid" else ""
-                val script = """
-                    cmd wifi network-requests-set-user-approved android yes
-                    cmd wifi add-request "$ssid" $secType$passArg$bssidArg
-                    cmd wifi start-scan
-                """.trimIndent()
-                SuHelper.executeCommand(script, timeoutSeconds = 5)
+                val netId = getNetworkIdForSsid(ssid)
+                checkNotNull(netId) { context.getString(com.multiroute.R.string.dual_wifi_saved_network_required) }
+                checkCurrentSecondaryIntent(ticket)
+                slaveRequestStarted = true
+                Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
+                // Exactly one path owns the request; do not race a second system_server broadcast.
+                val bridgeCmd = WifiShellCommands.slaveConnect(context.applicationInfo.sourceDir, netId, bssid)
+                check(SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)) {
+                    context.getString(com.multiroute.R.string.dual_wifi_slave_request_failed)
+                }
+            } else {
+                checkCurrentSecondaryIntent(ticket)
+                check(context.getSharedPreferences(com.multiroute.data.RouteConfigProvider.PREF_NAME, Context.MODE_PRIVATE)
+                    .edit().putString(SHELL_REQUEST_PREF, WifiShellCommands.savedInternetRequestKey(frequencyMhz)).commit())
+                checkCurrentSecondaryIntent(ticket)
+                check(SuHelper.executeCommand(checkNotNull(savedRequest), timeoutSeconds = 5))
+                SuHelper.executeCommand("cmd wifi start-scan", timeoutSeconds = 3)
             }
 
             // 4. Poll for secondary connection for up to 12 seconds with auth failure detection
@@ -1453,8 +1559,11 @@ DUALWIFI_EOF
             var failureReason: String? = null
             for (i in 0 until 12) {
                 delay(1000)
+                checkCurrentSecondaryIntent(ticket)
                 refreshConnectionState(context)
-                if (_status.value.secondaryConnected) {
+                checkCurrentSecondaryIntent(ticket)
+                if (_status.value.secondaryConnected && _status.value.secondarySsid == ssid &&
+                    (bssid.isNullOrEmpty() || _status.value.secondaryBssid.equals(bssid, ignoreCase = true))) {
                     connected = true
                     break
                 }
@@ -1483,55 +1592,74 @@ DUALWIFI_EOF
 
             if (connected) {
                 val secState = _status.value
-                if (ssid != secState.primarySsid) {
-                    com.multiroute.data.RouteConfigProvider.saveLastSecondaryWifi(
-                        context,
-                        ssid = ssid,
-                        pass = passphrase,
-                        freq = frequencyMhz,
-                        bssid = bssid,
-                        caps = capabilities
-                    )
+                connectionAccepted = secondaryConnections.publish(ticket) {
+                    if (ssid != secState.primarySsid) {
+                        com.multiroute.data.RouteConfigProvider.saveLastSecondaryWifi(
+                            context,
+                            ssid = ssid,
+                            pass = if (isXiaomiSlave) passphrase else null,
+                            freq = frequencyMhz,
+                            bssid = bssid,
+                            caps = capabilities
+                        )
+                    }
+                    DualWifiService.start(context, secState.secondarySsid ?: ssid, secState.secondaryIface ?: "wlan1", ticket.generation)
+                    scope.launch {
+                        SuHelper.syncAllRouteRules(context)
+                    }
+                    _status.update { it.copy(isConnecting = false, connectingSsid = null, connectingBssid = null) }
                 }
-                DualWifiService.start(context, secState.secondarySsid ?: ssid, secState.secondaryIface ?: "wlan1")
-                scope.launch {
-                    SuHelper.syncAllRouteRules(context)
-                }
-                _status.update { it.copy(isConnecting = false, connectingSsid = null, connectingBssid = null) }
-                true
+                connectionAccepted
             } else {
                 val err = failureReason ?: "连接副 Wi-Fi 超时，请检查密码是否正确，且副 Wi-Fi 频段需与主 Wi-Fi 互补（如 2.4G + 5G）"
-                _status.update {
+                secondaryConnections.publish(ticket) { _status.update {
                     it.copy(
                         isConnecting = false,
                         connectingSsid = null,
                         connectingBssid = null,
                         errorMessage = err
                     )
-                }
+                } }
                 false
             }
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) {
                 Log.d(TAG, "connectSecondaryWifi coroutine cancelled")
-                _status.update { it.copy(isConnecting = false, connectingSsid = null, connectingBssid = null) }
-                return@withContext false
+                secondaryConnections.publish(ticket) {
+                    _status.update { it.copy(isConnecting = false, connectingSsid = null, connectingBssid = null) }
+                }
+                throw t
             }
             Log.e(TAG, "Failed to connect secondary wifi", t)
-            _status.update { it.copy(isConnecting = false, connectingSsid = null,
-                        connectingBssid = null, errorMessage = "发起连接失败: ${t.message}") }
+            secondaryConnections.publish(ticket) {
+                _status.update { it.copy(isConnecting = false, connectingSsid = null,
+                            connectingBssid = null, errorMessage = "发起连接失败: ${t.message}") }
+            }
             false
+        } finally {
+            if (!connectionAccepted) {
+                if (requestChanged) releaseOwnedShellRequest(context)
+                if (slaveRequestStarted) releaseSlaveConnection(context)
+            }
         }
+      }
+    }
+
+    private fun checkCurrentSecondaryIntent(ticket: SecondaryConnectionCoordinator.Ticket) {
+        if (!secondaryConnections.isCurrent(ticket)) throw kotlinx.coroutines.CancellationException("Secondary connection superseded")
     }
 
     /**
      * Attempts to auto-reconnect the last configured secondary Wi-Fi if enabled and not currently connected.
      */
-    suspend fun autoReconnectSecondary(context: Context): Boolean = withContext(Dispatchers.IO) {
+    suspend fun autoReconnectSecondary(context: Context): Boolean {
+      val ticket = secondaryConnections.retry() ?: return false
+      return secondaryConnections.withConnection(ticket) { withContext(Dispatchers.IO) {
         if (!com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context)) {
             return@withContext false
         }
         refreshConnectionState(context)
+        if (!secondaryConnections.isCurrent(ticket)) return@withContext false
         if (_status.value.secondaryConnected) return@withContext true
 
         // Yield radio resource to personal hotspot if enabled
@@ -1551,75 +1679,49 @@ DUALWIFI_EOF
         val currentPrimaryBssid = _status.value.primaryBssid
         if (isPrimaryCollision(ssid, bssid, currentPrimarySsid, currentPrimaryBssid)) {
             Log.w(TAG, "Prevented secondary auto-reconnect: configured secondary '$ssid' matches active primary '$currentPrimarySsid'")
-            com.multiroute.data.RouteConfigProvider.clearLastSecondaryWifi(context)
+            secondaryConnections.publish(ticket) {
+                com.multiroute.data.RouteConfigProvider.clearLastSecondaryWifi(context)
+            }
             return@withContext false
         }
 
         Log.i(TAG, "Auto reconnecting secondary Wi-Fi: $ssid")
-        connectSecondaryWifi(context, ssid, pass, freq, bssid, caps)
+        if (!secondaryConnections.isCurrent(ticket)) return@withContext false
+        connectSecondaryWifi(context, ssid, pass, freq, bssid, caps, ticket)
+      } }
     }
 
     /**
      * Disconnects the secondary Wi-Fi network.
      */
-    fun disconnectSecondaryWifi(context: Context, clearSavedPreference: Boolean = true) {
-        if (clearSavedPreference) {
-            com.multiroute.data.RouteConfigProvider.clearLastSecondaryWifi(context)
-        }
-        val secIface = _status.value.secondaryIface
-            ?: _status.value.capability.secondaryIface
-            ?: "wlan1"
-        val secSsid = _status.value.secondarySsid
-
-        DualWifiService.stop(context)
-
-        _status.update {
-            it.copy(
-                isConnecting = false,
-                connectingSsid = null,
-                connectingBssid = null,
-                secondaryConnected = false,
-                secondarySsid = null,
-                secondaryBssid = null,
-                secondaryIp = null,
-                secondaryFreq = 0,
-                secondaryRssi = 0
-            )
-        }
-
+    fun disconnectSecondaryWifi(context: Context, clearSavedPreference: Boolean = true, expectedGeneration: Long? = null): Boolean {
+        // Invalidate an in-flight attempt before waiting for any blocking root operation.
+        val ticket = if (expectedGeneration == null) secondaryConnections.disconnect(suppressReconnect = clearSavedPreference)
+            else secondaryConnections.disconnectIfCurrent(SecondaryConnectionCoordinator.Ticket(expectedGeneration)) ?: return false
         scope.launch {
-            // Disconnect secondary STA, forget secondary saved networks to stop auto-reconnection,
-            // invoke Xiaomi SlaveWifiService disconnect if on Xiaomi ROM,
-            // and flush interface link/addresses at kernel and framework levels
-            // Broadcast disconnect to system_server
-            val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI).apply {
-                setPackage("android")
-                addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
+          secondaryConnections.serialized {
+            // A later explicit connect may have overtaken this queued disconnect.
+            if (!secondaryConnections.isCurrent(ticket)) return@serialized
+            try {
+            if (clearSavedPreference) com.multiroute.data.RouteConfigProvider.clearLastSecondaryWifi(context)
+            DualWifiService.stop(context)
+            // Disconnecting a link must not forget saved networks or remove other clients' requests.
+            releaseOwnedShellRequest(context)
+            val rom = detectRomType()
+            if (rom.romType == RomType.XIAOMI_HYPEROS) {
+                releaseSlaveConnection(context)
             }
-            runCatching { context.sendBroadcast(slaveIntent) }
-
-            val apkPath = context.applicationInfo.sourceDir
-            val ssidFilter = if (!secSsid.isNullOrEmpty()) secSsid else ""
-            val disconnectScript = """
-                cmd wifi remove-all-requests 2>/dev/null
-                if [ -n "$ssidFilter" ]; then
-                    cmd wifi remove-request "$ssidFilter" 2>/dev/null
-                    for id in $(cmd wifi list-networks 2>/dev/null | grep "$ssidFilter" | awk '{print ${'$'}1}'); do
-                        cmd wifi forget-network "${'$'}id" 2>/dev/null
-                    done
-                fi
-                cmd wifi set-multi-internet-mode 1 2>/dev/null
-                service call SlaveWifiService 5 2>/dev/null
-                CLASSPATH="$apkPath" app_process / com.multiroute.wifi.SlaveWifiBridge disconnect 2>/dev/null
-                ip -4 addr flush dev $secIface 2>/dev/null
-                ip -6 addr flush dev $secIface 2>/dev/null
-                ip link set dev $secIface down 2>/dev/null
-                cmd wifi clear-user-disabled-networks 2>/dev/null
-            """.trimIndent()
-            SuHelper.executeCommand(disconnectScript, timeoutSeconds = 5)
             delay(500)
             refreshConnectionState(context)
+            secondaryConnections.publish(ticket) {
+                _status.update { it.copy(isConnecting = false, connectingSsid = null, connectingBssid = null) }
+            }
             SuHelper.syncAllRouteRules(context)
+            } finally {
+                secondaryConnections.disconnected(ticket)
+            }
+          }
         }
+        return true
     }
 }

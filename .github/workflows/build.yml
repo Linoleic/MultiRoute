@@ -49,6 +49,9 @@ jobs:
         with:
           packages: 'platforms;android-36'
 
+      - name: Test release notes extraction
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 

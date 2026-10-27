@@ -1,6 +1,7 @@
 package com.multiroute.theme
 
 import android.content.Context
+import android.app.Activity
 import android.os.Build
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -11,10 +12,13 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import com.multiroute.data.RouteConfigProvider
 
 private val DarkColorScheme = darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
@@ -48,6 +52,13 @@ fun MultiRouteTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+        }
+    }
     // Crossfade so a light/dark switch or a palette change fades instead of flashing.
     Crossfade(targetState = darkTheme to dynamicColor, label = "theme") { (dark, dynamic) ->
         MaterialTheme(

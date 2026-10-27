@@ -24,6 +24,7 @@ import com.multiroute.model.TestServerConfig
 import com.multiroute.util.DiagnosticInfo
 import com.multiroute.util.NetworkUtils
 import com.multiroute.data.ScenarioStore
+import com.multiroute.data.ConfigTransfer
 import com.multiroute.model.ScenarioObservation
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
@@ -95,6 +96,9 @@ data class MainUiState(
     // 配置导入导出
     val configPath: String = "",
     val pendingImportJson: String? = null,
+    val configImportPreview: ConfigTransfer.Preview? = null,
+    val configImportSections: Set<ConfigTransfer.Section> = emptySet(),
+    val configAppearanceImported: Boolean = false,
     val showConfigImportConfirm: Boolean = false,
     val isConfigBusy: Boolean = false
 )
@@ -287,9 +291,30 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun batchAssignChannel(channelId: String) {
+        if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
+            return
+        }
+        val targetChannel = _uiState.value.channels.firstOrNull { it.id == channelId }
+        val rawKeys = _uiState.value.selectedRuleKeys
+        val keys = if (targetChannel?.isVpn == true) {
+            rawKeys.filter { key ->
+                val app = allApps.firstOrNull { it.ruleKey == key }
+                if (app == null) true
+                else !(
+                    (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
+                    app.packageName.contains("clash", ignoreCase = true) ||
+                    app.packageName.contains("v2ray", ignoreCase = true) ||
+                    app.packageName.contains("wireguard", ignoreCase = true) ||
+                    app.packageName.contains("singbox", ignoreCase = true) ||
+                    app.packageName.contains("nekobox", ignoreCase = true) ||
+                    app.packageName.contains("shadowsocks", ignoreCase = true)
+                )
+            }.toSet()
+        } else {
+            rawKeys
+        }
         // Selection is keyed by rule key (`pkg` or `pkg@userId`), so a clone-space install and the
         // primary install of the same package can be assigned independently.
-        val keys = _uiState.value.selectedRuleKeys
         if (keys.isEmpty()) return
 
         // While a plan is being edited the selection lands in that plan instead of the base configuration -
@@ -484,7 +509,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.value = _uiState.value.copy(isConfigBusy = true)
             val now = System.currentTimeMillis()
             val json = withContext(Dispatchers.IO) {
-                com.multiroute.data.ConfigTransfer.buildJson(context, now)
+                ConfigTransfer.exportJson(context, now)
             }
             val path = com.multiroute.data.ConfigTransfer.exportPath(now)
             val ok = withContext(Dispatchers.IO) {
@@ -511,7 +536,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val context = getApplication<Application>()
         viewModelScope.launch {
             val json = withContext(Dispatchers.IO) {
-                com.multiroute.data.ConfigTransfer.buildJson(context, System.currentTimeMillis())
+                ConfigTransfer.exportJson(context, System.currentTimeMillis())
             }
             clipboard()?.setPrimaryClip(android.content.ClipData.newPlainText("MultiRoute config", json))
             _uiState.value = _uiState.value.copy(
@@ -570,22 +595,38 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     /** Holds a document until the user confirms; nothing is touched before that. */
     private fun stageImport(json: String) {
+        if (_uiState.value.isConfigBusy) return
         val context = getApplication<Application>()
-        if (!json.contains(com.multiroute.data.ConfigTransfer.FORMAT)) {
-            _uiState.value = _uiState.value.copy(
-                snackBarMessage = context.getString(com.multiroute.R.string.config_invalid)
-            )
-            return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isConfigBusy = true, showConfigImportConfirm = false,
+                pendingImportJson = null, configImportPreview = null, configImportSections = emptySet())
+            val preview = try {
+                withContext(Dispatchers.IO) { ConfigTransfer.preview(context, json) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                null
+            }
+            _uiState.value = _uiState.value.copy(isConfigBusy = false, pendingImportJson = if (preview != null) json else null,
+                configImportPreview = preview, configImportSections = preview?.document?.sections.orEmpty(),
+                showConfigImportConfirm = preview != null,
+                snackBarMessage = if (preview == null) context.getString(com.multiroute.R.string.config_invalid) else null)
         }
-        _uiState.value = _uiState.value.copy(
-            pendingImportJson = json,
-            showConfigImportConfirm = true
-        )
+    }
+
+    fun toggleConfigImportSection(section: ConfigTransfer.Section) {
+        val current = _uiState.value.configImportSections
+        _uiState.value = _uiState.value.copy(configImportSections = if (section in current) current - section else current + section)
+    }
+
+    fun consumeConfigAppearanceImport() {
+        _uiState.value = _uiState.value.copy(configAppearanceImported = false)
     }
 
     fun cancelConfigImport() {
         _uiState.value = _uiState.value.copy(
             pendingImportJson = null,
+            configImportPreview = null,
+            configImportSections = emptySet(),
             showConfigImportConfirm = false
         )
     }
@@ -593,33 +634,54 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     /** Replaces the configuration with the staged document; the replaced one is backed up first. */
     fun confirmConfigImport() {
         val context = getApplication<Application>()
+        if (_uiState.value.isConfigBusy || _uiState.value.configImportSections.isEmpty()) return
         val json = _uiState.value.pendingImportJson ?: return
+        val sections = _uiState.value.configImportSections
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 isConfigBusy = true,
-                showConfigImportConfirm = false,
                 pendingImportJson = null
             )
-            val result = withContext(Dispatchers.IO) {
-                com.multiroute.data.ConfigTransfer.apply(context, json, System.currentTimeMillis())
+            val result = try {
+                withContext(Dispatchers.IO) { ConfigTransfer.apply(context, json, System.currentTimeMillis(), sections) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _uiState.value = _uiState.value.copy(isConfigBusy = false, showConfigImportConfirm = false,
+                    snackBarMessage = context.getString(com.multiroute.R.string.config_import_failed))
+                return@launch
             }
-            withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-            loadInstalledApps()
-            refreshScenarioState()
+            val synced = result != null && try {
+                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                false
+            }
+            if (result != null) {
+                loadInstalledApps()
+                refreshScenarioState()
+                loadTestServerConfig()
+                refreshEnvironment()
+                com.multiroute.theme.ThemeSettings.load(context)
+            }
             _uiState.value = if (result == null) {
                 _uiState.value.copy(
                     isConfigBusy = false,
+                    showConfigImportConfirm = false,
                     snackBarMessage = context.getString(com.multiroute.R.string.config_invalid)
                 )
             } else {
                 _uiState.value.copy(
                     isConfigBusy = false,
+                    showConfigImportConfirm = false,
+                    configAppearanceImported = ConfigTransfer.Section.APPEARANCE in sections,
                     snackBarMessage = context.getString(
                         com.multiroute.R.string.config_imported,
                         result.assignments,
                         result.scenarios,
                         result.skipped
-                    )
+                    ) + "\n" + context.getString(com.multiroute.R.string.config_backup_saved, result.backupPath) +
+                        (if (!synced) "\n" + context.getString(com.multiroute.R.string.config_sync_failed) else "") +
+                        (if (result.unavailableChannels.isNotEmpty()) "\n" + context.getString(com.multiroute.R.string.config_offline_channels, result.unavailableChannels.joinToString()) else "")
                 )
             }
         }
@@ -950,6 +1012,24 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun updateRouteChannel(app: AppItem, channelId: String) {
+        if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
+            return
+        }
+        val targetChannel = _uiState.value.channels.firstOrNull { it.id == channelId }
+        if (targetChannel?.isVpn == true && (
+            (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
+            app.packageName.contains("clash", ignoreCase = true) ||
+            app.packageName.contains("v2ray", ignoreCase = true) ||
+            app.packageName.contains("wireguard", ignoreCase = true) ||
+            app.packageName.contains("singbox", ignoreCase = true) ||
+            app.packageName.contains("nekobox", ignoreCase = true) ||
+            app.packageName.contains("shadowsocks", ignoreCase = true)
+        )) {
+            _uiState.value = _uiState.value.copy(
+                snackBarMessage = getApplication<Application>().getString(com.multiroute.R.string.channel_vpn_self_forbidden)
+            )
+            return
+        }
         val context = getApplication<Application>()
 
         // Same rule as the batch path: while editing a plan, a single assignment belongs to that plan.
@@ -1149,5 +1229,28 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             totalAppsCount = allApps.size,
             configuredAppsCount = configuredCount
         )
+    }
+
+    fun setHotspotUpstream(target: String) {
+        viewModelScope.launch {
+            com.multiroute.wifi.DualWifiManager.setHotspotUpstream(target)
+        }
+    }
+
+    fun openHotspotSettings() {
+        val app = getApplication<Application>()
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            app.startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                app.startActivity(intent)
+            } catch (_: Exception) {}
+        }
     }
 }

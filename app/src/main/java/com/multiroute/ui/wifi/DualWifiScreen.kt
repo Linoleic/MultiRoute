@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.R
 import com.multiroute.wifi.DualWifiCapability
+import com.multiroute.wifi.DualWifiStatus
 import com.multiroute.wifi.WifiScanItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,7 +47,7 @@ fun DualWifiScreen(
     val status = uiState.status
     val capability = status.capability
 
-    var passwordInput by remember { mutableStateOf("") }
+    var passwordInput by remember(uiState.pendingPasswordItem) { mutableStateOf("") }
     var selectedDetailItem by remember { mutableStateOf<WifiScanItem?>(null) }
 
     Scaffold(
@@ -120,7 +121,7 @@ fun DualWifiScreen(
             // 2. 软硬件支持状态与参数依据诊断 (合并卡片)
             item {
                 HardwareCapabilityCard(
-                    capability = capability,
+                    status = status,
                     isActivating = uiState.isActivating,
                     onActivateClick = { viewModel.activateDualWifi() },
                     onClearBlocklist = { viewModel.clearBlocklist() }
@@ -130,9 +131,9 @@ fun DualWifiScreen(
             // 3. 个人热点频段占用感知与冲突避让提示卡片
             if (status.isHotspotEnabled) {
                 item {
-                    HotspotActiveCard(
+                    HotspotUpstreamCard(
                         status = status,
-                        onOpenHotspotSettings = { viewModel.openHotspotSettings() }
+                        onSetUpstream = { viewModel.setHotspotUpstream(it) }
                     )
                 }
             }
@@ -192,24 +193,30 @@ fun DualWifiScreen(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )
                     ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                            Text(
-                                text = msg,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { viewModel.clearInfoMessage() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.needsSystemWifiSettings) Icons.Default.Info else Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Text(
+                                    text = msg,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = { viewModel.clearInfoMessage() }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            if (uiState.needsSystemWifiSettings) {
+                                TextButton(onClick = { viewModel.openSystemWifiSettings() }, modifier = Modifier.align(Alignment.End)) {
+                                    Text(stringResource(R.string.dual_wifi_open_system_wifi))
+                                }
                             }
                         }
                     }
@@ -381,7 +388,7 @@ fun DualWifiScreen(
                     onClick = {
                         val pass = passwordInput
                         passwordInput = ""
-                        viewModel.connectSecondary(item, pass)
+                        viewModel.confirmSecondaryPassword(item, pass)
                     },
                     enabled = passwordInput.isNotEmpty()
                 ) {
@@ -422,11 +429,12 @@ fun DualWifiScreen(
 
 @Composable
 private fun HardwareCapabilityCard(
-    capability: DualWifiCapability,
+    status: DualWifiStatus,
     isActivating: Boolean,
     onActivateClick: () -> Unit,
     onClearBlocklist: () -> Unit
 ) {
+    val capability = status.capability
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -552,14 +560,21 @@ private fun HardwareCapabilityCard(
             )
 
             // 5. 副 Wi-Fi 物理层链路
-            val secLinked = capability.secondaryDetails.isNotEmpty() && !capability.secondaryDetails.contains("待机中")
+            val secLinked = status.secondaryConnected
             DiagnosticItemRow(
                 icon = Icons.Default.WifiTethering,
-                title = "副 Wi-Fi (${capability.secondaryIface ?: "wlan1"}) 物理链路",
+                title = "副 Wi-Fi (${status.secondaryIface ?: capability.secondaryIface ?: "wlan1"}) 物理链路",
                 statusText = if (secLinked) "物理链路活跃" else "通道就绪 (待连接)",
                 isOk = secLinked,
                 details = buildList {
-                    add(if (secLinked) "链路参数: ${capability.secondaryDetails}" else "链路参数: 接口空闲，可随时发起连接")
+                    if (secLinked) {
+                        status.secondarySsid?.let { add("网络: $it") }
+                        status.secondaryIp?.let { add("IP: $it") }
+                        if (status.secondaryFreq > 0) add("频率: ${status.secondaryFreq}MHz")
+                        if (status.secondaryRssi < 0) add("信号: ${status.secondaryRssi} dBm")
+                    } else {
+                        add("链路参数: 接口空闲，可随时发起连接")
+                    }
                 }
             )
 
@@ -867,7 +882,9 @@ private fun ActiveChannelsCard(
                         )
                         Text(
                             text = status.primarySsid ?: stringResource(R.string.dual_wifi_not_connected),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         if (status.primaryIp != null) {
                             Text(
@@ -948,7 +965,9 @@ private fun ActiveChannelsCard(
                         Text(
                             text = (if (status.secondaryConnected) status.secondarySsid else null)
                                 ?: stringResource(R.string.dual_wifi_not_connected),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         if (status.secondaryConnected && status.secondaryIp != null) {
                             Text(
@@ -1439,7 +1458,7 @@ private fun WifiDetailBottomSheet(
                 DetailInfoRow(
                     icon = Icons.Default.Key,
                     label = stringResource(R.string.dual_wifi_detail_saved),
-                    value = if (item.isSaved) "已保存网络凭据 (可一键直连)" else "未保存凭据 (需输入密码)"
+                    value = stringResource(if (item.isSaved) R.string.dual_wifi_saved_configuration else R.string.dual_wifi_unsaved_configuration)
                 )
 
                 if (isHotspotEnabled) {
@@ -1598,86 +1617,6 @@ private fun DetailInfoRow(
     }
 }
 
-@Composable
-private fun HotspotActiveCard(
-    status: com.multiroute.wifi.DualWifiStatus,
-    onOpenHotspotSettings: () -> Unit
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.WifiTethering,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.tertiary
-                    )
-                    Text(
-                        text = stringResource(R.string.dual_wifi_hotspot_active_title),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer
-                ) {
-                    Text(
-                        text = status.hotspotBand ?: "Hotspot",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = stringResource(
-                    R.string.dual_wifi_hotspot_active_desc,
-                    status.hotspotIface ?: "wlan2",
-                    "${status.hotspotBand ?: "未知频段"}${if (status.hotspotFreq > 0) " (${status.hotspotFreq} MHz)" else ""}"
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 18.sp
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                OutlinedButton(
-                    onClick = onOpenHotspotSettings,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.dual_wifi_hotspot_btn), fontSize = 12.sp)
-                }
-            }
-        }
-    }
-}
 
 
 

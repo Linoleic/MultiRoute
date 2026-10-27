@@ -51,11 +51,21 @@ class MultiRouteModule : XposedModule() {
             "android.net.connectivity.com.android.server.ConnectivityService",
             "com.android.server.ConnectivityService"
         )
+
+        /** Mainline APEX package names that host the Tethering / NetworkStack service on Android 11+. */
+        private val TETHERING_PACKAGES = setOf(
+            "com.android.networkstack.tethering",
+            "com.google.android.networkstack.tethering",
+            "com.android.networkstack",
+            "com.google.android.networkstack"
+        )
+
     }
 
     private var isConnectivityHooked = false
     private val isSlaveWifiHooked = AtomicBoolean(false)
     private val isDualStaHooked = AtomicBoolean(false)
+    @Volatile private var isTetheringHooked = false
 
     /** Keeps the "not installed because the keep-alive is off" note to one line per boot. */
     private val keepAliveSkippedLogged = AtomicBoolean(false)
@@ -192,12 +202,16 @@ class MultiRouteModule : XposedModule() {
             } catch (t: Throwable) {
                 log(Log.ERROR, TAG, "Failed to hook isModuleActiveInLSPosed in onPackageLoaded: ${t.message}", t)
             }
+        } else if (param.packageName in TETHERING_PACKAGES) {
+            log(Log.INFO, TAG, "[TetheringHook] NetworkStack package detected in onPackageLoaded: ${param.packageName}")
+            hookTetheringUpstream(param.defaultClassLoader)
         }
     }
 
     override fun onSystemServerStarting(param: XposedModuleInterface.SystemServerStartingParam) {
         super.onSystemServerStarting(param)
         val classLoader = param.classLoader
+        systemServerClassLoader = classLoader
         log(Log.INFO, TAG, "System server starting up, preparing Dynamic Multi-Channel hooks...")
 
         // 1. Mark module active immediately at system_server startup
@@ -357,7 +371,7 @@ class MultiRouteModule : XposedModule() {
 
                 if (targetChannel != null && targetChannel != CHANNEL_DEFAULT) {
                     val csInstance = chain.thisObject
-                    val targetAgent = findNetworkAgentForChannel(csClass, csInstance, targetChannel)
+                    val targetAgent = findNetworkAgentForChannel(csInstance, targetChannel)
                     if (targetAgent != null) {
                         return@intercept targetAgent
                     }
@@ -390,7 +404,7 @@ class MultiRouteModule : XposedModule() {
 
                 if (targetChannel != null && targetChannel != CHANNEL_DEFAULT) {
                     val csInstance = chain.thisObject
-                    val targetAgent = findNetworkAgentForChannel(csClass, csInstance, targetChannel)
+                    val targetAgent = findNetworkAgentForChannel(csInstance, targetChannel)
                     if (targetAgent != null) {
                         val networkField = findNetworkField(targetAgent.javaClass)
                         val network = networkField?.get(targetAgent) as? Network
@@ -423,49 +437,40 @@ class MultiRouteModule : XposedModule() {
         return fields
     }
 
-    private val networkMapFieldCache = ConcurrentHashMap<Class<*>, Field?>()
-    private fun findNetworkMapField(csClass: Class<*>): Field? {
-        return networkMapFieldCache.getOrPut(csClass) {
-            val all = getAllFields(csClass)
-            all.firstOrNull { it.name == "mNetworkForNetId" }
-                ?: all.firstOrNull {
-                    it.type == SparseArray::class.java &&
-                            (it.name.contains("Network", ignoreCase = true) || it.name.contains("NetId", ignoreCase = true))
-                }
-        }
-    }
+    private val networkAgentRegistry = NetworkAgentRegistry()
 
-    private val linkPropertiesFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private val linkPropertiesFieldCache = ConcurrentHashMap<Class<*>, List<Field>>()
     private fun findLinkPropertiesField(naiClass: Class<*>): Field? {
         return linkPropertiesFieldCache.getOrPut(naiClass) {
-            getAllFields(naiClass).firstOrNull { it.name == "linkProperties" || it.type == android.net.LinkProperties::class.java }
-        }
+            getAllFields(naiClass).filter { it.name == "linkProperties" || it.type == android.net.LinkProperties::class.java }.take(1)
+        }.firstOrNull()
     }
 
-    private val networkCapabilitiesFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private val networkCapabilitiesFieldCache = ConcurrentHashMap<Class<*>, List<Field>>()
     private fun findNetworkCapabilitiesField(naiClass: Class<*>): Field? {
         return networkCapabilitiesFieldCache.getOrPut(naiClass) {
-            getAllFields(naiClass).firstOrNull { it.name == "networkCapabilities" || it.type == NetworkCapabilities::class.java }
-        }
+            getAllFields(naiClass).filter { it.name == "networkCapabilities" || it.type == NetworkCapabilities::class.java }.take(1)
+        }.firstOrNull()
     }
 
-    private val networkFieldCache = ConcurrentHashMap<Class<*>, Field?>()
+    private val networkFieldCache = ConcurrentHashMap<Class<*>, List<Field>>()
     private fun findNetworkField(naiClass: Class<*>): Field? {
         return networkFieldCache.getOrPut(naiClass) {
-            getAllFields(naiClass).firstOrNull { it.type == Network::class.java || it.name == "network" }
-        }
+            getAllFields(naiClass).filter { it.type == Network::class.java || it.name == "network" }.take(1)
+                .onEach { it.isAccessible = true }
+        }.firstOrNull()
     }
 
     /**
      * Dynamically finds the NetworkAgentInfo whose interfaceName matches targetChannel (e.g. wlan0, wlan1, rmnet_data*, eth0).
      */
-    private fun findNetworkAgentForChannel(csClass: Class<*>, csInstance: Any, targetChannel: String): Any? {
-        val networkMapField = findNetworkMapField(csClass) ?: return null
-        networkMapField.isAccessible = true
-        val sparseArray = networkMapField.get(csInstance) as? SparseArray<*> ?: return null
-
-        for (i in 0 until sparseArray.size()) {
-            val nai = sparseArray.valueAt(i) ?: continue
+    private fun findNetworkAgentForChannel(csInstance: Any, targetChannel: String): Any? {
+        val agents = networkAgentRegistry.agents(csInstance) { registry ->
+            if (registry is SparseArray<*>) synchronized(registry) {
+                (0 until registry.size()).mapNotNull { registry.valueAt(it) }
+            } else emptyList()
+        }
+        for (nai in agents) {
             val naiClass = nai.javaClass
 
             val lpField = findLinkPropertiesField(naiClass)
@@ -478,12 +483,13 @@ class MultiRouteModule : XposedModule() {
                 return nai
             }
 
-            // Fallback for generic cellular iface matching
-            if ((targetChannel.startsWith("rmnet") || targetChannel == "cellular") && iface.startsWith("rmnet")) {
+            // Only the generic alias may select another interface; IMS is not an Internet bearer.
+            if (targetChannel == "cellular") {
                 val ncField = findNetworkCapabilitiesField(naiClass)
                 ncField?.isAccessible = true
                 val nc = ncField?.get(nai) as? NetworkCapabilities
-                if (nc?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) {
+                if (nc?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true &&
+                    nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
                     return nai
                 }
             }
@@ -1041,6 +1047,113 @@ class MultiRouteModule : XposedModule() {
 
     @Volatile
     private var linkCallbackRegistered = false
+
+    /** Kept so the boot watchdog (which runs later, when logs are actually visible) can use it. */
+    @Volatile
+    private var systemServerClassLoader: ClassLoader? = null
+
+    /** Native Tethering still owns forwarding, DNS and the lifetime of cellular requests. */
+    private fun hookTetheringUpstream(classLoader: ClassLoader) {
+        if (isTetheringHooked) return
+        val handles = mutableListOf<io.github.libxposed.api.XposedInterface.HookHandle>()
+        val ready = AtomicBoolean(false)
+        try {
+            // Google Mainline builds can relocate Tethering classes under android.net.tethering.
+            val type = listOf(
+                "com.android.networkstack.tethering.UpstreamNetworkMonitor",
+                "android.net.tethering.com.android.networkstack.tethering.UpstreamNetworkMonitor"
+            ).firstNotNullOfOrNull { name ->
+                runCatching { Class.forName(name, false, classLoader) }.getOrNull()
+            } ?: throw ClassNotFoundException("UpstreamNetworkMonitor is absent from this package loader")
+            val bool = Boolean::class.javaPrimitiveType!!
+            // Resolve the required surface before installing any policy overrides.
+            val select = type.getDeclaredMethod("getCurrentPreferredUpstream")
+            val config = type.getDeclaredMethod("setUpstreamConfig", bool, bool)
+            val tryCell = type.getDeclaredMethod("setTryCell", bool)
+            val start = type.getDeclaredMethod("startObserveUpstreamNetworks")
+            val stop = type.getDeclaredMethod("stop")
+            type.getDeclaredMethod("isCellularUpstreamPermitted")
+            val updates = listOf("handleAvailable", "handleNetCap", "handleLinkProp", "handleLost").map { name ->
+                type.declaredMethods.first { it.name == name }
+            }
+            val controllers = java.util.IdentityHashMap<Any, TetheringUpstreamController>()
+            fun controller(instance: Any?): TetheringUpstreamController? {
+                if (instance == null) return null
+                return runCatching {
+                    synchronized(controllers) {
+                        controllers.getOrPut(instance) {
+                            TetheringUpstreamController(instance) { message ->
+                                log(Log.INFO, TAG, "[TetheringHook] $message")
+                            }
+                        }
+                    }
+                }.onFailure { log(Log.WARN, TAG, "[TetheringHook] Monitor unavailable: $it") }.getOrNull()
+            }
+            fun safely(action: () -> Unit) {
+                runCatching(action).onFailure { log(Log.WARN, TAG, "[TetheringHook] Policy update failed: $it") }
+            }
+            fun install(method: Method, callback: (io.github.libxposed.api.XposedInterface.Chain) -> Any?) {
+                handles += hook(method).intercept { chain ->
+                    if (ready.get()) callback(chain) else chain.proceed()
+                }
+            }
+            listOf(select, config, tryCell, start, stop).plus(updates).forEach { deoptimize(it) }
+            install(config) { chain ->
+                val owner = controller(chain.thisObject)
+                val args = runCatching {
+                    owner?.nativeConfig(chain.args[0] as Boolean, chain.args[1] as Boolean)
+                }.getOrNull()
+                val result = if (args == null) chain.proceed()
+                    else chain.proceed(arrayOf<Any>(args.first, args.second))
+                safely { owner?.networkChanged() }
+                result
+            }
+            install(tryCell) { chain ->
+                val requested = runCatching {
+                    controller(chain.thisObject)?.nativeTryCell(chain.args[0] as Boolean)
+                }.getOrNull()
+                if (requested == null) chain.proceed() else chain.proceed(arrayOf<Any>(requested))
+            }
+            install(start) { chain ->
+                val result = chain.proceed()
+                safely { controller(chain.thisObject)?.started() }
+                result
+            }
+            install(stop) { chain ->
+                safely { controller(chain.thisObject)?.stopping() }
+                chain.proceed()
+            }
+            updates.forEach { method ->
+                install(method) { chain ->
+                    val result = chain.proceed()
+                    safely { controller(chain.thisObject)?.networkChanged() }
+                    result
+                }
+            }
+            install(select) { chain ->
+                val native = chain.proceed()
+                runCatching { controller(chain.thisObject)?.select(native) ?: native }
+                    .onFailure { log(Log.WARN, TAG, "[TetheringHook] Using native upstream: $it") }
+                    .getOrDefault(native)
+            }
+            // Publish load evidence even before the first hotspot session.
+            type.declaredMethods.firstOrNull { it.name == "startTrackDefaultNetwork" }?.let { method ->
+                deoptimize(method)
+                install(method) { chain ->
+                    val result = chain.proceed()
+                    controller(chain.thisObject)
+                    result
+                }
+            }
+            ready.set(true)
+            isTetheringHooked = true
+            log(Log.INFO, TAG, "[TetheringHook] Installed upstream selection, lifecycle and network-event hooks")
+        } catch (t: Throwable) {
+            ready.set(false)
+            handles.asReversed().forEach { runCatching { it.unhook() } }
+            log(Log.ERROR, TAG, "[TetheringHook] Unsupported native monitor; retaining system behavior", t)
+        }
+    }
 
     @Volatile
     private var lastScenarioWakeAt = 0L

@@ -37,6 +37,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Require a release tag
+        run: |
+          if [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "::error::Select a release tag when starting this workflow manually."
+            exit 1
+          fi
+
+      - name: Test release notes extraction
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
       - name: Set up JDK 17
         uses: actions/setup-java@v6
         with:
@@ -73,7 +83,7 @@ jobs:
           EOF
 
       - name: Build release APK
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
 
       - name: Verify release signing
         run: |
@@ -105,8 +115,13 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
           # The manifest the manager reads must describe exactly this build.
+          MANIFEST_NAME=$(python3 -c 'import json; print(json.load(open("xposed_update.json"))["version"])')
           MANIFEST_CODE=$(grep -oE '"versionCode": *[0-9]+' xposed_update.json | tr -dc '0-9')
           MANIFEST_URL=$(grep -oE '"zipUrl": *"[^"]+"' xposed_update.json | sed 's/.*"zipUrl": *"//;s/"//')
+          test "$MANIFEST_NAME" = "$NAME" || {
+            echo "::error title=Manifest mismatch::xposed_update.json declares version $MANIFEST_NAME, this build is $NAME"
+            exit 1
+          }
           test "$MANIFEST_CODE" = "$CODE" || {
             echo "::error title=Manifest mismatch::xposed_update.json declares versionCode $MANIFEST_CODE, this build is $CODE"
             exit 1
@@ -137,9 +152,7 @@ jobs:
             exit 1
           fi
 
-          # Release notes: the matching CHANGELOG section when there is one, generated notes otherwise.
-          tr -d '\r' < CHANGELOG.md | awk -v v="$NAME" 'BEGIN{f=0} /^## /{f=($0 ~ ("(^| )v?" v "( |$)"))} f' > NOTES.md || true
-          if [ ! -s NOTES.md ]; then rm -f NOTES.md; fi
+          python3 .github/scripts/release_notes.py "$NAME" CHANGELOG.md NOTES.md
 
       - name: Publish GitHub release
         run: |
@@ -153,15 +166,9 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; uploading the asset and updating notes."
             gh release upload "$TAG" "$ASSET" --clobber
-            if [ -f NOTES.md ]; then
-              gh release edit "$TAG" --notes-file NOTES.md
-            fi
+            gh release edit "$TAG" --notes-file NOTES.md
           else
-            if [ -f NOTES.md ]; then
-              gh release create "$TAG" "$ASSET" --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md "${EXTRA_ARGS[@]}"
-            else
-              gh release create "$TAG" "$ASSET" --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes "${EXTRA_ARGS[@]}"
-            fi
+            gh release create "$TAG" "$ASSET" --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md "${EXTRA_ARGS[@]}"
           fi
           gh release view "$TAG" --json tagName,name,assets --jq '{tag: .tagName, name: .name, assets: [.assets[].name]}'
 
@@ -185,17 +192,10 @@ jobs:
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "Mirror: release $TAG already exists; uploading the asset and updating notes."
             gh release upload "$TAG" "$ASSET" --repo "$REPO" --clobber
-            if [ -f NOTES.md ]; then
-              gh release edit "$TAG" --repo "$REPO" --notes-file NOTES.md
-            fi
+            gh release edit "$TAG" --repo "$REPO" --notes-file NOTES.md
           else
-            if [ -f NOTES.md ]; then
-              gh release create "$TAG" "$ASSET" --repo "$REPO" \
-                --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md "${EXTRA_ARGS[@]}"
-            else
-              gh release create "$TAG" "$ASSET" --repo "$REPO" \
-                --title "MultiRoute ${{ steps.meta.outputs.name }}" --generate-notes "${EXTRA_ARGS[@]}"
-            fi
+            gh release create "$TAG" "$ASSET" --repo "$REPO" \
+              --title "MultiRoute ${{ steps.meta.outputs.name }}" --notes-file NOTES.md "${EXTRA_ARGS[@]}"
           fi
           gh release view "$TAG" --repo "$REPO" --json tagName,assets \
             --jq '{tag: .tagName, assets: [.assets[].name]}'

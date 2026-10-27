@@ -16,7 +16,13 @@ import android.widget.ScrollView
 import android.widget.TextView
 import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,8 +64,6 @@ class ProbeActivity : Activity() {
             addView(output)
         }
         setContentView(ScrollView(this).apply { addView(column) })
-
-        runProbe()
     }
 
     override fun onResume() {
@@ -79,8 +83,14 @@ class ProbeActivity : Activity() {
                 appendLine("--- what actually happens ---")
                 appendResolve()
                 appendEgress()
+                appendLine("PROBE_COMPLETE")
             }.toString()
-            main.post { output.text = report }
+            main.post {
+                output.text = report
+                // Keep the diagnostic readable over ADB even when the activity is behind keyguard.
+                // Reports stay in this test app's private storage and disappear on uninstall.
+                runCatching { java.io.File(filesDir, "last-probe.txt").writeText(report) }
+            }
         }.start()
     }
 
@@ -116,9 +126,16 @@ class ProbeActivity : Activity() {
     }
 
     private fun StringBuilder.appendEgress() {
-        appendLine("egress (https://myip.ipip.net):")
+        val endpoint = intent.getStringExtra("egress_url")?.takeIf { it.startsWith("https://") }
+            ?: "https://myip.ipip.net"
+        appendLine("egress ($endpoint):")
         try {
-            val conn = (URL("https://myip.ipip.net").openConnection() as HttpURLConnection).apply {
+            if (intent.getBooleanExtra("ipv4_only", false) || intent.getBooleanExtra("ipv6_only", false) ||
+                intent.hasExtra("bind_iface") || intent.hasExtra("destination_ip") || intent.getBooleanExtra("resolve_only", false)) {
+                appendSocketEgress(URL(endpoint))
+                return
+            }
+            val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 8000
                 setRequestProperty("User-Agent", "MultiRoute-probe")
@@ -127,6 +144,45 @@ class ProbeActivity : Activity() {
             appendLine("  HTTP ${conn.responseCode}: ${body.take(140)}")
         } catch (t: Throwable) {
             appendLine("  FAILED -> ${t.javaClass.simpleName}: ${t.message}")
+        }
+    }
+
+    /** Force the address family while keeping UID routing and TLS hostname verification intact. */
+    private fun StringBuilder.appendSocketEgress(url: URL) {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val iface = intent.getStringExtra("bind_iface")
+        @Suppress("DEPRECATION")
+        val network = iface?.let { requested ->
+            requireNotNull(cm.allNetworks.firstOrNull { cm.getLinkProperties(it)?.interfaceName == requested }) {
+                "Requested interface is absent: $requested"
+            }
+        }
+        appendLine("  Socket binding: ${network?.let { "$it iface=$iface" } ?: "none"}")
+        val pinned = intent.getStringExtra("destination_ip")
+        val addresses = if (pinned != null) arrayOf(InetAddress.getByName(pinned))
+            else network?.getAllByName(url.host) ?: InetAddress.getAllByName(url.host)
+        appendLine("  resolved: ${addresses.joinToString(" ") { it.hostAddress.orEmpty() }}")
+        if (intent.getBooleanExtra("resolve_only", false)) return
+        val ipv6 = intent.getBooleanExtra("ipv6_only", false)
+        val address = addresses.first { if (ipv6) it is Inet6Address else it is Inet4Address }
+        appendLine("  ${if (ipv6) "IPv6" else "IPv4"} destination: ${address.hostAddress}")
+        Socket().use { plain ->
+            network?.bindSocket(plain)
+            plain.connect(InetSocketAddress(address, if (url.port > 0) url.port else 443), 8000)
+            appendLine("  Socket local: ${plain.localSocketAddress}")
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            (factory.createSocket(plain, url.host, plain.port, true) as SSLSocket).use { tls ->
+                tls.soTimeout = 8000
+                tls.sslParameters = tls.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                tls.startHandshake()
+                val path = url.file.ifEmpty { "/" }
+                tls.outputStream.write("GET $path HTTP/1.1\r\nHost: ${url.host}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                tls.outputStream.flush()
+                val response = tls.inputStream.bufferedReader().use { it.readText() }
+                val code = response.substringBefore("\r\n").split(' ').getOrNull(1)
+                val body = response.substringAfter("\r\n\r\n").trim()
+                appendLine("  HTTP $code: ${body.take(140)}")
+            }
         }
     }
 }
