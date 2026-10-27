@@ -77,12 +77,11 @@ fun isWorkTreeDirty(): Boolean = try {
 }
 
 /**
- * Version identity, using the scheme LSPosed applies to its own releases: the code is the upstream
- * commit count plus a fixed offset, and the name comes from the latest tag.
+ * Version identity: the code is the larger available upstream/HEAD commit count plus a fixed offset,
+ * and the name comes from the latest reachable tag.
  *
- * - Counting `origin/master` instead of the local HEAD means CI, a fresh clone and a fork that added
- *   its own commits all produce the same code for the same upstream state, which is what makes a
- *   self-built APK comparable with an official one.
+ * - Taking the larger count keeps local commits reflected before a push. A fork with more commits
+ *   can therefore have a different code from the upstream build.
  * - The offset keeps the code above every number this project has shipped under any earlier scheme, so
  *   an update is never mistaken for a downgrade.
  * - A working tree with uncommitted changes is named `-local`, and both fields can be overridden for
