@@ -199,16 +199,9 @@ object DualWifiManager {
     }
 
     private fun releaseSlaveConnection(context: Context) {
-        val intent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI).apply {
-            setPackage("android")
-            addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
-        }
-        runCatching { context.sendBroadcast(intent) }
-        val apkPath = context.applicationInfo.sourceDir
-        SuHelper.executeCommand("""
-            service call SlaveWifiService 5 2>/dev/null
-            CLASSPATH="$apkPath" app_process / com.multiroute.wifi.SlaveWifiBridge disconnect 2>/dev/null
-        """.trimIndent(), timeoutSeconds = 5)
+        // The bridge is synchronous. A second broadcast would escape the connection lock and
+        // could disconnect a newer attempt after this operation has already completed.
+        SuHelper.executeCommand(WifiShellCommands.slaveDisconnect(context.applicationInfo.sourceDir), timeoutSeconds = 5)
     }
 
     internal fun secondaryServiceGeneration(): Long? = secondaryConnections.monitoringTicket()?.generation
@@ -1547,22 +1540,11 @@ DUALWIFI_EOF
                 checkCurrentSecondaryIntent(ticket)
                 slaveRequestStarted = true
                 Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
-                // 1. Send broadcast to MultiRouteModule in system_server (LSPosed path)
-                val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI).apply {
-                    setPackage("android")
-                    putExtra(com.multiroute.util.ModuleStateParser.EXTRA_NET_ID, netId)
-                    if (!bssid.isNullOrEmpty()) {
-                        putExtra(com.multiroute.util.ModuleStateParser.EXTRA_BSSID, bssid)
-                    }
-                    addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
+                // Exactly one path owns the request; do not race a second system_server broadcast.
+                val bridgeCmd = WifiShellCommands.slaveConnect(context.applicationInfo.sourceDir, netId, bssid)
+                check(SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)) {
+                    context.getString(com.multiroute.R.string.dual_wifi_slave_request_failed)
                 }
-                runCatching { context.sendBroadcast(slaveIntent) }
-
-                // 2. Execute SlaveWifiBridge via app_process as Root (universal Root path)
-                val apkPath = context.applicationInfo.sourceDir
-                val bssidEscaped = if (!bssid.isNullOrEmpty()) " \"$bssid\"" else ""
-                val bridgeCmd = "CLASSPATH=\"$apkPath\" app_process / com.multiroute.wifi.SlaveWifiBridge connect $netId$bssidEscaped"
-                SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)
             } else {
                 checkCurrentSecondaryIntent(ticket)
                 check(context.getSharedPreferences(com.multiroute.data.RouteConfigProvider.PREF_NAME, Context.MODE_PRIVATE)

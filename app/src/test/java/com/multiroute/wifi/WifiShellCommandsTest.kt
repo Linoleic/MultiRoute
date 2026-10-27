@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WifiShellCommandsTest {
+    @Test fun slaveBridgeQuotesApkAndBssidWithoutPassingCredentials() {
+        assertEquals("CLASSPATH='/data/app/AP'\"'\"'s/base.apk' app_process / com.multiroute.wifi.SlaveWifiBridge connect 13 'ap'\"'\"'\$(id)'",
+            WifiShellCommands.slaveConnect("/data/app/AP's/base.apk", 13, "ap'\$(id)"))
+    }
+    @Test fun savedNetworkIdZeroAndUnspecifiedBssidAreValidForSlaveBridge() {
+        assertEquals("CLASSPATH='/data/app/base.apk' app_process / com.multiroute.wifi.SlaveWifiBridge connect 0",
+            WifiShellCommands.slaveConnect("/data/app/base.apk", 0, null))
+    }
+    @Test(expected = IllegalArgumentException::class) fun invalidSlaveNetworkIdFailsBeforeDispatch() {
+        WifiShellCommands.slaveConnect("/data/app/base.apk", -1, null)
+    }
+    @Test fun slaveDisconnectHasOneBridgeInvocation() {
+        assertEquals("CLASSPATH='/data/app/base.apk' app_process / com.multiroute.wifi.SlaveWifiBridge disconnect",
+            WifiShellCommands.slaveDisconnect("/data/app/base.apk"))
+    }
     @Test fun savedRequestUsesBandAndBssidWithoutCredentialsOrSsid() {
         assertEquals("cmd wifi add-request -s -b '12:34:56:78:9a:bc' -d 2 -i",
             WifiShellCommands.savedInternetRequest("12:34:56:78:9a:bc", 2412))

@@ -15,6 +15,15 @@ object WifiShellCommands {
 
     fun savedInternetRequestKey(frequencyMhz: Int): String = "NoSsid_${band(frequencyMhz)}g_internet"
 
+    fun slaveConnect(apkPath: String, networkId: Int, bssid: String?): String {
+        require(networkId >= 0)
+        val ap = bssid?.takeIf { it.isNotBlank() }?.let { " " + quote(it) }.orEmpty()
+        return "CLASSPATH=${quote(apkPath)} app_process / com.multiroute.wifi.SlaveWifiBridge connect $networkId$ap"
+    }
+
+    fun slaveDisconnect(apkPath: String): String =
+        "CLASSPATH=${quote(apkPath)} app_process / com.multiroute.wifi.SlaveWifiBridge disconnect"
+
     private fun band(frequencyMhz: Int): Int = when (frequencyMhz) {
         in 2400..2500 -> 2
         in 4900..5900 -> 5
