@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-> 本文描述当前开发分支，包含待发布的 v1.5.0 改动。已发布构建请查看 [Releases](https://github.com/Linoleic/MultiRoute/releases)。
+> 安装包请从 [Releases](https://github.com/Linoleic/MultiRoute/releases) 下载。
 
 [![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
@@ -354,7 +354,7 @@ MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账
 
 ### 版本号与发布
 
-`versionName` 取自最近可达的 git 标签；工作区有未提交改动时会加上 `-local`。标签只是版本控制标记，并不表示对应版本已发布；例如 v1.5.0 的 Changelog 当前标记为待发布。
+`versionName` 取自最近可达的 git 标签；工作区有未提交改动时会加上 `-local`。
 
 `versionCode` 为 `10000` 加上 `origin/master` 与 `HEAD` 可用提交数中的较大值；两者都不可用时计数默认为 `1`。本地提交数可能影响结果，fork 也不保证与上游编号相同。
 

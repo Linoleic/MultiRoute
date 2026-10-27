@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-> This document describes the current development branch, including unreleased v1.5.0 changes. Published builds are listed on the [releases page](https://github.com/Linoleic/MultiRoute/releases).
+> Download installation packages from [Releases](https://github.com/Linoleic/MultiRoute/releases).
 
 [![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
@@ -394,7 +394,7 @@ MultiRoute has no telemetry, analytics, crash-reporting or advertising backend a
 
 ### Versioning and releases
 
-`versionName` comes from the most recent reachable git tag; a dirty working tree adds `-local`. A tag is a source-control marker and does not by itself establish that a version was published. For example, the v1.5.0 changelog section is currently marked unreleased.
+`versionName` comes from the most recent reachable git tag; a dirty working tree adds `-local`.
 
 `versionCode` is `10000` plus the greatest usable commit count from `origin/master` and `HEAD`; if neither count is available, the count defaults to `1`. Local commits can therefore affect it, and forks are not guaranteed to match the upstream value.
 
