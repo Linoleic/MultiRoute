@@ -9,42 +9,57 @@
 [![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
-**An LSPosed module that gives every app its own network channel.** Assign each app to the link it
-should use — primary Wi-Fi, secondary Wi-Fi (dual Wi-Fi), cellular or Ethernet — and let them
-communicate **at the same time**. Egress is enforced with kernel policy routing (`ip rule`), not through
-a userspace VPN.
+**A comprehensive multi-network concurrency and traffic routing system for modern Android (LSPosed module).** MultiRoute unifies three core capabilities: **Per-App Policy Routing**, **Dual Wi-Fi (STA + STA) Concurrency Management**, and **Personal Hotspot (SoftAP) Upstream Steering**. Built on Linux kernel policy routing (`ip rule`) coordinated with Android Framework and NetworkStack hooks, it enables applications to communicate concurrently over separate interfaces, lifts system restrictions on secondary Wi-Fi connections with screen-off keepalive, and allows personal hotspot client traffic to be steered to a designated network interface without VPN overhead.
 
 > **Requires root** (KernelSU / Magisk / APatch) and **LSPosed**, scoped to the **system framework**
-> (`system_server`).
+> (`system_server`) and the **NetworkStack tethering packages**.
 
 ---
 
 ## Overview
 
-Android routes every application through one system-wide *default network*. Even with dual Wi-Fi and
-mobile data connected at once, an app can only use the system's current default unless it calls
-low-level binding APIs itself.
+Android's default network architecture enforces a single default network: even when primary Wi-Fi, secondary Wi-Fi, and mobile data are concurrently active, applications without explicit low-level socket binding must all route through the system's active default interface. Furthermore, OEM ROMs frequently restrict secondary Wi-Fi to vendor-whitelisted services and tear it down during screen-off sleep. Personal hotspot (tethering) client traffic is similarly tied to the system default route without upstream selection options.
 
-MultiRoute lifts that restriction per app:
+MultiRoute systematically re-architects these layers across the Android framework and Linux kernel:
 
 ```
         ┌──────────────────────── MultiRoute (UI) ────────────────────────┐
-        │  per-app channel assignment · batch mode · egress diagnostics   │
+        │ App Routing · Dual Wi-Fi Manager · Hotspot Steering · Diagnostics │
         └───────────────┬─────────────────────────────┬───────────────────┘
                         │                             │
         ┌───────────────▼──────────────┐   ┌──────────▼───────────────────┐
         │  Framework layer (LSPosed)   │   │  Kernel layer (root)         │
-        │  system_server hooks         │   │  policy routing tables       │
-        │  · ConnectivityService       │   │  · pref 14500 per-UID egress │
+        │  system_server & NetworkStack│   │  Policy routing & NAT chains │
+        │  · ConnectivityService hook  │   │  · pref 14500 per-UID egress │
         │  · Dual Wi-Fi & keepalive    │   │  · pref 14400 LAN bypass     │
-        │                              │   │  · nat DNS redirect :53      │
-        │                              │   │  · IPv4 + IPv6               │
+        │  · Hotspot upstream steering │   │  · nat UDP/TCP 53 DNS redirect│
+        │  · Automated failover rules  │   │  · IPv4 + IPv6 dual-stack    │
         └──────────────────────────────┘   └──────────┬───────────────────┘
                                                       │
         ┌─────────────────────────────────────────────▼───────────────────┐
-        │  Primary Wi-Fi  │  Secondary Wi-Fi  │  Cellular  │  Ethernet     │
-        └─────────────────────────────────────────────────────────────────┘
+        │  Primary Wi-Fi  │ Secondary Wi-Fi (DBS) │  Cellular  │  Ethernet │
+        └───────┬───────────────┬───────────────────┬─────────────┬───────┘
+                │               │                   │             │
+                │ Per-App Route │ Per-App / Hotspot │ App/Hotspot │ LAN Bypass
+                ▼               ▼                   ▼             ▼
+        ┌───────────────┐┌───────────────┐ ┌─────────────────┐ ┌───────────┐
+        │ Browser/Video ││ Local/Casting │ │ Hotspot Clients │ │ NAS/Print │
+        └───────────────┘└───────────────┘ └─────────────────┘ └───────────┘
 ```
+
+### Three Core Capabilities
+
+1. **Per-App Policy Routing**:
+   - Assign any app to a dedicated channel (Primary Wi-Fi, Secondary Wi-Fi, Cellular, Ethernet), with independent assignment support for dual/cloned app spaces.
+   - Enforced via Linux kernel policy routing (`ip rule`) without userspace VPN overhead; includes transparent per-channel DNS rewriting, on-link LAN bypass, and automatic failover fallback on connection loss.
+
+2. **Dual Wi-Fi Activation & Management (STA + STA Concurrency)**:
+   - Utilizes DBS (Dual-Band Simultaneous) hardware with 4 tiered adaptation schemes (Auto, Xiaomi Dedicated, AOSP Overlay, Generic Root Direct).
+   - Bypasses OEM restrictions on secondary Wi-Fi, providing cross-band SSID disambiguation, radio conflict mitigation, and screen-off keepalive protection.
+
+3. **Personal Hotspot Upstream Steering**:
+   - Routes personal hotspot (SoftAP) traffic to a designated upstream network (Cellular, Secondary Wi-Fi, or System Default) instead of forcing default route egress.
+   - Hooks NetworkStack Tethering scheduling for dynamic re-evaluation without restarting the hotspot, with fallback and reselection when a target recovers. Forwarding and offload remain managed by Android.
 
 ---
 
@@ -56,7 +71,7 @@ MultiRoute lifts that restriction per app:
 | Module name | MultiRoute |
 | Listing | [modules.lsposed.org/module/io.github.linoleic.multiroute](https://modules.lsposed.org/module/io.github.linoleic.multiroute) |
 | Xposed API | `minApiVersion 101`, `targetApiVersion 102` (LibXposed) |
-| Scope | `system` — the system framework (`system_server`) **only** |
+| Scope | System framework (`system` / `android`) and NetworkStack packages (`com.android.networkstack.tethering`, etc.) |
 | `staticScope` | `false` (the scope list ships in the APK metadata) |
 | `autoHotReload` | `true`, but the system framework cannot actually hot-reload → reboot, or restart `system_server` |
 | Root | required: KernelSU, Magisk or APatch |
@@ -72,7 +87,7 @@ entry point from the package itself.
 | :-- | :-- |
 | Root | KernelSU, Magisk or APatch (policy routing tables need root) |
 | Xposed | LSPosed (or another framework implementing LibXposed API 101+) |
-| Module scope | **System framework only** (`system` / `system_server`) |
+| Module scope | **System framework** (`system` / `system_server`) and **NetworkStack** (`com.android.networkstack.tethering`, etc. for hotspot upstream steering) |
 | Android | Verified on **16** and **17** (HyperOS). The interfaces the module hooks — `getMobileDataPreferredUids` among them — only exist from Android 11 on, so that is the realistic floor; nothing below that is supported |
 
 | Android version | Status |
@@ -109,33 +124,37 @@ The table above summarizes verified coverage; other combinations remain unverifi
 - **Automatic boot recovery** — rules survive reboots: a `service.d` script, a wake-up broadcast from the
   module, and the app's own network callback cover each other; restored on locked devices before first unlock.
 - **Automatic failover** — when an assigned link goes down, traffic automatically reroutes through the default network, and seamlessly migrates back once restored, with configurable hold-off debounce and lightweight connectivity probes.
-- **Built-in Dual Wi-Fi Manager** — bypasses system restrictions on secondary WLAN with 4 adaptation schemes (Auto, Xiaomi Slave, AOSP Overlay, Root Direct `SYSTEM_UID`), multi-band SSID isolation, and BSSID penalty reset. On Xiaomi devices, keepalive daemons are automatically engaged on connection.
+- **Personal Hotspot Upstream Steering** — route personal hotspot (SoftAP) traffic through Cellular, Secondary Wi-Fi, or System Default via NetworkStack / Tethering scheduling hooks, with dynamic re-evaluation, fallback on disconnect, and offline pre-configuration.
+- **Channel Recognition & Routing Exclusion** — identifies Hotspot AP downlinks (`ap0`, `swlan0`) and VPN virtual interfaces (`tun0`), excluding them from regular app routing and scenario targets to avoid unreachable states and routing conflicts. Displays hotspot parameters, VPN creator package, tunnel IP, and underlying transport network in channel details.
+- **Built-in Dual Wi-Fi Manager** — manages secondary WLAN connections via 4 adaptation schemes (Auto, Xiaomi Slave, AOSP Overlay, Root Direct `SYSTEM_UID`), multi-band SSID isolation, and BSSID penalty reset. On Xiaomi devices, keepalive daemons are automatically engaged on connection.
 - **Channel details** — interface, addresses, gateway, DNS, MTU, metered state, SSID and **Wi-Fi band and
   channel**, plus a per-channel public-IP probe with presets or a custom endpoint.
 - **Appearance and language** — theme (follow system / light / dark, animated), Material You colour, and
   per-app language (follow system / 简体中文 / English).
-- **Module status** — reports precisely whether the hooks are installed, whether `system_server` is
+- **Configuration backup and restore** — v2 JSON covers routing, complete plan selections, network policies, hotspot upstream preferences, non-secret dual Wi-Fi information, appearance and test endpoints. Preview and restore selected categories, including older v1 files. Network names and test URLs are included; Wi-Fi passwords, UID caches and logs are excluded. Import does not start the hotspot or connect secondary Wi-Fi, and device-specific schemes are checked against the destination manufacturer.
+- **Module status** — reports whether hooks are installed, whether `system_server` is
   still running an older build, or whether the status record is stale.
-- **Comprehensive system diagnostics** — diagnostic dialog supports one-tap copy, SAF file export, and system sharing, covering dual Wi-Fi status, route tables and gateways, upstream DNS and Private DNS (DoT), rule effectiveness, and filtered logcat output.
-- **No VPN** — traffic is routed in the kernel; no userspace TCP/IP stack, so throughput and latency stay
-  close to native.
+- **System diagnostics** — diagnostic dialog supports one-tap copy, SAF file export, and system sharing, covering dual Wi-Fi status, route tables and gateways, upstream DNS and Private DNS (DoT), rule status, and filtered logcat output.
+- **No VPN** — traffic is routed in the kernel; no userspace TCP/IP stack overhead.
 
 ---
 
 ## Dual Wi-Fi Management & Device Compatibility
 
-In stock Android, the framework maintains only a single active default internet gateway. While many modern smartphones and tablets feature **DBS (Dual-Band Simultaneous)** dual-radio Wi-Fi hardware, OEM ROMs frequently lock secondary Wi-Fi interfaces behind vendor-restricted features or tear them down aggressively during screen-off sleep.
+In stock Android, the framework maintains only a single active default internet gateway. While many modern devices feature **DBS (Dual-Band Simultaneous)** dual-radio Wi-Fi hardware, OEM ROMs frequently restrict secondary Wi-Fi interfaces or tear them down during screen-off sleep.
 
-MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Manager)** that combines hardware chipset probing, tiered adaptation schemes, frequency conflict detection, and background keep-alive to enable simultaneous, independent dual-Wi-Fi connections across diverse device brands.
+MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Manager)** that combines hardware concurrency detection, tiered adaptation schemes, and keep-alive coordination.
 
 ### 1. Tiered Adaptation Schemes
 
-| Scheme | Mechanism | Target & Advantages |
+| Scheme | Mechanism | Target & Notes |
 | :--- | :--- | :--- |
-| **Auto (Tiered Adaptation)**<br>`AUTO` | Automatically inspects manufacturer, ROM type, Wi-Fi chipset driver, and network interfaces to pick the optimal scheme. | **Default & Recommended**. Works out-of-the-box with graceful fallbacks. |
-| **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's proprietary `SlaveWifiService` / `DualStaImpl` driver and injects LSPosed hooks to prevent screen-off disconnection. | Xiaomi / Redmi / POCO stock ROMs with native dual-WLAN integration and screen-off keepalive. |
+| **Auto (Tiered Adaptation)**<br>`AUTO` | Automatically inspects manufacturer, ROM type, Wi-Fi chipset driver, and network interfaces to pick an applicable scheme. | **Default option**. Adjusts based on device environment. |
+| **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's proprietary `SlaveWifiService` / `DualStaImpl` driver and injects LSPosed hooks to prevent screen-off disconnection. | Xiaomi / Redmi / POCO stock ROMs, keeping secondary WLAN connected while screen is off. |
 | **AOSP / Pixel Standard**<br>`AOSP_OVERLAY` | Leverages native Android 13+ AOSP Multi-Internet mode (RRO Overlay activating `config_wifiMultiStaMultiInternetConcurrencyEnabled` in Multi-AP mode 2). | AOSP custom ROMs (LineageOS, crDroid, PixelOS, etc.) or devices running clean AOSP frameworks. |
-| **Generic Root Force Scheme**<br>`ROOT_DIRECT` | Uses Root (UID 0) and `SYSTEM_UID` privileges to register requests directly into the Android Wi-Fi stack, bypassing Framework Overlay requirements and system prompt dialogs. | **Universal penetration**. Works across OPPO/OnePlus (ColorOS), vivo/iQOO (OriginOS), Samsung (One UI), and other heavily modified OEM ROMs. |
+| **Generic Root Force Scheme**<br>`ROOT_DIRECT` | Uses Root (UID 0) and `SYSTEM_UID` privileges to register requests directly into the Android Wi-Fi stack, bypassing Framework Overlay requirements and system prompt dialogs. | Works across OPPO/OnePlus (ColorOS), vivo/iQOO (OriginOS), Samsung (One UI), and other custom ROMs. |
+
+AOSP and generic Multi-Internet schemes connect only to networks already saved by the system. Save a new access point in system Wi-Fi settings before connecting; the Xiaomi scheme continues to use its existing mechanism.
 
 ### 2. Hardware & Device Requirements
 
@@ -168,6 +187,43 @@ MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Man
 
 ---
 
+## Personal Hotspot Upstream Steering
+
+Android's stock tethering architecture routes all Wi-Fi hotspot client traffic through the system-wide default network interface. When multiple interfaces (dual Wi-Fi or cellular) are connected, stock settings offer no mechanism to designate a dedicated upstream for tethering.
+
+MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` in the NetworkStack / Tethering APEX runtime to steer personal hotspot (SoftAP) traffic to a designated upstream network:
+
+```
+                      ┌───────────────────────┐
+                      │  Laptops / Tablets    │
+                      └───────────┬───────────┘
+                                  │ (Wi-Fi client)
+                      ┌───────────▼───────────┐
+                      │ Personal Hotspot (AP) │
+                      │  (ap0 / swlan0 / ...) │
+                      └───────────┬───────────┘
+                                  │
+                 ┌────────────────┼────────────────┐
+                 │                │                │
+          ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+          │   Default   │  │   Cellular   │  │  Secondary  │
+          │   Network   │  │ (Cellular)   │  │    Wi-Fi    │
+          └─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### 1. Key Capabilities
+- **Designated Upstream Binding**: Bind hotspot traffic to **Cellular**, **Secondary Wi-Fi**, or **System Default**.
+- **Practical Use Cases**:
+  - **Network Isolation & Traffic Separation**: Keep the host device on enterprise intranet Wi-Fi while routing hotspot clients over 5G cellular to avoid corporate traffic inspection or bandwidth throttling.
+  - **Dual Wi-Fi Relay**: Connect primary Wi-Fi to a local network, secondary Wi-Fi to a remote AP, and relay the secondary connection via hotspot.
+  - **Dedicated Mobile Data Tethering**: Allocate cellular data exclusively to tethered devices while keeping the host phone on Wi-Fi.
+- **Dynamic Re-evaluation**: Target switches take effect immediately without restarting the hotspot service or reconnecting clients.
+- **Fallback on Disconnect**: If the assigned upstream interface goes down, the system falls back to available connections and returns to the target once restored.
+- **Native Forwarding and Offload**: Uses Tethering route selection; Android manages NAT and offload. A loaded Hook does not prove hardware acceleration is active.
+- **Offline Pre-configuration**: Upstream preferences can be configured before turning on the hotspot; rules apply immediately when the AP starts.
+
+---
+
 ## Installation
 
 1. Install the APK from the [releases page](https://github.com/Linoleic/MultiRoute/releases) — the asset
@@ -175,8 +231,7 @@ MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Man
    manager's module list, since the module is in the
    [official repository](https://modules.lsposed.org/module/io.github.linoleic.multiroute). Either way the
    manager can offer updates in place, from the manifest the module declares.
-2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and set the scope to **System Framework**
-   (`system`). The APK already declares this in `META-INF/xposed/scope.list`.
+2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and verify the scopes (ensure **System Framework** and the **NetworkStack Tethering** packages such as `com.android.networkstack.tethering` are selected). The APK ships with `META-INF/xposed/scope.list` and package metadata so supported managers will select these automatically.
 3. Reboot, or restart the system server: `su -c 'setprop ctl.restart zygote'`.
 4. Open MultiRoute and grant root. The **Settings** tab should report *activated (hooks ready)*.
    If it reports *loaded older build*, restart the system server once more.
@@ -190,8 +245,8 @@ repository only accepts a package namespace the author can prove ownership of. A
 different app:
 
 1. Uninstall the old version first — assignments are **not** carried over.
-2. Install the new APK, then enable **the new package** in LSPosed Manager and set its scope to the system
-   framework. It appears as a new module entry; the old, now-uninstalled one can be removed.
+2. Install the new APK, then enable **the new package** in LSPosed Manager and configure its scope.
+   It appears as a new module entry; the old, now-uninstalled one can be removed.
 
 `tools/probe` (the measurement helper app) is intentionally left as `com.multiroute.probe`.
 
@@ -216,7 +271,7 @@ su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat 
 | Tab | What you do |
 | :-- | :-- |
 | **App routing** | Tap an app and choose a channel; a long press enters multi-select for batch assignment; clone apps listed independently; scenario profiles for automated switching based on network conditions. |
-| **Channels** | Inspect every active link (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel); built-in **Dual Wi-Fi Manager** (4 adaptation schemes, multi-band isolation, BSSID blocklist reset); per-channel egress probes. |
+| **Channels** | Inspect active links (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel); built-in **Dual Wi-Fi Management** and **Hotspot Upstream** cards; hotspot downlink and VPN tunnel identification; per-channel egress probes. |
 | **Settings** | Module and root status, active kernel rules, cellular keepalive, DNS redirection, auto failover hold-off, config backup/restore, diagnostic log export/share/copy, and rule purge maintenance. |
 
 ---
@@ -266,14 +321,14 @@ The Settings tab shows one of:
 | Loaded older build | `system_server` still runs a previous build — restart required |
 | Loaded (legacy marker) | Module is present but reports no hook detail (older module build) |
 | Status record expired | The recorded owner process is no longer `system_server` |
-| Not activated | Module disabled, not scoped to the system framework, or not injected |
+| Not activated | Module disabled, scope not configured, or not injected |
 
 ---
 
 ## Troubleshooting
 
-- **Module shows "not activated"** — enable it in LSPosed Manager, scope it to the **system framework**,
-  then reboot or restart `system_server`.
+- **Module shows "not activated"** — enable it in LSPosed Manager and ensure module scope is checked,
+  then reboot or restart system server.
 - **Module shows "loaded older build" after an update** — expected: the framework cannot hot-reload.
   Reboot, or `su -c 'setprop ctl.restart zygote'`.
 - **An assignment has no effect** — check **Settings → View diagnostic log** (supports clipboard copy, file export, or system share): section *rule effectiveness* shows every configured UID with *in effect* or *not in effect*. A channel whose interface has no default route at that moment is skipped, and the log says so.
@@ -324,6 +379,7 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
   VPN is active therefore takes that app **out of the tunnel**.
 - **The platform's per-UID network selection is below MultiRoute** (`15040`-range), so a channel
   assignment does override that.
+- **Hotspot downlink and VPN channel isolation**: Hotspot AP interfaces (e.g. `ap0`, `swlan0`) and VPN virtual interfaces (e.g. `tun0`) appear in the Channels tab for transparency and egress probing, but are **excluded from App Routing and Scenario target pickers**. This prevents regular apps from being assigned to a downlink AP or VPN interface, avoiding unreachable states and routing conflicts.
 - **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
   space name; only ROMs whose clone spaces are real Android users are covered.
 - **Secondary Wi-Fi screen-off keepalive and device compatibility**: the legacy keepalive toggle has been consolidated into the **Dual Wi-Fi Assistant**. When connecting to secondary Wi-Fi using the "Xiaomi / HyperOS Dedicated" scheme, the module automatically activates the keepalive hooks targeting Xiaomi's private classes (`SlaveWifiService`, `DualStaImpl`) in the background, without requiring a manual toggle in Settings. On other platforms (AOSP, ColorOS, OriginOS, One UI, etc.), the assistant relies on native multi-network architecture (`AOSP_OVERLAY`) or Root direct connection (`ROOT_DIRECT`) combined with a foreground service to maintain concurrency.

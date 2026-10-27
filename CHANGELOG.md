@@ -5,6 +5,74 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.5.0 - 2026-10-25
+
+**中文**
+
+### 新增 (Added)
+- **个人热点出口定向与分流**：支持将个人热点（SoftAP / Tethering）连接设备的网络出口指定到蜂窝网络、副 Wi-Fi 或系统默认网络；通过 Hook `UpstreamNetworkMonitor.getCurrentPreferredUpstream` 实现动态重定向与断网自动降级回退。
+- **热点出口控制卡片**：网络通道页新增「热点出口与分流」卡片，展示热点工作频段、系统实际出口和上行 Hook 状态，支持切换与未开启热点时的预设。Hook 状态不代表硬件加速状态。
+- **热点下行接口识别与隔离**：自动识别个人热点下行接口（如 `ap0`、`swlan0`、`wlan2` 等），标注为「个人热点」通道类型；详情面板展示频段、接口与目标出口；自动从应用分流与场景方案目标中排除，避免应用绑定下行接口导致通信异常。
+- **VPN 虚拟接口识别与属性展示**：自动识别系统内 VPN 虚拟网络接口（如 `tun0`），标注为「虚拟专网 (VPN)」通道类型；详情面板展示 VPN 创建应用包名及标签、隧道内网 IP 地址及底层承载网络（Underlying Networks）。
+
+### 变更 (Changed)
+- **配置备份 v2**：明确区分应用分流、完整场景选择、网络策略、热点出口、双 Wi-Fi 偏好、外观和测速节点；支持导入预览、按类别恢复及旧版 v1 配置迁移。
+- **LSPosed 模块作用域扩充**：为支持 NetworkStack APEX 内热点调度 Hook，模块作用域在原有系统框架（`system` / `android`）基础上，新增 NetworkStack / Tethering 相关包（`com.android.networkstack.tethering`、`com.google.android.networkstack.tethering`、`com.android.networkstack`、`com.google.android.networkstack`）。模块内 `scope.list` 与 `xposedscope` 清单元数据已同步更新。
+- **双 Wi-Fi 状态概览**：重构「双 Wi-Fi 激活与管理」卡片，主界面直接展示主 Wi-Fi 与副 Wi-Fi 的连接 SSID 与工作频段。
+- **应用分流列表过滤**：将 VPN 虚拟网络接口排除在普通应用分流与场景方案的候选通道之外。
+
+### 修复 (Fixed)
+- **双 Wi-Fi 诊断状态**：物理链路摘要与实时连接卡片共用连接状态及参数，避免连接或断开后仍显示旧检测结果。
+- **Pixel Mainline 网络选择**：兼容以 Map 保存 NetworkAgent 的系统服务；反射字段缺失时缓存空结果，避免 Hook 因向 ConcurrentHashMap 写入空值而异常。显式蜂窝接口仅精确匹配，通用蜂窝选择排除 IMS。
+- **双 Wi-Fi 请求与配置保护**：AOSP 副网请求声明 INTERNET 能力并转义 SSID、凭据；复用小米已保存配置，AOSP 不再重写保存网络。连接与断开只清理本模块登记的请求，不再删除保存网络、清空其他请求或强制清除接口地址；激活后核对实际就绪状态。
+- **并发配置更新**：配置只更新受影响的键，回滚时保留并发运行态。
+- **双 Wi-Fi 断开行为**：断开操作会使在途连接请求失效，不再重启服务并自动连回。
+- **AOSP 未保存网络提示**：立即提示先在系统 Wi-Fi 设置中保存网络，避免无效请求等待超时。
+- **浅色主题状态栏**：主题变化时同步状态栏图标明暗，修复系统为深色而应用切换为浅色时图标仍为白色、对比不足的问题。
+- **离线目标的开机恢复**：所有指派通道离线时也按最新配置更新恢复脚本，避免修改或导入规则后仍在下次启动重放旧出口；脚本部署失败会返回同步失败。
+- **配置导出与恢复**：不再将副 Wi-Fi 密码等设置误当成应用分流导出；恢复手动模式与全部选中场景。清空分流和导入部分配置保留无关设置；写入前验证并备份，备份失败停止替换，写入失败尝试回滚并报告错误。
+- **热点蜂窝候选筛选**：排除 IMS-only 网络，按 INTERNET 或运营商 DUN 要求选择候选；指定接口使用精确匹配，多候选选择保持稳定。
+- **热点请求与恢复**：指定蜂窝期间复用原生请求，退出指定模式或停止共享时恢复原配置；在原生网络表更新后合并触发重选，处理目标网络恢复。
+- **Pixel / Google Mainline 兼容**：支持重定位后的 `android.net.tethering` 类名；启动阶段从主线程下发的原生配置投递到 Tethering Handler，避免漏记需要恢复的原始配置。
+- **应用内信标读取**：读取 Tethering 私有缓存时使用 Root 全局挂载命名空间，修复应用数据隔离导致应用内误报未加载、而 ADB 诊断正常的问题。
+- **热点实际出口显示**：通道页在前台时定期刷新状态，修复异步切换完成后界面长期保留旧出口的问题；离开页面或进入后台后停止刷新。
+- **热点状态与响应**：Root 操作移到 IO 并串行执行，失败后显示读取到的实际设置；使用当前进程身份和源码指纹验证 DE/CE 信标，不再将 dumpsys 结果视为 Hook 已加载或硬件加速证据。
+- **VPN 通道详情占位符异常**：修复通道详情弹窗中「创建应用」与「隧道内网 IP」字段直接显示字面量 `%1$s` 的问题。
+- **界面显示细节**：修复深色模式下卡片边框色彩显示问题；优化双 Wi-Fi 长 SSID 文本排版与截断。
+
+**English**
+
+### Added
+- **Personal Hotspot Upstream Steering:** Route personal hotspot (SoftAP / Tethering) client traffic through a designated upstream interface: Cellular, Secondary Wi-Fi, or System Default. Hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` for dynamic re-evaluation and automatic fallback on disconnect.
+- **Hotspot Upstream Management Card:** Displays the hotspot band, actual system upstream and upstream Hook status, with switching and offline presets. Hook status does not indicate hardware offload status.
+- **Hotspot Downlink Interface Detection & Isolation:** Automatically identifies hotspot AP downlink interfaces (`ap0`, `swlan0`, `wlan2`, etc.) and marks channel type as "Personal Hotspot". Details sheet displays operating band, downlink interface name, live status, and upstream target; excludes downlink interfaces from app routing and scenario targets to avoid unreachable states.
+- **VPN Virtual Interface Detection & Diagnostics:** Identifies VPN virtual interfaces (e.g. `tun0`) and marks channel type as "VPN Tunnel". Detail sheet displays creator application package and label, tunnel virtual IP address, and underlying transport network.
+
+### Changed
+- **Configuration Backup v2:** Separate app routing, complete plan selections, network policies, hotspot upstream, dual Wi-Fi preferences, appearance and test endpoints. Preview and restore selected categories, with migration from v1 files.
+- **LSPosed Module Scope Expansion:** Expanded module scope beyond the system framework (`system` / `android`) to include NetworkStack / Tethering packages (`com.android.networkstack.tethering`, `com.google.android.networkstack.tethering`, `com.android.networkstack`, `com.google.android.networkstack`) for `UpstreamNetworkMonitor` hook support. Updated `scope.list` and `xposedscope` manifest metadata accordingly.
+- **Dual Wi-Fi Status Overview:** Refined the "Dual Wi-Fi Activation & Management" card to display an active SSID and frequency band summary directly on the main screen.
+- **Routing Target Filtering:** Excluded VPN virtual interfaces from app routing and scenario candidate targets.
+
+### Fixed
+- **Dual Wi-Fi Diagnostic State:** Read link activity and parameters from the live connection state shared by the connection card, avoiding stale detection results after connecting or disconnecting.
+- **Pixel Mainline Network Selection:** Support Map-based NetworkAgent registries and cache missing reflection fields without inserting null into ConcurrentHashMap. Match explicit cellular interfaces exactly and exclude IMS from the generic cellular selection.
+- **Dual Wi-Fi Requests and Saved Networks:** Request INTERNET for AOSP secondary links and quote SSIDs and credentials. Reuse saved Xiaomi configurations without rewriting them; AOSP requests do not modify saved networks. Only release requests tracked by this module, preserving saved networks, other clients' requests and framework-managed interface state. Activation checks actual readiness.
+- **Concurrent Configuration Updates:** Update only affected keys and preserve concurrent runtime state during rollback.
+- **Dual Wi-Fi Disconnect Behavior:** Disconnect invalidates in-flight connection requests instead of restarting the service and reconnecting automatically.
+- **AOSP Unsaved Network Feedback:** Prompt immediately to save the network in system Wi-Fi settings instead of waiting for an ineffective request to time out.
+- **Light Theme Status Bar:** Update status bar icon appearance when the app theme changes, fixing white icons on a light background when the system uses dark mode.
+- **Boot Recovery for Offline Targets:** Update the recovery script from current assignments even when every target is offline, preventing stale egress assignments from being replayed at the next boot. Script deployment failures now report a failed sync.
+- **Configuration Export and Restore:** Exclude secondary Wi-Fi passwords and unrelated settings from routing exports; restore manual mode and every selected plan. Clearing routing or importing selected categories preserves other settings. Validate and back up before writing, abort if backup fails, and attempt rollback with an error on write failure.
+- **Cellular Upstream Selection:** Exclude IMS-only networks, respect INTERNET/DUN requirements, match explicit interfaces exactly and keep candidate selection stable.
+- **Hotspot Request Lifecycle and Recovery:** Use native cellular requests while selected, restore native configuration on exit/stop and coalesce reselection after native network updates.
+- **Pixel / Google Mainline Compatibility:** Support relocated `android.net.tethering` classes and marshal boot-time native configuration from the service main thread onto the Tethering Handler.
+- **In-App Beacon Reads:** Read Tethering private cache from the root global mount namespace so app data isolation does not report a missing Hook while ADB diagnostics succeed.
+- **Actual Upstream Display:** Refresh Channels status while visible so asynchronous upstream changes do not leave a stale interface label; stop refreshing when the page is removed or the app is backgrounded.
+- **Hotspot Status and Responsiveness:** Serialize root work on IO, read settings back on failure, and validate DE/CE beacons against process identity and a source fingerprint. Dumpsys output is no longer treated as Hook or hardware-offload evidence.
+- **String Format Specifier Artifacts:** Fixed an issue where `%1$s` format specifiers were rendered literally in the VPN channel detail sheet for creator app and tunnel IP rows.
+- **UI Details:** Fixed card border color in dark theme and adjusted text truncation for long SSIDs.
+
 ## v1.4.1
 
 **中文**
