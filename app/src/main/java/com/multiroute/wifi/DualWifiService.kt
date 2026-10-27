@@ -71,6 +71,9 @@ class DualWifiService : Service() {
         super.onCreate()
         isRunning = true
         createNotificationChannel()
+        // A stop may overtake onStartCommand after startForegroundService was accepted.
+        // Acknowledge the launch before any stale-command or shutdown path can exit.
+        enterForegroundForCurrentConnection()
     }
 
 
@@ -97,6 +100,13 @@ class DualWifiService : Service() {
         }
         val iface = intent?.getStringExtra(EXTRA_IFACE) ?: DualWifiManager.status.value.secondaryIface ?: "wlan1"
 
+        enterForeground(ssid, iface, generation)
+
+        startMonitoring(generation)
+        return START_STICKY
+    }
+
+    private fun enterForeground(ssid: String, iface: String, generation: Long) {
         val notification = buildNotification(ssid, iface, generation)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -108,13 +118,19 @@ class DualWifiService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        startMonitoring(generation)
-        return START_STICKY
+    }
+
+    private fun enterForegroundForCurrentConnection() {
+        val ssid = RouteConfigProvider.getLastSecondaryWifi(this)["ssid"] as? String ?: "Wi-Fi"
+        enterForeground(ssid, DualWifiManager.status.value.secondaryIface ?: "wlan1",
+            monitoredGeneration ?: DualWifiManager.secondaryServiceGeneration() ?: -1L)
     }
 
     private fun ignoreStaleStart(startId: Int): Int {
         // An old start/notification can arrive after a newer session is already monitored.
+        enterForegroundForCurrentConnection()
         if (monitorJob?.isActive == true) return START_STICKY
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelfResult(startId)
         return START_NOT_STICKY
     }

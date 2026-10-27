@@ -28,6 +28,7 @@ bilingual, Chinese first: the release page is what most users read.
 - **并发配置更新**：配置只更新受影响的键，回滚时保留并发运行态。
 - **双 Wi-Fi 断开行为**：断开操作会使在途连接请求失效，不再重启服务并自动连回。
 - **双 Wi-Fi 连接生命周期**：合并重叠的自动重连，取消或预检查失败后释放连接占位；前台服务与通知校验连接代次，忽略迟到消息；小米连接超时或取消后尝试释放已发起的副网连接。
+- **迟到服务启动的退出**：前台服务先完成系统启动握手，再处理过期消息或退出，避免断开后的迟到启动触发前台服务超时崩溃。
 - **AOSP 未保存网络提示**：立即提示先在系统 Wi-Fi 设置中保存网络，避免无效请求等待超时。
 - **AOSP 连接入口**：依据系统保存配置识别可直连网络，已保存的加密网络不再索要明文密码；请求仅携带频段及接入点，未保存网络提供系统设置入口。手动选择的连接方案不再被厂商品牌覆盖，切换网络或方案会清除旧密码弹窗。
 - **浅色主题状态栏**：主题变化时同步状态栏图标明暗，修复系统为深色而应用切换为浅色时图标仍为白色、对比不足的问题。
@@ -63,6 +64,7 @@ bilingual, Chinese first: the release page is what most users read.
 - **Concurrent Configuration Updates:** Update only affected keys and preserve concurrent runtime state during rollback.
 - **Dual Wi-Fi Disconnect Behavior:** Disconnect invalidates in-flight connection requests instead of restarting the service and reconnecting automatically.
 - **Dual Wi-Fi Connection Lifecycle:** Coalesce overlapping reconnect attempts and release reservations after cancellation or preflight failure. Validate connection generations for service starts and notification actions, and attempt to release Xiaomi secondary connections after timeout or cancellation.
+- **Late Service Start Shutdown:** Complete the foreground launch handshake before rejecting obsolete commands or shutting down, preventing a foreground startup timeout after disconnect.
 - **AOSP Unsaved Network Feedback:** Prompt immediately to save the network in system Wi-Fi settings instead of waiting for an ineffective request to time out.
 - **AOSP Connection Entry:** Identify saved configurations independently of extracted passwords and request saved networks by band and access point. Provide a system settings action for unsaved networks, honor manual schemes on vendor devices, and clear stale password dialogs when the selection changes.
 - **Light Theme Status Bar:** Update status bar icon appearance when the app theme changes, fixing white icons on a light background when the system uses dark mode.
