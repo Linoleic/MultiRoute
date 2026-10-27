@@ -82,8 +82,8 @@ entry point from the package itself.
 | Android 11 – 15 | ⚠️ **Not verified.** The APIs it hooks exist from Android 11 on, so it is plausible, but nothing has been tested — treat it as unknown rather than supported |
 | Android 7 – 10 | ❌ **Not supported.** The APK requires Android 11 (`minSdk` 30), and those releases lack the framework interfaces the module hooks |
 
-The on-device evidence behind this table — the commands used and what they returned — is collected in
-[docs/VERIFICATION.md](docs/VERIFICATION.md), including what has *not* been verified yet.
+Detailed command transcripts and verification notes are maintained locally and excluded from Git.
+The table above summarizes verified coverage; other combinations remain unverified.
 
 ---
 
@@ -315,8 +315,7 @@ transmitted anywhere.** The dependency list is AndroidX/Compose plus the LibXpos
 
 - **Only port 53 is redirected.** Classic DNS follows the assigned channel; Private DNS (DoT, 853) and
   DoH are not rewritten. Measured with a full-tunnel VPN active: name resolution could still stay inside
-  the tunnel while the app's data traffic left it — see
-  [docs/VERIFICATION.md](docs/VERIFICATION.md) for the exact observations.
+  the tunnel while the app's data traffic left it.
 - **VPN behaviour depends on the VPN's mode.** Measured on device with a full-tunnel client: its
   per-UID capture rules land at `24000`, i.e. *below* MultiRoute's `14400`/`14500`, so an assigned app
   leaves the tunnel (verified: its connections then use the assigned link's address). An always-on VPN

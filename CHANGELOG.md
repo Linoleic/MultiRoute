@@ -297,9 +297,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ---
 
-已验证：Android 16 与 Android 17（HyperOS）+ KernelSU + LSPosed v2.2.0。每条结论对应的命令与实测输出，
-以及**尚未覆盖**的部分，见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
+已验证：Android 16 与 Android 17（HyperOS）+ KernelSU + LSPosed v2.2.0。详细命令、实测输出与未覆盖项保存在本地验证记录中，不纳入 Git。
 
-Verified on Android 16 and Android 17 (HyperOS) with KernelSU and LSPosed v2.2.0. The commands and
-observations behind every claim, plus what is *not* covered yet, are in
-[docs/VERIFICATION.md](docs/VERIFICATION.md).
+Verified on Android 16 and Android 17 (HyperOS) with KernelSU and LSPosed v2.2.0. Detailed commands,
+observations and coverage gaps are maintained in local verification notes excluded from Git.

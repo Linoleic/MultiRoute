@@ -78,8 +78,7 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 | Android 11 – 15 | ⚠️ **未验证。** 模块 hook 的接口自 Android 11 起存在，因此理论可行，但没有任何实测——请当作"未知"，而不是"支持" |
 | Android 7 – 10 | ❌ **不支持。** APK 要求 Android 11（`minSdk` 30），且这些版本缺少模块所 hook 的框架接口 |
 
-上表所依据的真机证据（使用的命令与实测输出，以及**尚未验证**的部分）整理在
-[docs/VERIFICATION.md](docs/VERIFICATION.md)。
+详细命令、实测输出和验证记录仅保存在本地，不纳入 Git。上表汇总已验证范围，其余组合仍未验证。
 
 ---
 
@@ -284,13 +283,13 @@ AndroidX/Compose 与 LibXposed API，仅此而已。
 ## 已知限制
 
 - **只改写 53 端口**：传统 DNS 会跟随被指派的通道；Private DNS（DoT，853）与 DoH 不会被改写。全流量
-  VPN 场景下的实测结论是：数据流量已走出隧道，而域名解析可能仍留在隧道内——具体观测见
-  [docs/VERIFICATION.md](docs/VERIFICATION.md)。
+  VPN 场景下的实测结论是：数据流量已走出隧道，而域名解析可能仍留在隧道内。
 - **VPN 的影响取决于其工作模式**：真机实测（全流量隧道客户端）显示，客户端的**按 UID 捕获规则在
   `24000`**，低于 MultiRoute 的 `14400`/`14500` → 被指派的应用会**离开隧道**（实测其连接改用被指派网卡的
   地址）。而 always-on VPN 且开启"阻止无 VPN 连接"时，Android 改用 `13000`/`14000` 规则，**高于**
   MultiRoute → 此时 VPN 优先、指派不生效。注意：VPN 活跃时指派应用，等于把该应用**移出隧道**。
 - **平台自己的按 UID 网络选择低于 MultiRoute**（`15040` 一带），所以通道分配会覆盖它。
+- **热点下行与 VPN 接口分流隔离**：个人热点 AP 下行接口（如 `ap0`、`swlan0` 等）与 VPN 虚拟接口（如 `tun0`）会在「网络通道」中列出并支持出口探测，但已被排除在应用分流及场景方案的目标通道之外，避免因将应用绑定至下行或虚拟接口导致通信中断或路由冲突。
 - **分身识别依赖 root 包列表**：界面显示数字空间号而非空间名称；仅覆盖"分身空间是真实 Android
   用户"的 ROM。
 - **副 Wi-Fi 息屏保活与多机型适配**：原先的保活开关已整合进**双 Wi-Fi 助手**。当使用「小米 / HyperOS 专用方案」连接副 Wi-Fi 时，模块会自动在后台联动并激活针对小米私有类（`SlaveWifiService`、`DualStaImpl`）的防断开守护 hook，无需在设置中手动切换；而在其他机型（AOSP、ColorOS、OriginOS、One UI 等）上，双 Wi-Fi 助手通过原生多网络架构（`AOSP_OVERLAY`）或 Root 特权直连（`ROOT_DIRECT`）配合前台服务保障链路稳定。
