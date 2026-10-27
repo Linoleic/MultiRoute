@@ -67,6 +67,18 @@ fun MainScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
+    val importContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(uiState.configAppearanceImported) {
+        if (uiState.configAppearanceImported) {
+            viewModel.consumeConfigAppearanceImport()
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                val tag = RouteConfigProvider.getLanguage(importContext)
+                importContext.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales =
+                    if (tag.isEmpty()) android.os.LocaleList.getEmptyLocaleList() else android.os.LocaleList.forLanguageTags(tag)
+            }
+            (importContext as? android.app.Activity)?.recreate()
+        }
+    }
 
     LaunchedEffect(uiState.snackBarMessage) {
         uiState.snackBarMessage?.let {
@@ -1960,16 +1972,45 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
 
     if (uiState.showConfigImportConfirm) {
         AlertDialog(
-            onDismissRequest = { viewModel.cancelConfigImport() },
+            onDismissRequest = { if (!uiState.isConfigBusy) viewModel.cancelConfigImport() },
             title = { Text(stringResource(com.multiroute.R.string.config_import_title)) },
-            text = { Text(stringResource(com.multiroute.R.string.config_import_message)) },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(stringResource(com.multiroute.R.string.config_import_message))
+                    uiState.configImportPreview?.let { preview ->
+                        Text(stringResource(com.multiroute.R.string.config_preview_counts,
+                            preview.document.assignments.size, preview.document.profiles.size))
+                        preview.document.sections.forEach { section ->
+                            Row(Modifier.fillMaxWidth().clickable(enabled = !uiState.isConfigBusy) { viewModel.toggleConfigImportSection(section) },
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = section in uiState.configImportSections, enabled = !uiState.isConfigBusy,
+                                    onCheckedChange = { viewModel.toggleConfigImportSection(section) })
+                                Text(stringResource(when (section) {
+                                    com.multiroute.data.ConfigTransfer.Section.ASSIGNMENTS -> com.multiroute.R.string.config_section_assignments
+                                    com.multiroute.data.ConfigTransfer.Section.SCENARIOS -> com.multiroute.R.string.config_section_scenarios
+                                    com.multiroute.data.ConfigTransfer.Section.ROUTING -> com.multiroute.R.string.config_section_routing
+                                    com.multiroute.data.ConfigTransfer.Section.DUAL_WIFI -> com.multiroute.R.string.config_section_dual_wifi
+                                    com.multiroute.data.ConfigTransfer.Section.HOTSPOT -> com.multiroute.R.string.config_section_hotspot
+                                    com.multiroute.data.ConfigTransfer.Section.APPEARANCE -> com.multiroute.R.string.config_section_appearance
+                                    com.multiroute.data.ConfigTransfer.Section.TEST_SERVER -> com.multiroute.R.string.config_section_test_server
+                                }))
+                            }
+                        }
+                        if (preview.document.ignored > 0) Text(stringResource(com.multiroute.R.string.config_ignored_entries, preview.document.ignored))
+                        if (preview.missingApps.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_missing_apps, preview.missingApps.joinToString()))
+                        if (preview.unavailableChannels.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_offline_channels, preview.unavailableChannels.joinToString()))
+                        if (preview.incompatibleScheme) Text(stringResource(com.multiroute.R.string.config_scheme_fallback))
+                    }
+                }
+            },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { viewModel.confirmConfigImport() }) {
+                androidx.compose.material3.TextButton(onClick = { viewModel.confirmConfigImport() }, enabled = !uiState.isConfigBusy && uiState.configImportSections.isNotEmpty()) {
                     Text(stringResource(com.multiroute.R.string.config_import_confirm))
                 }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { viewModel.cancelConfigImport() }) {
+                androidx.compose.material3.TextButton(onClick = { viewModel.cancelConfigImport() }, enabled = !uiState.isConfigBusy) {
                     Text(stringResource(com.multiroute.R.string.ui_cancel))
                 }
             }

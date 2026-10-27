@@ -15,7 +15,7 @@ import org.json.JSONObject
  */
 object ScenarioStore {
 
-    private const val PREFS = "multiroute_scenarios"
+    internal const val PREFS = "multiroute_scenarios"
     private const val KEY_PROFILES = "profiles"
     private const val KEY_MANUAL = "manual_id"
     private const val KEY_MODE = "mode"

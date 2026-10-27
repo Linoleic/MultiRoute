@@ -51,6 +51,9 @@ object SuHelper {
      */
     private val syncMutex = Mutex()
 
+    /** Prevent a receiver sync from observing a partially applied configuration. */
+    internal suspend fun <T> withRouteConfigLock(block: suspend () -> T): T = syncMutex.withLock { block() }
+
     /**
      * Budget for one full rule-application script. It contains 20-30 `ip` invocations, so it must not
      * be judged with the 5s default used for single commands.

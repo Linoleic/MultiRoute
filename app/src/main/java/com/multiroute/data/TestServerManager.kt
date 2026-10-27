@@ -4,9 +4,9 @@ import android.content.Context
 import com.multiroute.model.TestServerConfig
 
 object TestServerManager {
-    private const val PREF_NAME = "multiroute_test_server"
-    private const val KEY_PRESET_ID = "selected_preset_id"
-    private const val KEY_CUSTOM_URL = "custom_url"
+    internal const val PREF_NAME = "multiroute_test_server"
+    internal const val KEY_PRESET_ID = "selected_preset_id"
+    internal const val KEY_CUSTOM_URL = "custom_url"
 
     fun getConfig(context: Context): TestServerConfig {
         val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
