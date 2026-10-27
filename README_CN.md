@@ -48,17 +48,17 @@ MultiRoute 结合 Android 框架 hook 与 Linux 策略路由规则实现这些�
         └───────────────┘└───────────────┘ └─────────────────┘ └───────────┘
 ```
 
-### 三大核心功能维度
+### 功能概述
 
-1. **分应用策略路由（Per-App Policy Routing）**：
+1. **分应用策略路由**：
    - 为每个应用独立指定网络通道（主 Wi-Fi、副 Wi-Fi、移动蜂窝或以太网），支持应用分身（如双开微信）独立走不同通道。
    - 基于 Linux 内核策略路由（`ip rule`），不使用用户态 VPN 转发；支持 IPv4 UDP/TCP 53 端口 DNS 改写、局域网直连网段放行与链路不可用时的回退。
 
-2. **双 Wi-Fi 激活与管理（Dual Wi-Fi Management / STA + STA）**：
-   - 提供多种副 Wi-Fi 连接方式，并处理 SSID/BSSID；小米设备另有息屏连接 hook。实际效果取决于设备、ROM 和 Wi-Fi 硬件。
-   - 支持跨频段 SSID 处理；小米方案会启用尝试维持副链路的 hook，效果因设备、固件和 ROM 而异。
+2. **双 Wi-Fi 激活与管理**：
+   - 提供副 Wi-Fi 连接方式，按 SSID、BSSID 和频段区分接入点。
+   - 小米方案通过 hook 尝试维持息屏连接；实际效果取决于设备、固件和 ROM。
 
-3. **个人热点上游选择（Hotspot Upstream Selection）**：
+3. **个人热点上游选择**：
    - 请求 Android Tethering 将个人热点上游选为蜂窝网络、副 Wi-Fi 或系统默认网络。
    - 上游变更由系统异步重选；转发、NAT、IPv6 和卸载由 Android 管理，具体行为取决于系统。
 
@@ -89,17 +89,17 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 | Root | KernelSU / Magisk / APatch（操作策略路由表需要 root） |
 | Xposed 框架 | LSPosed（或实现了 LibXposed API 101+ 的框架） |
 | 模块作用域 | 勾选**系统框架**（`system` / `system_server`）与 **Tethering 网络栈**（`com.android.networkstack.tethering` 等，用于热点上游调度） |
-| Android | 最低 Android **11**；已验证的设备与功能见下表 |
+| Android | 最低 Android **11**；已验证的系统与功能范围见下表 |
 
 | Android 版本 | 状态 |
 | :-- | :-- |
-| **Android 17 / HyperOS（小米 15）** | 已验证双 Wi-Fi、蜂窝并发、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
-| **Android 16 / HyperOS（小米平板）** | 已验证双 Wi-Fi、应用与分身分流、IPv4/IPv6 路由、DNS 改写及规则恢复；设备无蜂窝网络 |
-| **Android 16 / AOSP（Pixel 7 Pro）** | 已验证已保存副 Wi-Fi 的连接、断开与 IPv4 上网；其他功能尚未全面验证 |
-| Android 11 – 15 | ⚠️ **未验证。** |
+| **Android 17 / HyperOS（手机）** | 已验证双 Wi-Fi、蜂窝并发、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
+| **Android 16 / HyperOS（平板）** | 已验证双 Wi-Fi、应用与分身分流、IPv4/IPv6 路由、DNS 改写及规则恢复；设备无蜂窝网络 |
+| **Android 16 / AOSP** | 已验证已保存副 Wi-Fi 的连接、断开与 IPv4 上网；其他功能尚未全面验证 |
+| Android 11 – 15 | ⚠️ **未验证** |
 | Android 7 – 10 | ❌ APK 要求 Android 11（`minSdk` 30） |
 
-双 Wi-Fi 与热点功能还取决于硬件、固件和 ROM，不能仅根据 Android 版本判断兼容性。
+上表不代表同类系统的所有设备均兼容。双 Wi-Fi 与热点功能还取决于硬件、固件和 ROM，不能仅根据 Android 版本判断兼容性。
 
 ---
 
@@ -134,38 +134,38 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 
 Android 可以维护多条网络链路，但许多应用默认使用活动的系统网络，除非显式绑定。副 Wi-Fi 可用性和息屏行为取决于 Wi-Fi 硬件、固件与 ROM。
 
-MultiRoute 内建了**双 Wi-Fi 助手（STA + STA 并发管理）**，结合射频硬件能力检测、分层适配方案与特权通路，实现双 Wi-Fi 并发连接与路由分流。
+MultiRoute 的双 Wi-Fi 助手提供并发能力检测、副网连接和断开操作，可选择以下连接方案。
 
-### 1. 四大连接方案矩阵
+### 1. 连接方案
 
 | 适配方案 | 技术原理 | 适用场景与说明 |
 | :--- | :--- | :--- |
-| **自动 (智能分层适配)**<br>`AUTO` | 优先探测设备制造商、ROM 类型、射频芯片驱动与当前接口，自动调度适用的方案。 | **默认选项**。按设备环境向下兼容。 |
+| **自动**<br>`AUTO` | 根据厂商、ROM 和检测到的能力选择连接方案。 | 默认选项。 |
 | **小米 / HyperOS 专用方案**<br>`XIAOMI_SLAVE` | 协同小米 `SlaveWifiService` / `DualStaImpl`，并使用 LSPosed hook 尝试维持副网连接。 | 小米 / Redmi / POCO ROM；息屏行为取决于设备与 ROM。 |
 | **AOSP Multi-Internet**<br>`AOSP_OVERLAY` | 应用 Overlay 强制启用 Google 的 `config_wifiMultiStaMultiInternetConcurrencyEnabled` 资源，并请求 Multi-Internet 模式 2。 | 面向 AOSP 衍生系统的候选方案；资源名称和行为因 ROM 而异，尚未广泛验证。 |
 | **Root 直连**<br>`ROOT_DIRECT` | 当前激活路径调用 `set-multi-internet-mode 2`。Root 不会绕过 Wi-Fi 硬件或固件的并发限制。 | 仅适用于支持该系统命令和模式的 ROM，尚未广泛验证。 |
 
 AOSP / 通用 Multi-Internet 方案仅连接系统已保存的网络。首次连接某个 AP 前，请先在系统 Wi-Fi 设置中保存该网络。已保存网络使用系统配置；MultiRoute 的连接请求不携带凭据。未保存网络的提示提供打开系统 Wi-Fi 设置的入口。
 
-### 2. 适用机型与硬件门槛
+### 2. 系统与硬件要求
 
 * **AOSP Multi-Internet 方案**：该方案要求 Android 13 (API 33) 或更高版本；这不是 MultiRoute 所有功能或连接方案的通用最低版本。
 * **Wi-Fi 并发**：实际能力取决于 Wi-Fi 硬件、固件、系统配置和 ROM。Root 权限不能增加硬件不支持的射频并发能力。
-* **机型兼容性**：方案表中的 ROM 家族仅供参考，不代表该系列全部机型均可使用；已验证设备见兼容性表。
+* **机型兼容性**：方案表中的 ROM 家族仅供参考，不代表该系列全部机型均可使用；已验证的系统与功能范围见兼容性表。
 
-### 3. 关键特性与连接注意事项
+### 3. 连接注意事项
 
 1. **射频组合**：
    * Wi-Fi 硬件、固件与 ROM 支持的频段和信道组合各不相同；互补频段可能可用，但不能保证适用于每台设备；
    * 将列表中的「推荐并发」和「同频冲突」标签作为提示。实际并发能力取决于设备报告的组合支持。
-2. **同名 Wi-Fi（SSID）跨频段隔离**：
-   * 针对双频合一路由（2.4G 与 5G 广播相同 SSID），能够基于物理 MAC（BSSID）与频段精准隔离为独立节点，主副连接状态与操作按钮互不串扰。
-3. **一键清理网络临时限制**：
+2. **同名 Wi-Fi（SSID）区分**：
+   * 对于广播相同 SSID 的接入点，列表按 BSSID 与频段分别显示，并标记主、副 Wi-Fi 的连接状态。
+3. **清理网络临时限制**：
    * 「清理网络临时限制」会清除用户禁用网络标记、重设 Root 请求许可，并移除所有通过 `cmd wifi add-request` 创建的请求，包括其他 shell 工具发起的请求。它不保证解除所有 BSSID 或固件惩罚；仅在确实需要此范围的重置时使用。
 
 ---
 
-## 个人热点出口定向（Hotspot Upstream Steering）
+## 个人热点上游选择
 
 Android 系统网络共享（Tethering）默认将热点客户端流量通过当前系统默认网络转发。当设备同时连接 Wi-Fi 与移动数据或启用双 Wi-Fi 时，无法在系统设置中为热点单独指定出口链路。
 
@@ -189,7 +189,7 @@ MultiRoute Hook NetworkStack / Tethering APEX 运行时的 `UpstreamNetworkMonit
           └─────────────┘  └─────────────┘  └─────────────┘
 ```
 
-### 1. 功能特性
+### 1. 功能说明
 - **指定上游出口**：可将热点上游绑定至「蜂窝网络」、「副 Wi-Fi」或「系统默认网络」。
 - **应用场景**：
   - **分开使用网络**：主机连接内网 Wi-Fi 时，可请求热点使用蜂窝网络；结果仍受 Android Tethering 和运营商策略影响。
@@ -350,7 +350,7 @@ MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账
 - 签名可选：复制 `keystore.properties.example` 为 `keystore.properties` 并填入凭证；未配置时会输出
   警告并降级为 debug 签名，保证 CI 与外部开发者可直接编译。
 - 产物：`app/build/outputs/apk/release/app-release.apk`。
-- `tools/probe` 是另一个极小的 App，用于在真机上测量按 UID 的出口，不属于模块本体。
+- `tools/probe` 是独立的测试应用，用于在真机上测量按 UID 的出口，不属于模块本体。
 
 ### 版本号与发布
 

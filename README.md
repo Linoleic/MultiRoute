@@ -49,15 +49,15 @@ MultiRoute combines Android framework hooks with Linux policy-routing rules:
         └───────────────┘└───────────────┘ └─────────────────┘ └───────────┘
 ```
 
-### Three Core Capabilities
+### Functions
 
 1. **Per-App Policy Routing**:
    - Assign any app to a dedicated channel (Primary Wi-Fi, Secondary Wi-Fi, Cellular, Ethernet), with independent assignment support for dual/cloned app spaces.
    - Enforced via Linux kernel policy routing (`ip rule`) without userspace VPN overhead; includes IPv4 UDP/TCP port 53 DNS rewriting, on-link LAN bypass, and automatic failover fallback on connection loss.
 
 2. **Dual Wi-Fi Activation & Management (STA + STA Concurrency)**:
-   - Provides adaptation schemes for secondary Wi-Fi connection management. Dual-link operation depends on the device's supported radio combinations, firmware and ROM.
-   - Provides connection methods for secondary Wi-Fi, with SSID/BSSID handling and Xiaomi-specific keepalive hooks. Results depend on the device, ROM and Wi-Fi hardware.
+   - Provides secondary Wi-Fi connection methods and distinguishes access points by SSID, BSSID and band.
+   - Xiaomi-specific hooks attempt to maintain screen-off connections; results depend on the device, firmware and ROM.
 
 3. **Personal Hotspot Upstream Steering**:
    - Requests that Android Tethering select Cellular, Secondary Wi-Fi, or System Default as the hotspot upstream.
@@ -90,17 +90,17 @@ entry point from the package itself.
 | Root | KernelSU, Magisk or APatch (policy routing tables need root) |
 | Xposed | LSPosed (or another framework implementing LibXposed API 101+) |
 | Module scope | **System framework** (`system` / `system_server`) and **NetworkStack** (`com.android.networkstack.tethering`, etc. for hotspot upstream steering) |
-| Android | Android **11** or later; verified devices and features are listed below |
+| Android | Android **11** or later; verified systems and feature coverage are listed below |
 
 | Android version | Status |
 | :-- | :-- |
-| **Android 17 / HyperOS (Xiaomi 15)** | Verified dual Wi-Fi, concurrent cellular connectivity, app and clone routing, IPv4/IPv6 routing and rule recovery |
-| **Android 16 / HyperOS (Xiaomi tablet)** | Verified dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection and rule recovery; no cellular hardware |
-| **Android 16 / AOSP (Pixel 7 Pro)** | Verified connection, disconnection and IPv4 Internet access through saved secondary Wi-Fi networks; other features are not comprehensively verified |
+| **Android 17 / HyperOS (phone)** | Verified dual Wi-Fi, concurrent cellular connectivity, app and clone routing, IPv4/IPv6 routing and rule recovery |
+| **Android 16 / HyperOS (tablet)** | Verified dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection and rule recovery; no cellular hardware |
+| **Android 16 / AOSP** | Verified connection, disconnection and IPv4 Internet access through saved secondary Wi-Fi networks; other features are not comprehensively verified |
 | Android 11 – 15 | ⚠️ **Not verified.** |
 | Android 7 – 10 | ❌ The APK requires Android 11 (`minSdk` 30) |
 
-Dual Wi-Fi and hotspot support also depend on hardware, firmware and ROM; Android version alone does not establish compatibility.
+The table does not establish compatibility with every device running these systems. Dual Wi-Fi and hotspot support also depend on hardware, firmware and ROM; Android version alone does not establish compatibility.
 
 ---
 
@@ -146,13 +146,13 @@ Dual Wi-Fi and hotspot support also depend on hardware, firmware and ROM; Androi
 
 Android can maintain multiple links, but many apps use the active default network unless they bind explicitly. Secondary Wi-Fi availability and screen-off behavior vary by Wi-Fi hardware, firmware and ROM.
 
-MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Manager)** that combines hardware concurrency detection, tiered adaptation schemes, and keep-alive coordination.
+The Dual Wi-Fi Assistant provides concurrency detection and secondary-link connection and disconnection, with the following connection schemes.
 
-### 1. Tiered Adaptation Schemes
+### 1. Connection Schemes
 
 | Scheme | Mechanism | Target & Notes |
 | :--- | :--- | :--- |
-| **Auto (Tiered Adaptation)**<br>`AUTO` | Automatically inspects manufacturer, ROM type, Wi-Fi chipset driver, and network interfaces to pick an applicable scheme. | **Default option**. Adjusts based on device environment. |
+| **Auto**<br>`AUTO` | Selects a connection scheme based on the manufacturer, ROM and detected capabilities. | Default option. |
 | **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's `SlaveWifiService` / `DualStaImpl` and uses LSPosed hooks to attempt to keep the secondary link active. | Xiaomi / Redmi / POCO ROMs; screen-off behavior depends on the device and ROM. |
 | **AOSP Multi-Internet**<br>`AOSP_OVERLAY` | Applies an overlay that forces Google's `config_wifiMultiStaMultiInternetConcurrencyEnabled` resource and requests Multi-Internet mode 2. | Candidate for AOSP-based systems; overlay resource names and behavior vary by ROM. Not broadly verified. |
 | **Root direct**<br>`ROOT_DIRECT` | Uses the current `set-multi-internet-mode 2` activation path. It does not bypass Wi-Fi hardware or firmware concurrency limits. | Candidate for ROMs where this system command supports the requested mode; not broadly verified. |
@@ -163,16 +163,16 @@ AOSP and generic Multi-Internet schemes connect only to networks already saved b
 
 * **AOSP Multi-Internet scheme**: Android 13 (API 33) or later is required for the AOSP mechanism described above. This is not a general minimum for every MultiRoute function or connection scheme.
 * **Wi-Fi concurrency**: behavior depends on the device's Wi-Fi hardware, firmware, system configuration and ROM. Root access alone cannot add unsupported radio concurrency.
-* **Device compatibility**: ROM families in the scheme table are examples, not a guarantee for every model. See the compatibility table for verified devices.
+* **Device compatibility**: ROM families in the scheme table are examples, not a guarantee for every model. See the compatibility table for verified systems and feature coverage.
 
-### 3. Usage Notes & Troubleshooting
+### 3. Connection Notes
 
 1. **Radio combinations**:
    * Supported band and channel combinations vary by Wi-Fi hardware, firmware and ROM. Complementary bands may be supported, but are not guaranteed on every device;
    * Treat the Wi-Fi list's "Recommended" and "Band Conflict" labels as guidance. Actual concurrency depends on the device's supported combinations.
-2. **Same-SSID Multi-Band Disambiguation**:
-   * For dual-band unified routers broadcasting identical SSIDs across 2.4GHz and 5GHz, MultiRoute disambiguates APs by their BSSID and frequency band, keeping primary and secondary connection states isolated.
-3. **Resetting Temporary Network Penalties**:
+2. **Distinguishing Same-SSID Networks**:
+   * Access points sharing an SSID are listed separately by BSSID and band, with primary and secondary connection states shown.
+3. **Resetting Temporary Network Restrictions**:
    * The "Reset Network Temporary Restrictions" action clears user-disabled network markers, resets root request approval and removes all requests created through `cmd wifi add-request`, including those made by other shell tools. It does not guarantee removal of every BSSID or firmware penalty; use it only when this broader reset is intended.
 
 ---
@@ -201,7 +201,7 @@ MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` in the Net
           └─────────────┘  └─────────────┘  └─────────────┘
 ```
 
-### 1. Key Capabilities
+### 1. Functions
 - **Upstream selection request**: Choose **Cellular**, **Secondary Wi-Fi**, or **System Default** and ask Android Tethering to re-evaluate its upstream.
 - **Practical Use Cases**:
   - **Separate network use**: Keep the host device on an intranet Wi-Fi while requesting cellular as the hotspot upstream, subject to Android Tethering and carrier policy.
@@ -389,7 +389,7 @@ MultiRoute has no telemetry, analytics, crash-reporting or advertising backend a
 - Signing is optional: copy `keystore.properties.example` to `keystore.properties` and fill it in.
   Without it, release builds fall back to debug signing (with a warning).
 - Artifact: `app/build/outputs/apk/release/app-release.apk`.
-- `tools/probe` is a separate tiny app used to measure per-UID egress on a device; it is not part of the
+- `tools/probe` is a separate test app used to measure per-UID egress on a device; it is not part of the
   module.
 
 ### Versioning and releases

@@ -104,32 +104,32 @@ bilingual, Chinese first: the release page is what most users read.
 **中文**
 
 - **双 Wi-Fi 助手（STA + STA 并发管理）**：新增独立管理面板，支持副 Wi-Fi 的扫描、认证连接、状态诊断与断开全生命周期控制，实时检测双频硬件能力与网卡链路信息。
-- **多方案自适应分层连接架构**：支持智能自动（AUTO）、小米/HyperOS 专用（XIAOMI_SLAVE）、AOSP/Pixel 标准（AOSP_OVERLAY）与通用 Root 直连（ROOT_DIRECT）；通用模式借助 SYSTEM_UID 特权通道穿透定制 ROM 限制，实现免 Overlay 直连。
-- **同名 Wi-Fi（SSID）跨频段独立隔离**：彻底解决 2.4G / 5G / 6G 同名 Wi-Fi 被合并的问题，各频段独立呈现信号与状态，支持针对特定频段精准发起连接。
-- **可用 Wi-Fi 详情与连接诊断**：点击 Wi-Fi 卡片展开详情面板，直观查看物理 MAC (BSSID)、频段信道、信号强度、加密套件、凭据状态及并发评估；引入动态信号图标与多层级智能排序。
-- **运行诊断日志全面扩充与导出分享**：大幅丰富系统运行与诊断日志信息，新增双 Wi-Fi 硬件并发能力与芯片参数、各通道实际 DNS 与系统全局私有 DNS (DoT) 状态、各接口默认网关策略路由表，并拓宽 Logcat 抓取深度至 50 行覆盖 Wi-Fi 协议栈；支持一键将日志导出为文本文件或通过系统面板快速分享反馈。
-- **网络限制清理与体验优化**：新增一键清除底层 BSSID 惩罚黑名单功能；修复双 Wi-Fi 软硬件卡片背景透明度导致的灰色边框异常，优化卡片手势层级与文本表述。
+- **连接方案**：支持自动（AUTO）、小米/HyperOS 专用（XIAOMI_SLAVE）、AOSP/Pixel（AOSP_OVERLAY）与 Root 直连（ROOT_DIRECT）；通用模式通过 SYSTEM_UID 特权通道下发连接请求，无需配置 Overlay。
+- **同名 Wi-Fi（SSID）区分**：分别显示 2.4G / 5G / 6G 同名 Wi-Fi 的信号与状态，支持选择频段发起连接。
+- **可用 Wi-Fi 详情与连接诊断**：点击 Wi-Fi 卡片查看 BSSID、频段信道、信号强度、加密套件、凭据状态及并发评估；增加动态信号图标与列表排序。
+- **运行诊断日志与导出分享**：新增双 Wi-Fi 并发能力与芯片参数、各通道 DNS、Private DNS 状态、接口默认网关与策略路由表，并增加 Wi-Fi 协议栈日志；支持导出文本文件或通过系统面板分享。
+- **网络限制清理与界面调整**：新增网络临时限制清理操作；修复卡片背景透明度导致的灰色边框，调整手势层级与文本。
 
 **English**
 
 - **Dual Wi-Fi Manager (STA + STA Concurrency):** Added a dedicated manager for scanning, connecting, diagnosing, and disconnecting the secondary Wi-Fi, alongside real-time hardware concurrency and link status tracking.
-- **Multi-tier Adaptive Architecture:** Introduced 4 connection schemes: AUTO, XIAOMI_SLAVE, AOSP_OVERLAY, and ROOT_DIRECT; the root scheme leverages a privileged SYSTEM_UID channel to bypass OEM restrictions without requiring overlays.
-- **Independent Cross-band Isolation for Identical SSIDs:** Fully disambiguates multi-band Wi-Fi sharing the same SSID (2.4G / 5G / 6G) into isolated entries with independent signal tracking and connection states.
-- **Wi-Fi Details & Diagnostics:** Tapping any Wi-Fi card opens an interactive sheet displaying BSSID, band, channel, signal strength, security suites, credentials, and concurrency readiness, with dynamic signal icons and prioritized sorting.
-- **Enhanced Diagnostic Log, Export & Share:** Substantially expanded diagnostic logs to include Dual Wi-Fi hardware concurrency and chipset specs, per-channel upstream DNS and Private DNS (DoT) status, interface default gateways, and an expanded 50-line Wi-Fi stack logcat trace; added SAF file export and system share sheet integration for quick feedback.
-- **Blocklist Reset & UI Polish:** Added a one-click action to clear system-level BSSID temporary penalties; fixed grey border rendering artifacts on hardware cards and refined gesture handling.
+- **Connection Schemes:** Introduced AUTO, XIAOMI_SLAVE, AOSP_OVERLAY and ROOT_DIRECT. The root scheme sends requests through a privileged SYSTEM_UID channel without configuring overlays.
+- **Same-SSID Networks:** Display signal and connection states separately for same-SSID networks on 2.4G / 5G / 6G, and allow selecting a band for connection.
+- **Wi-Fi Details & Diagnostics:** Display BSSID, band, channel, signal strength, security suites, credentials and concurrency readiness, with dynamic signal icons and list sorting.
+- **Diagnostic Log, Export & Share:** Add concurrency and chipset information, per-channel DNS, Private DNS status, default gateways, routing tables and Wi-Fi stack logs. Support text export and system sharing.
+- **Network Restriction Reset & UI Adjustments:** Add a temporary network-restriction reset. Fix grey card borders caused by background transparency and adjust gesture handling and text.
 
 ## v1.3.1-beta.1
 
 **中文**
 
-- **多语言即时切换兼容修复**：修复在部分定制 ROM 与旧版本 Android 上语言切换无法即时生效或重启后失效的问题（引入应用级与 Activity 级上下文配置封装，全兼容 Android 11 ~ 17）。
+- **语言切换修复**：通过应用与 Activity 上下文配置，修复部分系统上语言切换无法生效或重启后失效的问题。
 - **运行诊断日志增强**：在系统运行与诊断日志中输出设备的完整品牌、具体机型、Android 系统版本与构建版本号，便于排查特定机型的系统网络策略与兼容性问题。
 - **发布脚本优化**：CI 发布工作流自动识别 Beta / RC / Preview 版本并标记为 Pre-release。
 
 **English**
 
-- **Reliable in-app language switching:** Fixed an issue where switching the app language to English had no effect on certain ROMs and Android versions. Both application and activity context configurations are now explicitly wrapped to ensure immediate and persistent locale resolution across Android 11 to 17.
+- **In-app language switching:** Configure application and activity contexts to fix language changes failing to apply or persist on some systems.
 - **Diagnostic report enhancement:** The runtime diagnostic log now includes device manufacturer, model, Android OS version (release and API level), and display build ID for accurate environment diagnosis.
 - **CI release workflow improvement:** Pre-release tags (beta, rc, preview) are now automatically tagged with the `--prerelease` flag on GitHub and repository releases.
 
@@ -137,25 +137,25 @@ bilingual, Chinese first: the release page is what most users read.
 
 **中文**
 
-- **通道故障自动降级 (Auto Failover)**：当被指派的网络通道离线、断开连接或丢失默认网关时，其绑定的应用会自动即时回退至系统默认网络，避免应用陷入无网死锁。
-- **主动外网连通性校验 (204 探针)**：通道建立或恢复时，可选通过该通道向极轻量 204 探针发起无数据体请求，精准识别欠费、断网 Wi-Fi 或待认证门户（Captive Portal）；纯内网环境可一键关闭。
-- **网络恢复/切换防抖延迟**：统一通道恢复回切与情景策略重新激活的防抖时间窗口（支持 1s / 2s / 3s / 5s / 8s 可选，默认 3s），等待链路稳定与 DHCP 握手完成，杜绝边缘弱信号区的频繁颠簸与连接横跳。
+- **通道故障自动降级**：当被指派的网络通道离线、断开连接或丢失默认网关时，应用流量回退至系统默认网络。
+- **外网连通性校验**：通道建立或恢复时，可选通过 HTTP 204 探针检查外网是否可达；纯内网环境可关闭。
+- **网络恢复与切换延迟**：通道恢复和场景切换共用防抖时间设置（支持 1s / 2s / 3s / 5s / 8s，默认 3s），等待链路稳定，减少弱信号下的频繁切换。
 - **安全加固 (Security Hardening)**：
   - 严格限制开机与动态恢复广播的接收权限（`signature` 签名级别防护），阻断未授权应用假借恢复之名滥发广播。
   - 收紧规则持久化缓存与诊断日志文件权限（仅属主读写 `0600` / 内部私有存储 `MODE_PRIVATE`）。
   - 设置页显式提供「DNS 随指派通道解析」启闭开关，便于与全局加密 DNS (DoT / DoH) 灵活共存。
-- **界面体验精简**：设置页全面优化视觉呼吸感，剔除各卡片多余堆叠的二级提示小字，将关键限制与功耗提示提炼融入单行描述，交互更加清爽直观。
+- **设置页调整**：减少重复提示，将使用限制与功耗说明合并到对应设置描述中。
 
 **English**
 
-- **Auto Failover on Channel Outage:** When an assigned channel disconnects, drops offline, or loses its default route, bound apps automatically fall back to the system default network immediately to prevent network dropouts.
-- **Active Internet Connectivity Validation (204 Probe):** Optionally validates real internet connectivity upon channel connection or recovery via lightweight HTTP 204 probes (0-byte body) to accurately detect captive portals or offline Wi-Fi (can be disabled for pure LAN environments).
-- **Unified Network Recovery Hold-off Delay:** Synchronizes anti-flapping debounce delay across channel failover recovery and contextual scenario activation (selectable: 1s / 2s / 3s / 5s / 8s, default: 3s) to prevent route flapping at weak signal boundaries.
+- **Auto Failover on Channel Outage:** Fall back to the system default network when an assigned channel disconnects, goes offline or loses its default route.
+- **Internet Connectivity Validation:** Optionally check Internet access with an HTTP 204 probe when a channel connects or recovers. This can be disabled for local-only networks.
+- **Network Recovery and Switching Delay:** Share a hold-off setting between channel recovery and scenario changes (1s / 2s / 3s / 5s / 8s, default 3s) to wait for stable links and reduce repeated switching on weak signals.
 - **Security Hardening:**
   - Enforced `signature`-level permission guards on boot and dynamic restoration broadcast receivers to prevent unauthorized spoofing.
   - Hardened file permissions on rule cache and diagnostic logs (`0600` / `MODE_PRIVATE`).
   - Added toggle in Settings for transparent per-channel DNS redirection.
-- **Streamlined Settings UI:** Cleaned up redundant secondary note captions and refined descriptions into clear, concise single-line headers.
+- **Settings UI:** Remove repeated hints and include usage limits and power information in the corresponding setting descriptions.
 
 ## v1.2.3
 
@@ -334,7 +334,7 @@ bilingual, Chinese first: the release page is what most users read.
 - **开机自动恢复**：生成的 `service.d` 脚本、模块的唤醒广播、应用自身的网络回调三重互补；重启后设备仍处于
   锁屏状态时，root 脚本是唯一能恢复规则的路径。
 - **`system_server` 内的 hook**：让应用可见的网络状态与指派保持一致，并在小米 ROM 上让副 WLAN 链路在息屏后保持在线。
-- **精准模块状态**：明确区分「已激活 / hook 缺失 / `system_server` 是旧构建（需重启）/ 状态记录过期」。
+- **模块状态**：区分「已激活 / hook 缺失 / `system_server` 是旧构建（需重启）/ 状态记录过期」。
 - **出口诊断**：按通道做公网出口 IP 探测，内置 HTTPS 预设并支持自定义地址。
 - 首次发布。
 
@@ -352,7 +352,7 @@ bilingual, Chinese first: the release page is what most users read.
   still locked.
 - **Hooks inside `system_server`** keep the app-visible network state consistent with the assignment, and
   keep the secondary Wi-Fi link alive across screen-off on Xiaomi ROMs.
-- **Precise module status** — reports activated / hooks missing / outdated `system_server` build (needs a
+- **Module status** — reports activated / hooks missing / outdated `system_server` build (needs a
   reboot) / stale record instead of a single vague flag.
 - **Egress diagnostics** — per-channel public-IP probe with HTTPS presets or a custom endpoint.
 - Initial release.
