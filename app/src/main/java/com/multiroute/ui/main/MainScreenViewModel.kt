@@ -290,9 +290,27 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
             return
         }
+        val targetChannel = _uiState.value.channels.firstOrNull { it.id == channelId }
+        val rawKeys = _uiState.value.selectedRuleKeys
+        val keys = if (targetChannel?.isVpn == true) {
+            rawKeys.filter { key ->
+                val app = allApps.firstOrNull { it.ruleKey == key }
+                if (app == null) true
+                else !(
+                    (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
+                    app.packageName.contains("clash", ignoreCase = true) ||
+                    app.packageName.contains("v2ray", ignoreCase = true) ||
+                    app.packageName.contains("wireguard", ignoreCase = true) ||
+                    app.packageName.contains("singbox", ignoreCase = true) ||
+                    app.packageName.contains("nekobox", ignoreCase = true) ||
+                    app.packageName.contains("shadowsocks", ignoreCase = true)
+                )
+            }.toSet()
+        } else {
+            rawKeys
+        }
         // Selection is keyed by rule key (`pkg` or `pkg@userId`), so a clone-space install and the
         // primary install of the same package can be assigned independently.
-        val keys = _uiState.value.selectedRuleKeys
         if (keys.isEmpty()) return
 
         // While a plan is being edited the selection lands in that plan instead of the base configuration -
@@ -956,6 +974,21 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
             return
         }
+        val targetChannel = _uiState.value.channels.firstOrNull { it.id == channelId }
+        if (targetChannel?.isVpn == true && (
+            (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
+            app.packageName.contains("clash", ignoreCase = true) ||
+            app.packageName.contains("v2ray", ignoreCase = true) ||
+            app.packageName.contains("wireguard", ignoreCase = true) ||
+            app.packageName.contains("singbox", ignoreCase = true) ||
+            app.packageName.contains("nekobox", ignoreCase = true) ||
+            app.packageName.contains("shadowsocks", ignoreCase = true)
+        )) {
+            _uiState.value = _uiState.value.copy(
+                snackBarMessage = getApplication<Application>().getString(com.multiroute.R.string.channel_vpn_self_forbidden)
+            )
+            return
+        }
         val context = getApplication<Application>()
 
         // Same rule as the batch path: while editing a plan, a single assignment belongs to that plan.
@@ -1158,7 +1191,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun setHotspotUpstream(target: String) {
-        com.multiroute.wifi.DualWifiManager.setHotspotUpstream(target)
+        viewModelScope.launch {
+            com.multiroute.wifi.DualWifiManager.setHotspotUpstream(target)
+        }
     }
 
     fun openHotspotSettings() {

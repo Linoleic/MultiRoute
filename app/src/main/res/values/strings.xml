@@ -178,6 +178,15 @@
     <string name="channel_hotspot_downlink_note">热点局域网网关（下行服务，不测公网）</string>
     <string name="channel_hotspot_routing_forbidden">热点下行通道为下挂设备提供网关服务，不可用于本机应用分流</string>
     <string name="ui_hotspot_gateway_ip">热点网关 IP: %1$s</string>
+    <string name="channel_vpn_short">VPN (%1$s)</string>
+    <string name="channel_badge_vpn">虚拟隧道</string>
+    <string name="channel_vpn_underlying">承载网络: %1$s</string>
+    <string name="channel_vpn_creator">创建应用: %1$s</string>
+    <string name="ui_vpn_creator_label">创建应用</string>
+    <string name="channel_vpn_self_forbidden">防止回环死锁：VPN自身不可分配给该隧道</string>
+    <string name="ui_vpn_tunnel_ip">隧道内网 IP: %1$s</string>
+    <string name="ui_vpn_tunnel_ip_label">隧道内网 IP</string>
+    <string name="ui_vpn_underlying">底层承载网络</string>
     <string name="channel_iface_type">接口: %1$s · 类型: %2$s</string>
     <string name="egress_err_empty">返回内容为空</string>
     <string name="egress_err_iface_offline">接口离线</string>
@@ -219,7 +228,7 @@
     <string name="module_status_outdated">已加载旧版本 (需软重启 system_server)</string>
     <string name="module_status_legacy">已加载 (旧版状态协议，hook 状态无法校验)</string>
     <string name="module_status_stale">状态记录已过期</string>
-    <string name="module_status_not_active">未激活 (请在 LSPosed 中启用并勾选系统框架作用域)</string>
+    <string name="module_status_not_active">未激活 (请在 LSPosed 中启用并勾选模块作用域)</string>
     <string name="diag_rule_not_effective">未生效（内核里没有该 UID 的规则）</string>
     <string name="diag_rule_effective">已生效</string>
     <string name="diag_rule_effective_table">已生效（内核表名为 %1$s）</string>
@@ -357,6 +366,7 @@
     <string name="dual_wifi_primary_label">主 Wi-Fi 通道 (系统默认)</string>
     <string name="dual_wifi_secondary_label">副 Wi-Fi 通道 (并发接口)</string>
     <string name="dual_wifi_not_connected">未连接</string>
+    <string name="dual_wifi_saved_network_required">当前方案仅支持已保存网络，请先在系统 Wi-Fi 设置中保存该网络，再返回连接。</string>
     <string name="dual_wifi_disconnect">断开副 Wi-Fi</string>
     <string name="dual_wifi_scan_title">附近可用 Wi-Fi</string>
     <string name="dual_wifi_scan_btn">扫描 Wi-Fi</string>
@@ -431,8 +441,13 @@
     <string name="dual_wifi_hotspot_upstream_cellular">蜂窝网络</string>
     <string name="dual_wifi_hotspot_upstream_secondary">副 Wi-Fi</string>
     <string name="dual_wifi_hotspot_upstream_active">实时生效：%1$s</string>
-    <string name="dual_wifi_hotspot_upstream_bpf">eBPF 硬件加速中</string>
+    <string name="dual_wifi_hotspot_upstream_hook_loaded">上行 Hook 已加载</string>
+    <string name="dual_wifi_hotspot_upstream_hook_old">上行模块版本与应用不一致，请重启设备后确认。</string>
+    <string name="dual_wifi_hotspot_upstream_hook_unknown">无法确认上行模块状态。</string>
+    <string name="dual_wifi_hotspot_upstream_switching">正在更新出口设置…</string>
+    <string name="dual_wifi_hotspot_upstream_update_failed">出口设置未完整写入，请重试并检查 Root 授权。</string>
+    <string name="dual_wifi_hotspot_upstream_waiting">指定出口暂未生效，当前使用上方显示的系统实际出口。</string>
     <string name="dual_wifi_hotspot_upstream_native">原生协议栈转发</string>
-    <string name="dual_wifi_hotspot_upstream_hook_warning">未检测到 NetworkStack Hook 探针，请在 LSPosed 作用域中勾选网络栈 APEX</string>
+    <string name="dual_wifi_hotspot_upstream_hook_warning">未检测到当前版本的上行 Hook 信标，请确认 LSPosed 作用域并重启设备应用更新。</string>
     <string name="dual_wifi_hotspot_upstream_sec_disconnected">副 Wi-Fi (未连接)</string>
 </resources>

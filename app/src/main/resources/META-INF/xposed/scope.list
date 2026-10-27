@@ -1,1 +1,5 @@
 system
+com.android.networkstack.tethering
+com.google.android.networkstack.tethering
+com.android.networkstack
+com.google.android.networkstack

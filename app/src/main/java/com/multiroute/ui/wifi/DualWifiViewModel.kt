@@ -23,6 +23,7 @@ data class DualWifiUiState(
 )
 
 class DualWifiViewModel(application: Application) : AndroidViewModel(application) {
+    private var selectionGeneration = 0L
 
     val status: StateFlow<DualWifiStatus> = DualWifiManager.status
 
@@ -86,18 +87,29 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onSelectScanItem(item: WifiScanItem) {
-        if (item.isSaved || !item.isSecure) {
-            connectSecondary(item, item.savedPassword)
-        } else {
-            _uiState.update { it.copy(pendingPasswordItem = item) }
+        val selection = ++selectionGeneration
+        viewModelScope.launch {
+            val allowed = DualWifiManager.canConnectSecondaryNetwork(getApplication(), item.ssid)
+            if (selection != selectionGeneration) return@launch
+            if (!allowed) {
+                _uiState.update { it.copy(infoMessage = getApplication<Application>().getString(com.multiroute.R.string.dual_wifi_saved_network_required)) }
+                return@launch
+            }
+            if (item.isSaved || !item.isSecure) {
+                connectSecondary(item, item.savedPassword)
+            } else {
+                _uiState.update { it.copy(pendingPasswordItem = item) }
+            }
         }
     }
 
     fun dismissPasswordDialog() {
+        selectionGeneration++
         _uiState.update { it.copy(pendingPasswordItem = null) }
     }
 
     fun connectSecondary(item: WifiScanItem, password: String?) {
+        selectionGeneration++
         _uiState.update { it.copy(pendingPasswordItem = null) }
         DualWifiManager.connectSecondaryWifiAsync(
             context = getApplication(),
@@ -110,8 +122,9 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun disconnectSecondary() {
+        selectionGeneration++
+        DualWifiManager.disconnectSecondaryWifi(getApplication())
         viewModelScope.launch {
-            DualWifiManager.disconnectSecondaryWifi(getApplication())
             kotlinx.coroutines.delay(600)
             scanNetworks()
         }
@@ -144,7 +157,8 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setHotspotUpstream(target: String) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // Register requests in click order; the manager switches the blocking work to IO.
+        viewModelScope.launch {
             DualWifiManager.setHotspotUpstream(target)
         }
     }

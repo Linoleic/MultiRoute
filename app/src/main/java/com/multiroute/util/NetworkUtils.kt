@@ -203,6 +203,43 @@ object NetworkUtils {
     }
 
     /**
+     * Detailed information about a connected VPN interface.
+     */
+    data class VpnConnectionDetails(
+        val ownerUid: Int = -1,
+        val underlyingIface: String? = null
+    )
+
+    /**
+     * Resolves active VPN connection details (ownerUid, underlying network interface) from dumpsys connectivity.
+     */
+    fun getVpnDetailsFromDumpsys(): Map<String, VpnConnectionDetails> {
+        val result = mutableMapOf<String, VpnConnectionDetails>()
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "dumpsys connectivity"))
+            val text = process.inputStream.bufferedReader().use { it.readText() }
+            process.errorStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+
+            val netIdToIface = mutableMapOf<String, String>()
+            val netRegex = Regex("""NetworkAgentInfo\{network\{(\d+)\}.*?lp\{\{InterfaceName:\s*([a-zA-Z0-9_.-]+)""", RegexOption.DOT_MATCHES_ALL)
+            netRegex.findAll(text).forEach { m ->
+                netIdToIface[m.groupValues[1]] = m.groupValues[2]
+            }
+
+            val vpnRegex = Regex("""NetworkAgentInfo\{network\{(\d+)\}.*?ni\{VPN.*?lp\{\{InterfaceName:\s*([a-zA-Z0-9_.-]+).*?nc\{.*?OwnerUid:\s*(\d+).*?UnderlyingNetworks:\s*(?:\[(\d+)\]|Null)""", RegexOption.DOT_MATCHES_ALL)
+            vpnRegex.findAll(text).forEach { m ->
+                val vpnIface = m.groupValues[2]
+                val ownerUid = m.groupValues[3].toIntOrNull() ?: -1
+                val underlyingNetId = m.groupValues.getOrNull(4)
+                val underlyingIface = if (!underlyingNetId.isNullOrEmpty()) netIdToIface[underlyingNetId] else null
+                result[vpnIface] = VpnConnectionDetails(ownerUid = ownerUid, underlyingIface = underlyingIface)
+            }
+        } catch (_: Exception) {}
+        return result
+    }
+
+    /**
      * Dynamically discovers all active network channels present on the device
      * (WLAN0, WLAN1, Cellular 5G/4G, Ethernet, USB tethering, VPN, etc.).
      */
@@ -220,6 +257,21 @@ object NetworkUtils {
             if (iface.isEmpty() || iface == "lo" || iface.startsWith("dummy") || iface.startsWith("ifb")) continue
 
             val isHotspot = isHotspotNetwork(iface, caps, hotspotInfo)
+            val isVpn = !isHotspot && (
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                iface.startsWith("tun") || iface.startsWith("wg") || iface.startsWith("ppp") || iface.startsWith("tap")
+            )
+            val directOwnerUid = if (isVpn) runCatching { caps.ownerUid }.getOrDefault(-1) else -1
+            val directUnderlyingIface = if (isVpn) {
+                runCatching {
+                    val method = caps.javaClass.getMethod("getUnderlyingNetworks")
+                    @Suppress("UNCHECKED_CAST")
+                    val list = method.invoke(caps) as? List<Network>
+                    list?.firstOrNull()?.let { underlyingNet ->
+                        cm.getLinkProperties(underlyingNet)?.interfaceName
+                    }
+                }.getOrNull()
+            } else null
 
             val transportType: String
             val shortName: String
@@ -231,6 +283,10 @@ object NetworkUtils {
                     transportType = "hotspot"
                     wifiFrequency = hotspotInfo?.frequencyMhz ?: 0
                     shortName = context.getString(com.multiroute.R.string.channel_hotspot_short, iface)
+                }
+                isVpn -> {
+                    transportType = "vpn"
+                    shortName = context.getString(com.multiroute.R.string.channel_vpn_short, iface)
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
                     transportType = "WLAN"
@@ -250,10 +306,6 @@ object NetworkUtils {
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> {
                     transportType = "ethernet"
-                    shortName = iface
-                }
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
-                    transportType = "vpn"
                     shortName = iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> {
@@ -299,7 +351,10 @@ object NetworkUtils {
                     isMetered = isMetered,
                     isDefault = isDefault,
                     isValidated = isValidated,
-                    isHotspot = isHotspot
+                    isHotspot = isHotspot,
+                    isVpn = isVpn,
+                    vpnOwnerUid = directOwnerUid,
+                    underlyingIface = directUnderlyingIface
                 )
             )
         }
@@ -317,10 +372,26 @@ object NetworkUtils {
             }
         }
 
-        // Sort: default network first, then non-hotspot uplinks, then hotspot downlink, then by interface
+        // Fill missing VPN details (ownerUid and underlyingIface) from dumpsys connectivity if needed
+        if (result.any { it.isVpn && (it.vpnOwnerUid <= 0 || it.underlyingIface == null) }) {
+            val vpnMap = getVpnDetailsFromDumpsys()
+            for (i in result.indices) {
+                val ch = result[i]
+                if (ch.isVpn) {
+                    val details = vpnMap[ch.interfaceName] ?: continue
+                    result[i] = ch.copy(
+                        vpnOwnerUid = if (ch.vpnOwnerUid > 0) ch.vpnOwnerUid else details.ownerUid,
+                        underlyingIface = ch.underlyingIface ?: details.underlyingIface
+                    )
+                }
+            }
+        }
+
+        // Sort: default network first, then non-hotspot uplinks, then VPN tunnels, then hotspot downlink, then by interface
         result.sortWith(
             compareByDescending<NetworkChannel> { it.isDefault }
                 .thenBy { it.isHotspot }
+                .thenBy { it.isVpn }
                 .thenBy { it.transportType }
                 .thenBy { it.interfaceName }
         )

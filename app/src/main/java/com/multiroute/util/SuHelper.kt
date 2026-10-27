@@ -298,12 +298,11 @@ object SuHelper {
      *
      * The script no longer replays a static snapshot: `service.d` runs during `late_start`, before
      * Wi-Fi/cellular routing tables exist, so it first waits for those tables to appear, applies the
-     * rules, then keeps re-applying whenever a channel's readiness changes. That keeps recovery
-     * working even when the OEM blocks background broadcasts, and leaves a trace in
-     * [RouteRuleBuilder.BOOT_LOG_PATH].
+     * rules once, or exits after a bounded wait. Later link changes are handled by the app and module.
+     * The result is recorded in [RouteRuleBuilder.BOOT_LOG_PATH].
      */
-    fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>) {
-        try {
+    fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>): Boolean {
+        return try {
             val scriptContent = RouteRuleBuilder.buildBootRestoreScript(applyScript, interfaces)
 
             val cmd = "mkdir -p /data/adb/service.d /data/adb/multiroute && " +
@@ -312,11 +311,14 @@ object SuHelper {
                     "MCROUTE_EOF\n" +
                     "chmod 755 /data/adb/service.d/00-multiroute-restore.sh"
 
-            if (!executeCommand(cmd)) {
+            val success = executeCommand(cmd)
+            if (!success) {
                 Log.w(TAG, "Boot restore script deployment returned a non-zero exit code")
             }
+            success
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to update boot restore script: ${t.message}")
+            false
         }
     }
 
@@ -528,6 +530,22 @@ object SuHelper {
             // Downlink hotspot / SoftAP interfaces cannot be used as egress routes for local apps
             if ((hotspotIface != null && channelId == hotspotIface) || channelId.startsWith("swlan") || channelId.startsWith("ap")) continue
 
+            // Prevent anti-loopback: VPN client apps must not route into VPN tunnels
+            if (channelId.startsWith("tun") || channelId.startsWith("wg") || channelId.startsWith("ppp")) {
+                val pkgName = runCatching { context.packageManager.getPackagesForUid(uid)?.firstOrNull() }.getOrNull()
+                if (pkgName != null && (
+                    pkgName.contains("clash", ignoreCase = true) ||
+                    pkgName.contains("v2ray", ignoreCase = true) ||
+                    pkgName.contains("wireguard", ignoreCase = true) ||
+                    pkgName.contains("singbox", ignoreCase = true) ||
+                    pkgName.contains("nekobox", ignoreCase = true) ||
+                    pkgName.contains("shadowsocks", ignoreCase = true)
+                )) {
+                    Log.w(TAG, "Skipping UID $uid ($pkgName) on VPN channel $channelId to prevent routing loopback")
+                    continue
+                }
+            }
+
             channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
             if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {
                 cellularUids.add(uid)
@@ -634,21 +652,22 @@ object SuHelper {
 
         // 5. Deploy / update Magisk/KernelSU boot-time service.d restore script
         if (success) {
+            // Even when every target is offline, replace the previous script with current intent.
+            // Otherwise changing wlan0 -> an offline channel leaves wlan0 in the next boot's script.
+            // Keep the established partial-online behavior: restore the usable subset at boot.
+            val bootChannels = activeChannelMap.ifEmpty { channelToUidsMap }
+            val bootScript = RouteRuleBuilder.buildFullSyncScript(bootChannels, connectedPrefixes)
+            val bootSaved = updateBootRestoreScript(bootScript, bootChannels.keys)
             if (activeChannelMap.isEmpty()) {
-                // Every configured channel is unusable right now. The kernel rules were just cleared
-                // (they would have been inert anyway), but the boot script is kept untouched: it is the
-                // only place that still carries the user's intent and it re-applies everything on the
-                // next boot. The hook cache is emptied so the app-visible state matches the kernel.
                 updateRuleCache(emptyMap())
-                Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script preserved")
+                Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script updated with current targets")
             } else {
                 // The boot script deliberately carries no DNS resolvers: they can change between boots
                 // (different network), and a stale one would break resolution. It flushes the NAT chain
                 // instead, and the app re-applies the redirect with fresh resolvers once it runs.
-                val bootScript = RouteRuleBuilder.buildFullSyncScript(activeChannelMap, connectedPrefixes)
-                updateBootRestoreScript(bootScript, activeChannelMap.keys)
                 updateRuleCache(activeChannelMap)
             }
+            return bootSaved
         }
 
         return success
@@ -1131,7 +1150,7 @@ object SuHelper {
     /**
      * Executes a command as root with safety timeout and drained buffer to avoid deadlocks.
      */
-    fun executeCommand(cmd: String, timeoutSeconds: Long = 5): Boolean {
+    fun executeCommand(cmd: String, timeoutSeconds: Long = 5, sensitive: Boolean = false): Boolean {
         return try {
             val pb = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true)
             val process = pb.start()
@@ -1142,14 +1161,14 @@ object SuHelper {
             val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
             if (!finished) {
                 process.destroyForcibly()
-                Log.e(TAG, "Command timed out after ${timeoutSeconds}s: $cmd")
+                Log.e(TAG, "Command timed out after ${timeoutSeconds}s: ${if (sensitive) "[credentials omitted]" else cmd}")
                 false
             } else {
                 drainThread.join(500)
                 process.exitValue() == 0
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to exec: $cmd", e)
+            Log.e(TAG, "Failed to exec: ${if (sensitive) "[credentials omitted]" else cmd}", e)
             false
         }
     }
@@ -1157,9 +1176,14 @@ object SuHelper {
     /**
      * Executes a shell command as root and reads all output lines safely with timeout.
      */
-    fun executeShellWithOutput(cmd: String, timeoutSeconds: Long = 5): List<String> {
+    fun executeShellWithOutput(
+        cmd: String,
+        timeoutSeconds: Long = 5,
+        globalMountNamespace: Boolean = false
+    ): List<String> {
         return try {
-            val pb = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true)
+            val args = if (globalMountNamespace) listOf("su", "-M", "-c", cmd) else listOf("su", "-c", cmd)
+            val pb = ProcessBuilder(args).redirectErrorStream(true)
             val process = pb.start()
             val lines = mutableListOf<String>()
             val readThread = Thread {
@@ -1186,7 +1210,6 @@ object SuHelper {
     }
 
     private const val SETTING_HOTSPOT_UPSTREAM = "multiroute_hotspot_upstream"
-    private const val SETTING_HOTSPOT_STATUS = "multiroute_hotspot_status"
     private const val ACTION_UPDATE_HOTSPOT_UPSTREAM = "com.multiroute.ACTION_UPDATE_HOTSPOT_UPSTREAM"
 
     /**
@@ -1194,15 +1217,16 @@ object SuHelper {
      * @param target Interface name (e.g. "wlan1", "rmnet_data3") or "cellular", or "default" to clear.
      */
     fun setHotspotUpstream(target: String): Boolean {
-        val cleanTarget = target.trim()
+        val cleanTarget = HotspotUpstreamPolicy.normalize(target)
+        if (!cleanTarget.matches(Regex("[a-zA-Z0-9_.:-]+"))) return false
         val cmd = if (cleanTarget.isEmpty() || cleanTarget.equals("default", ignoreCase = true)) {
-            "settings put global $SETTING_HOTSPOT_UPSTREAM default; setprop persist.multiroute.hotspot_upstream ''"
+            "settings put global $SETTING_HOTSPOT_UPSTREAM default && setprop persist.multiroute.hotspot_upstream ''"
         } else {
-            "settings put global $SETTING_HOTSPOT_UPSTREAM '$cleanTarget'; setprop persist.multiroute.hotspot_upstream '$cleanTarget'"
+            "settings put global $SETTING_HOTSPOT_UPSTREAM '$cleanTarget' && setprop persist.multiroute.hotspot_upstream '$cleanTarget'"
         }
         val success = executeCommand(cmd)
         // Trigger live re-evaluation in NetworkStack process
-        executeCommand("am broadcast -a $ACTION_UPDATE_HOTSPOT_UPSTREAM")
+        if (success) executeCommand("am broadcast -a $ACTION_UPDATE_HOTSPOT_UPSTREAM")
         return success
     }
 
@@ -1229,16 +1253,41 @@ object SuHelper {
     /**
      * Reads the tethering hook status beacon written by com.android.networkstack.process.
      */
-    fun getHotspotHookStatus(): String {
-        // 1. Try reading the status beacon written by NetworkStack process
-        val lines = executeShellWithOutput("cat /data/user/0/com.android.networkstack.tethering/cache/multiroute_hotspot_status 2>/dev/null")
-        val beacon = lines.firstOrNull()?.trim()
-        if (!beacon.isNullOrEmpty() && beacon.startsWith("v=1;")) {
-            return beacon
+    fun getHotspotHookStatus(): HotspotHookState {
+        // Query each package's real dataDir (DE on the Xiaomi test device), with CE/DE fallbacks.
+        // The process identity travels with each candidate; a dumpsys result is never load evidence.
+        val output = executeShellWithOutput("""
+            for pkg in com.android.networkstack.tethering com.google.android.networkstack.tethering; do
+              dir=${'$'}(/system/bin/dumpsys package "${'$'}pkg" 2>/dev/null | /system/bin/sed -n 's/^[[:space:]]*dataDir=//p' | /system/bin/head -n 1)
+              for base in "${'$'}dir" "/data/user_de/0/${'$'}pkg" "/data/user/0/${'$'}pkg"; do
+                [ -n "${'$'}base" ] || continue
+                file="${'$'}base/cache/${HotspotHookStateParser.FILE_NAME}"
+                [ -r "${'$'}file" ] || continue
+                beacon=${'$'}(/system/bin/cat "${'$'}file")
+                pid=${'$'}(printf '%s' "${'$'}beacon" | /system/bin/sed -n 's/.*;pid=\([0-9][0-9]*\);.*/\1/p')
+                case "${'$'}pid" in ''|*[!0-9]*) continue;; esac
+                cmd=${'$'}(/system/bin/cat "/proc/${'$'}pid/cmdline" 2>/dev/null | /system/bin/tr '\000' ' ')
+                case "${'$'}cmd" in com.android.networkstack*|com.google.android.networkstack*) ;;
+                  *) continue;; esac
+                echo "BEACON=${'$'}beacon"
+                echo "PID=${'$'}pid"
+                echo "STAT=${'$'}(/system/bin/cat /proc/${'$'}pid/stat 2>/dev/null)"
+              done
+            done
+            echo "LIVE=${'$'}(/system/bin/pidof com.android.networkstack.process com.google.android.networkstack.process)"
+        """.trimIndent(), timeoutSeconds = 5, globalMountNamespace = true)
+        var mismatch = false
+        output.indices.filter { output[it].startsWith("BEACON=") }.forEach { index ->
+            val pid = output.getOrNull(index + 1)?.removePrefix("PID=")?.toIntOrNull()
+            val ticks = HotspotHookStateParser.processStartTicks(output.getOrNull(index + 2)?.removePrefix("STAT="))
+            when (val state = HotspotHookStateParser.evaluate(output[index].removePrefix("BEACON="), pid, ticks, BuildConfig.HOTSPOT_HOOK_BUILD_ID)) {
+                HotspotHookState.LOADED -> return state
+                HotspotHookState.VERSION_MISMATCH -> mismatch = true
+                else -> Unit
+            }
         }
-        // 2. Fallback to parsing dumpsys tethering
-        val active = getHotspotActiveUpstream()
-        val target = getHotspotUpstream()
-        return "v=1;source=dumpsys;target=$target;active=$active"
+        if (mismatch) return HotspotHookState.VERSION_MISMATCH
+        return if (output.any { it.startsWith("LIVE=") && it.removePrefix("LIVE=").isNotBlank() })
+            HotspotHookState.NOT_LOADED else HotspotHookState.UNKNOWN
     }
 }

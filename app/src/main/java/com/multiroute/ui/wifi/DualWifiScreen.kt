@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.R
 import com.multiroute.wifi.DualWifiCapability
+import com.multiroute.wifi.DualWifiStatus
 import com.multiroute.wifi.WifiScanItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -120,7 +121,7 @@ fun DualWifiScreen(
             // 2. 软硬件支持状态与参数依据诊断 (合并卡片)
             item {
                 HardwareCapabilityCard(
-                    capability = capability,
+                    status = status,
                     isActivating = uiState.isActivating,
                     onActivateClick = { viewModel.activateDualWifi() },
                     onClearBlocklist = { viewModel.clearBlocklist() }
@@ -422,11 +423,12 @@ fun DualWifiScreen(
 
 @Composable
 private fun HardwareCapabilityCard(
-    capability: DualWifiCapability,
+    status: DualWifiStatus,
     isActivating: Boolean,
     onActivateClick: () -> Unit,
     onClearBlocklist: () -> Unit
 ) {
+    val capability = status.capability
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -552,14 +554,21 @@ private fun HardwareCapabilityCard(
             )
 
             // 5. 副 Wi-Fi 物理层链路
-            val secLinked = capability.secondaryDetails.isNotEmpty() && !capability.secondaryDetails.contains("待机中")
+            val secLinked = status.secondaryConnected
             DiagnosticItemRow(
                 icon = Icons.Default.WifiTethering,
-                title = "副 Wi-Fi (${capability.secondaryIface ?: "wlan1"}) 物理链路",
+                title = "副 Wi-Fi (${status.secondaryIface ?: capability.secondaryIface ?: "wlan1"}) 物理链路",
                 statusText = if (secLinked) "物理链路活跃" else "通道就绪 (待连接)",
                 isOk = secLinked,
                 details = buildList {
-                    add(if (secLinked) "链路参数: ${capability.secondaryDetails}" else "链路参数: 接口空闲，可随时发起连接")
+                    if (secLinked) {
+                        status.secondarySsid?.let { add("网络: $it") }
+                        status.secondaryIp?.let { add("IP: $it") }
+                        if (status.secondaryFreq > 0) add("频率: ${status.secondaryFreq}MHz")
+                        if (status.secondaryRssi < 0) add("信号: ${status.secondaryRssi} dBm")
+                    } else {
+                        add("链路参数: 接口空闲，可随时发起连接")
+                    }
                 }
             )
 

@@ -1,5 +1,6 @@
 import java.io.StringReader
 import java.util.Properties
+import java.security.MessageDigest
 
 plugins {
   alias(libs.plugins.android.application)
@@ -125,6 +126,18 @@ fun getGitBuildId(): String {
     return sha.ifEmpty { "unknown" } + if (dirty) "-dirty" else ""
 }
 
+// Separate source fingerprint: two local builds at the same dirty Git revision can differ.
+val hotspotHookDigest = MessageDigest.getInstance("SHA-256").apply {
+    listOf(
+        "hook/MultiRouteModule.kt", "hook/NetworkAgentRegistry.kt", "hook/TetheringUpstreamController.kt",
+        "util/HotspotUpstreamPolicy.kt", "util/HotspotHookState.kt"
+    ).forEach { relative ->
+        update(relative.toByteArray(Charsets.UTF_8))
+        update(providers.fileContents(layout.projectDirectory.file("src/main/java/com/multiroute/$relative"))
+            .asText.get().toByteArray(Charsets.UTF_8))
+    }
+}.digest().joinToString("") { "%02x".format(it) }.take(16)
+
 android {
     namespace = "com.multiroute"
     compileSdk = 36
@@ -144,6 +157,7 @@ android {
         // loaded inside system_server. Unlike versionCode this also changes for local uncommitted builds,
         // which is what makes "an update has not been applied yet" detectable during development.
         buildConfigField("String", "HOOK_BUILD_ID", "\"${getGitBuildId()}\"")
+        buildConfigField("String", "HOTSPOT_HOOK_BUILD_ID", "\"$hotspotHookDigest\"")
     }
 
     signingConfigs {

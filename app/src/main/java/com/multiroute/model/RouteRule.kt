@@ -22,7 +22,10 @@ data class NetworkChannel(
     val isMetered: Boolean = false,// Whether network is metered
     val isDefault: Boolean = false,
     val isValidated: Boolean = true,
-    val isHotspot: Boolean = false
+    val isHotspot: Boolean = false,
+    val isVpn: Boolean = false,
+    val vpnOwnerUid: Int = -1,
+    val underlyingIface: String? = null
 )
 
 data class AppItem(

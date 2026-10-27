@@ -32,14 +32,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.multiroute.R
 import com.multiroute.wifi.DualWifiStatus
+import com.multiroute.util.HotspotHookState
+import com.multiroute.util.HotspotUpstreamPolicy
 
 /**
  * 个人热点出口与分流卡片 (Hotspot Upstream Steering Card)
  *
  * 作为与“双 Wi-Fi 激活与管理”并列的一级卡片，支持：
  * 1. 实时热点激活状态、工作射频接口与频段展示
- * 2. 毫秒级动态上行出口切换（系统默认 / 蜂窝网络 / 副 Wi-Fi）
- * 3. 实时生效上游出口指示与 eBPF 硬件加速标识
+ * 2. 上行出口切换（系统默认 / 蜂窝网络 / 副 Wi-Fi）
+ * 3. 系统实际出口与当前 Hook 加载状态
  * 4. 热点未开启时的预设上行配置
  */
 @Composable
@@ -132,7 +134,7 @@ fun HotspotUpstreamCard(
                 }
             }
 
-            // 实时生效出口与硬件加速提示（热点开启时展示）
+            // Actual upstream comes from the system; Hook load evidence is a separate signal.
             if (status.isHotspotEnabled && status.hotspotUpstreamActive != "none") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -179,7 +181,7 @@ fun HotspotUpstreamCard(
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
                         ) {
                             Text(
-                                text = stringResource(R.string.dual_wifi_hotspot_upstream_bpf),
+                                text = stringResource(R.string.dual_wifi_hotspot_upstream_hook_loaded),
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -187,6 +189,33 @@ fun HotspotUpstreamCard(
                         }
                     }
                 }
+            }
+
+            if (status.isHotspotSwitching) {
+                Text(stringResource(R.string.dual_wifi_hotspot_upstream_switching), style = MaterialTheme.typography.bodySmall)
+            }
+            if (status.hotspotUpdateFailed) {
+                Text(stringResource(R.string.dual_wifi_hotspot_upstream_update_failed), color = MaterialTheme.colorScheme.error)
+            }
+            if (status.isHotspotEnabled && status.hotspotHookState != HotspotHookState.LOADED) {
+                Text(
+                    stringResource(when (status.hotspotHookState) {
+                        HotspotHookState.VERSION_MISMATCH -> R.string.dual_wifi_hotspot_upstream_hook_old
+                        HotspotHookState.NOT_LOADED -> R.string.dual_wifi_hotspot_upstream_hook_warning
+                        else -> R.string.dual_wifi_hotspot_upstream_hook_unknown
+                    }),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else if (status.isHotspotEnabled && status.hotspotHookState == HotspotHookState.LOADED &&
+                HotspotUpstreamPolicy.normalize(status.hotspotUpstreamTarget) != "default" &&
+                (status.hotspotUpstreamActive == "none" ||
+                    HotspotUpstreamPolicy.normalize(status.hotspotUpstreamTarget).let { target ->
+                        if (target == "cellular") !HotspotUpstreamPolicy.needsCellular(status.hotspotUpstreamActive)
+                        else !target.equals(status.hotspotUpstreamActive, true)
+                    })
+            ) {
+                Text(stringResource(R.string.dual_wifi_hotspot_upstream_waiting), style = MaterialTheme.typography.bodySmall)
             }
 
             // 上行出口单选区域
