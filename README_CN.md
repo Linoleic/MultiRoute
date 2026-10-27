@@ -60,7 +60,7 @@ MultiRoute 结合 Android 框架 hook 与 Linux 策略路由规则实现这些�
 
 3. **个人热点上游选择（Hotspot Upstream Selection）**：
    - 请求 Android Tethering 将个人热点上游选为蜂窝网络、副 Wi-Fi 或系统默认网络。
-   - 上游变更由系统异步重选；转发、NAT、IPv6 和卸载由 Android 管理，具体行为取决于系统。本项目尚未用独立热点客户端完成端到端验证。
+   - 上游变更由系统异步重选；转发、NAT、IPv6 和卸载由 Android 管理，具体行为取决于系统。
 
 ---
 
@@ -89,21 +89,17 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 | Root | KernelSU / Magisk / APatch（操作策略路由表需要 root） |
 | Xposed 框架 | LSPosed（或实现了 LibXposed API 101+ 的框架） |
 | 模块作用域 | 勾选**系统框架**（`system` / `system_server`）与 **Tethering 网络栈**（`com.android.networkstack.tethering` 等，用于热点上游调度） |
-| Android | 已在 HyperOS Android **16** 与 **17** 验证；另在 Pixel 7 Pro 上对 AOSP Android **16** 做了有限的连接生命周期测试。应用 `minSdk` 为 Android 11；其他 Android 版本及设备/ROM 组合尚未验证 |
+| Android | 最低 Android **11**；已验证的设备与功能见下表 |
 
 | Android 版本 | 状态 |
 | :-- | :-- |
-| **Android 17 / HyperOS** | ✅ 已在 Xiaomi HyperOS 手机 + KernelSU + LSPosed v2.2.0 上验证：双 WLAN 与蜂窝并发、IPv4/IPv6 规则、局域网放行、分身分流、开机恢复、模块状态、息屏保活 |
-| **Android 16 / HyperOS** | ✅ 已在 Xiaomi HyperOS 平板 + KernelSU + LSPosed v2.2.0 上验证：双 WLAN 分应用分流（IPv4 + IPv6）、分身独立分流、真实流量出口、软重启后恢复、DNS 改写、模块状态。该平板无蜂窝接口，蜂窝分流未在该设备上验证 |
-| **Android 16 / AOSP（Pixel 7 Pro）** | ✅ 有限验证：通过应用连接系统已保存的加密副 Wi-Fi，确认主 Wi-Fi 保持在线；验证副网 IPv4 HTTPS 出口，并在已安装 Release APK 上检查连接/断开生命周期清理。未测试未保存网络首次设置、IPv6、长时间息屏行为或更广泛的双 Wi-Fi 功能 |
+| **Android 17 / HyperOS（小米 15）** | 已验证双 Wi-Fi、蜂窝并发、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
+| **Android 16 / HyperOS（小米平板）** | 已验证双 Wi-Fi、应用与分身分流、IPv4/IPv6 路由、DNS 改写及规则恢复；设备无蜂窝网络 |
+| **Android 16 / AOSP（Pixel 7 Pro）** | 已验证已保存副 Wi-Fi 的连接、断开与 IPv4 上网；其他功能尚未全面验证 |
 | Android 11 – 15 | ⚠️ **未验证。** |
 | Android 7 – 10 | ❌ APK 要求 Android 11（`minSdk` 30） |
 
-HyperOS 行汇总的是历次构建的验证结果，不代表每项改动均完成全量验收。最新小米 15 回归覆盖
-11 项连接与服务生命周期断言，以及原生副网 IPv4 HTTPS 出口；最新 Pixel 7 Pro 回归覆盖已保存网络入口
-和 10 项生命周期断言。长时间息屏和独立热点客户端流量不在这两轮回归范围内。
-
-详细命令、实测输出和验证记录仅保存在本地，不纳入 Git。上表汇总已验证范围，其余组合仍未验证。
+双 Wi-Fi 与热点功能还取决于硬件、固件和 ROM，不能仅根据 Android 版本判断兼容性。
 
 ---
 
@@ -122,7 +118,7 @@ HyperOS 行汇总的是历次构建的验证结果，不代表每项改动均完
   指派到其他通道时依然可达。
 - **开机规则恢复**：`service.d` 脚本等待目标接口，并尝试应用一次路由规则；后续变化由应用和模块回调处理。此机制恢复路由规则，不会建立副 Wi-Fi 连接；时间取决于接口和 ROM 状态。
 - **自动容灾回退**：被指派链路不可用时，模块可将流量改走系统默认网络，并在链路恢复后重新应用指派；切换时间取决于链路检测与防抖设置。
-- **个人热点上游选择**：请求 Android Tethering 异步重选蜂窝、副 Wi-Fi 或系统默认网络。转发、NAT、IPv6 和卸载由系统管理；尚未通过独立客户端完成端到端验证。
+- **个人热点上游选择**：请求 Android Tethering 异步重选蜂窝、副 Wi-Fi 或系统默认网络。转发、NAT、IPv6 和卸载由系统管理。
 - **热点与 VPN 通道信息**：识别热点下行与 VPN 虚拟接口并展示相关属性。热点下行接口从应用分流和场景目标中排除。VPN 保留为可选目标，分应用选择器会限制 VPN 所属 UID 与识别出的常见 VPN 客户端选择 VPN 通道；实际流量路径受 VPN 策略影响。
 - **内置双 Wi-Fi 助手**：提供多种副 WLAN 连接方案、同名 SSID 跨频段处理与临时网络限制重置。在受支持的 Xiaomi ROM 上会启用尝试维持副网的 hook；效果取决于设备与 ROM。
 - **通道详情**：接口、地址、网关、DNS、MTU、计费状态、SSID，以及 **Wi-Fi 频段与信道**；并可做按通道的公网出口探测（内置预设 + 自定义地址）。
@@ -145,7 +141,7 @@ MultiRoute 内建了**双 Wi-Fi 助手（STA + STA 并发管理）**，结合射
 | 适配方案 | 技术原理 | 适用场景与说明 |
 | :--- | :--- | :--- |
 | **自动 (智能分层适配)**<br>`AUTO` | 优先探测设备制造商、ROM 类型、射频芯片驱动与当前接口，自动调度适用的方案。 | **默认选项**。按设备环境向下兼容。 |
-| **小米 / HyperOS 专用方案**<br>`XIAOMI_SLAVE` | 协同小米 `SlaveWifiService` / `DualStaImpl`，并使用 LSPosed hook 尝试维持副网连接。 | 小米 / Redmi / POCO ROM；行为取决于 ROM，长时间息屏表现尚未全面测试。 |
+| **小米 / HyperOS 专用方案**<br>`XIAOMI_SLAVE` | 协同小米 `SlaveWifiService` / `DualStaImpl`，并使用 LSPosed hook 尝试维持副网连接。 | 小米 / Redmi / POCO ROM；息屏行为取决于设备与 ROM。 |
 | **AOSP Multi-Internet**<br>`AOSP_OVERLAY` | 应用 Overlay 强制启用 Google 的 `config_wifiMultiStaMultiInternetConcurrencyEnabled` 资源，并请求 Multi-Internet 模式 2。 | 面向 AOSP 衍生系统的候选方案；资源名称和行为因 ROM 而异，尚未广泛验证。 |
 | **Root 直连**<br>`ROOT_DIRECT` | 当前激活路径调用 `set-multi-internet-mode 2`。Root 不会绕过 Wi-Fi 硬件或固件的并发限制。 | 仅适用于支持该系统命令和模式的 ROM，尚未广泛验证。 |
 
@@ -155,7 +151,7 @@ AOSP / 通用 Multi-Internet 方案仅连接系统已保存的网络。首次连
 
 * **AOSP Multi-Internet 方案**：该方案要求 Android 13 (API 33) 或更高版本；这不是 MultiRoute 所有功能或连接方案的通用最低版本。
 * **Wi-Fi 并发**：实际能力取决于 Wi-Fi 硬件、固件、系统配置和 ROM。Root 权限不能增加硬件不支持的射频并发能力。
-* **验证范围**：方案表中的 ROM 家族仅为候选，不构成兼容列表。实机检查覆盖上文列出的 Xiaomi HyperOS 手机和平板，以及 Pixel 7 Pro AOSP 的有限回归；其他芯片和 ROM 尚未全面测试。
+* **机型兼容性**：方案表中的 ROM 家族仅供参考，不代表该系列全部机型均可使用；已验证设备见兼容性表。
 
 ### 3. 关键特性与连接注意事项
 
@@ -201,7 +197,7 @@ MultiRoute Hook NetworkStack / Tethering APEX 运行时的 `UpstreamNetworkMonit
   - **专用流量卡分流**：手机使用 Wi-Fi 时，可请求热点使用蜂窝数据；结果仍受系统和运营商策略影响。
 - **异步重选**：目标变化时请求 Tethering 重新选择上游；生效时间和客户端连接取决于 Android 与设备实现。
 - **故障回退与重选**：目标网络变化时模块请求重新选择；实际回退行为取决于 Tethering 可用网络及其策略。
-- **系统管理转发**：转发、NAT、IPv6 和卸载由 Android 管理。Hook 已加载不代表硬件加速已生效；尚无独立热点客户端端到端验证。
+- **系统管理转发**：转发、NAT、IPv6 和卸载由 Android 管理。Hook 已加载不代表硬件加速已生效。
 - **离线预设**：可在热点未开启时设置目标；热点启动时由 Tethering 读取并评估。
 
 ---
@@ -329,7 +325,7 @@ MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账
 - **热点与 VPN 目标**：热点 AP 下行接口（如 `ap0`、`swlan0`）从应用分流和场景目标中排除。VPN 虚拟接口（如 `tun0`）保留为可选目标，分应用选择器会限制 VPN 所属 UID 与识别出的常见 VPN 客户端。这些选择器检查不保证所有导入配置和场景都能避免路由回环；实际效果取决于 VPN 策略。
 - **分身识别依赖 root 包列表**：界面显示数字空间号而非空间名称；仅覆盖"分身空间是真实 Android
   用户"的 ROM。
-- **副 Wi-Fi 与息屏行为**：小米专用 hook 会尝试在受支持的 Xiaomi ROM 上维持副网连接。其他平台由前台服务监控连接并尝试恢复；无法保证硬件或固件在息屏或 Doze 时保持链路。长时间息屏行为尚未全面测试。
+- **副 Wi-Fi 与息屏行为**：小米专用 hook 会尝试在受支持的 Xiaomi ROM 上维持副网连接。其他平台由前台服务监控连接并尝试恢复；无法保证硬件或固件在息屏或 Doze 时保持链路。
 - **蜂窝分流**取决于 ROM 是否遵循 `mobile_data_preferred_uids`。
 - **同一网卡所处频段会在运行中变化**——这正是「Wi-Fi 频段」那一行的用途。
 - **出口探测允许明文 HTTP**：内置预设均为 HTTPS，但自定义地址可能是明文（例如路由器页面

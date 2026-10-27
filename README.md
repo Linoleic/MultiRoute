@@ -61,7 +61,7 @@ MultiRoute combines Android framework hooks with Linux policy-routing rules:
 
 3. **Personal Hotspot Upstream Steering**:
    - Requests that Android Tethering select Cellular, Secondary Wi-Fi, or System Default as the hotspot upstream.
-   - Upstream changes are re-evaluated asynchronously. Forwarding, NAT, IPv6 and offload remain managed by Android; end-to-end behavior depends on the system and has not been verified with an independent hotspot client.
+   - Upstream changes are re-evaluated asynchronously. Forwarding, NAT, IPv6 and offload remain managed by Android; behavior depends on the system.
 
 ---
 
@@ -90,23 +90,17 @@ entry point from the package itself.
 | Root | KernelSU, Magisk or APatch (policy routing tables need root) |
 | Xposed | LSPosed (or another framework implementing LibXposed API 101+) |
 | Module scope | **System framework** (`system` / `system_server`) and **NetworkStack** (`com.android.networkstack.tethering`, etc. for hotspot upstream steering) |
-| Android | Verified on Android **16** and **17** on HyperOS, plus limited Android **16 AOSP** connection-lifecycle testing on Pixel 7 Pro. The app's `minSdk` is Android 11; other Android versions and device/ROM combinations are unverified |
+| Android | Android **11** or later; verified devices and features are listed below |
 
 | Android version | Status |
 | :-- | :-- |
-| **Android 17 / HyperOS** | ✅ Verified on a Xiaomi HyperOS phone with KernelSU and LSPosed v2.2.0: dual Wi-Fi + cellular, IPv4/IPv6 rules, LAN bypass, clone routing, boot recovery, module status, screen-off keep-alive |
-| **Android 16 / HyperOS** | ✅ Verified on a Xiaomi HyperOS tablet with KernelSU and LSPosed v2.2.0: dual Wi-Fi per-app routing (IPv4 + IPv6), clone-space separation, real-traffic egress, recovery after a soft reboot, DNS redirect, module status. The tablet has no cellular interface, so cellular routing was not exercised there |
-| **Android 16 / AOSP (Pixel 7 Pro)** | ✅ Limited verification: connected to a previously saved encrypted secondary Wi-Fi network through the app, confirmed primary Wi-Fi remained online, verified IPv4 HTTPS egress through the secondary link, and exercised connection/disconnection lifecycle cleanup in the installed Release APK. Unsaved-network first-time setup, IPv6, extended screen-off behavior, and broader dual-Wi-Fi coverage were not tested |
+| **Android 17 / HyperOS (Xiaomi 15)** | Verified dual Wi-Fi, concurrent cellular connectivity, app and clone routing, IPv4/IPv6 routing and rule recovery |
+| **Android 16 / HyperOS (Xiaomi tablet)** | Verified dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection and rule recovery; no cellular hardware |
+| **Android 16 / AOSP (Pixel 7 Pro)** | Verified connection, disconnection and IPv4 Internet access through saved secondary Wi-Fi networks; other features are not comprehensively verified |
 | Android 11 – 15 | ⚠️ **Not verified.** |
 | Android 7 – 10 | ❌ The APK requires Android 11 (`minSdk` 30) |
 
-The HyperOS rows summarize checks across earlier builds, rather than a full acceptance test of every change.
-The latest Xiaomi 15 regression covered 11 connection/service lifecycle assertions and native secondary-link
-IPv4 HTTPS egress. The latest Pixel 7 Pro regression covered the saved-network entry and 10 lifecycle
-assertions. Extended screen-off behavior and independent hotspot-client traffic remain outside these regressions.
-
-Detailed command transcripts and verification notes are maintained locally and excluded from Git.
-The table above summarizes verified coverage; other combinations remain unverified.
+Dual Wi-Fi and hotspot support also depend on hardware, firmware and ROM; Android version alone does not establish compatibility.
 
 ---
 
@@ -133,7 +127,7 @@ The table above summarizes verified coverage; other combinations remain unverifi
   (NAS, printers, casting) stay reachable from apps assigned elsewhere.
 - **Boot rule recovery** — a `service.d` script waits for target interfaces and applies routing rules once; app and module callbacks handle later changes. This restores routing rules, not secondary Wi-Fi connections, and timing depends on interface availability and ROM behavior.
 - **Automatic failover** — when an assigned link becomes unavailable, the module can route through the default network and reapply the assignment when the link returns. Timing depends on link detection and the configured hold-off.
-- **Personal Hotspot Upstream Selection** — asks Android Tethering to re-evaluate Cellular, Secondary Wi-Fi, or System Default asynchronously. Forwarding, NAT, IPv6 and offload are system-managed; independent-client end-to-end behavior is not verified.
+- **Personal Hotspot Upstream Selection** — asks Android Tethering to re-evaluate Cellular, Secondary Wi-Fi, or System Default asynchronously. Forwarding, NAT, IPv6 and offload are system-managed.
 - **Hotspot and VPN channel details** — identifies hotspot downlinks and VPN virtual interfaces and displays related properties. Hotspot downlinks are excluded from app-routing and scenario targets. VPN networks remain selectable; app assignment pickers restrict VPN owner UIDs and recognized VPN clients from selecting VPN channels. The actual traffic path depends on the VPN's routing policy.
 - **Built-in Dual Wi-Fi Manager** — manages secondary WLAN connections through available adaptation schemes, with multi-band SSID handling and a temporary network-restriction reset. On supported Xiaomi ROMs it activates hooks intended to maintain the link; results vary by device and ROM.
 - **Channel details** — interface, addresses, gateway, DNS, MTU, metered state, SSID and **Wi-Fi band and
@@ -159,7 +153,7 @@ MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Man
 | Scheme | Mechanism | Target & Notes |
 | :--- | :--- | :--- |
 | **Auto (Tiered Adaptation)**<br>`AUTO` | Automatically inspects manufacturer, ROM type, Wi-Fi chipset driver, and network interfaces to pick an applicable scheme. | **Default option**. Adjusts based on device environment. |
-| **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's `SlaveWifiService` / `DualStaImpl` and uses LSPosed hooks to attempt to keep the secondary link active. | Xiaomi / Redmi / POCO ROMs; behavior depends on the ROM. Extended screen-off behavior is not comprehensively tested. |
+| **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's `SlaveWifiService` / `DualStaImpl` and uses LSPosed hooks to attempt to keep the secondary link active. | Xiaomi / Redmi / POCO ROMs; screen-off behavior depends on the device and ROM. |
 | **AOSP Multi-Internet**<br>`AOSP_OVERLAY` | Applies an overlay that forces Google's `config_wifiMultiStaMultiInternetConcurrencyEnabled` resource and requests Multi-Internet mode 2. | Candidate for AOSP-based systems; overlay resource names and behavior vary by ROM. Not broadly verified. |
 | **Root direct**<br>`ROOT_DIRECT` | Uses the current `set-multi-internet-mode 2` activation path. It does not bypass Wi-Fi hardware or firmware concurrency limits. | Candidate for ROMs where this system command supports the requested mode; not broadly verified. |
 
@@ -169,7 +163,7 @@ AOSP and generic Multi-Internet schemes connect only to networks already saved b
 
 * **AOSP Multi-Internet scheme**: Android 13 (API 33) or later is required for the AOSP mechanism described above. This is not a general minimum for every MultiRoute function or connection scheme.
 * **Wi-Fi concurrency**: behavior depends on the device's Wi-Fi hardware, firmware, system configuration and ROM. Root access alone cannot add unsupported radio concurrency.
-* **Verification scope**: ROM families in the scheme table are candidates, not a compatibility list. Device checks cover the Xiaomi HyperOS phone and tablet listed above and limited Pixel 7 Pro AOSP regressions; other chipsets and ROMs have not been comprehensively tested.
+* **Device compatibility**: ROM families in the scheme table are examples, not a guarantee for every model. See the compatibility table for verified devices.
 
 ### 3. Usage Notes & Troubleshooting
 
@@ -215,7 +209,7 @@ MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` in the Net
   - **Dedicated Mobile Data Tethering**: Request cellular as the hotspot upstream while the host phone uses Wi-Fi, subject to system and carrier policy.
 - **Asynchronous Re-evaluation**: Target changes request a new Tethering upstream selection; timing and client connectivity depend on Android and the device.
 - **Fallback and Reselection**: The module requests reselection when target networks change. Actual fallback behavior depends on Tethering's available networks and policy.
-- **System-managed Forwarding**: Android manages forwarding, NAT, IPv6 and offload. A loaded Hook does not prove hardware acceleration is active; independent hotspot-client end-to-end behavior is not verified.
+- **System-managed Forwarding**: Android manages forwarding, NAT, IPv6 and offload. A loaded Hook does not prove hardware acceleration is active.
 - **Offline Pre-configuration**: Upstream preferences can be configured before turning on the hotspot; Tethering evaluates them when the AP starts.
 
 ---
@@ -366,7 +360,7 @@ MultiRoute has no telemetry, analytics, crash-reporting or advertising backend a
 - **Hotspot and VPN targets**: Hotspot AP interfaces (e.g. `ap0`, `swlan0`) are excluded from App Routing and Scenario target pickers. VPN virtual interfaces (e.g. `tun0`) remain selectable, with restrictions in app assignment pickers for VPN owner UIDs and recognized VPN clients. These picker checks do not guarantee loop prevention for every imported configuration or scenario; results depend on the VPN's policy.
 - **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
   space name; only ROMs whose clone spaces are real Android users are covered.
-- **Secondary Wi-Fi and screen-off behavior**: Xiaomi-specific hooks attempt to keep the secondary link active on supported Xiaomi ROMs. On other platforms the foreground service monitors the connection and attempts recovery; it cannot guarantee that hardware or firmware keeps the link up during screen-off or Doze. Extended screen-off behavior has not been comprehensively tested.
+- **Secondary Wi-Fi and screen-off behavior**: Xiaomi-specific hooks attempt to keep the secondary link active on supported Xiaomi ROMs. On other platforms the foreground service monitors the connection and attempts recovery; it cannot guarantee that hardware or firmware keeps the link up during screen-off or Doze.
 - **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
 - **Which interface sits on which band can change while the app is running** — that is exactly what the
   Wi-Fi band row is for.
