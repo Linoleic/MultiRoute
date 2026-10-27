@@ -198,6 +198,24 @@ object DualWifiManager {
         return empty
     }
 
+    private fun releaseSlaveConnection(context: Context) {
+        val intent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI).apply {
+            setPackage("android")
+            addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
+        }
+        runCatching { context.sendBroadcast(intent) }
+        val apkPath = context.applicationInfo.sourceDir
+        SuHelper.executeCommand("""
+            service call SlaveWifiService 5 2>/dev/null
+            CLASSPATH="$apkPath" app_process / com.multiroute.wifi.SlaveWifiBridge disconnect 2>/dev/null
+        """.trimIndent(), timeoutSeconds = 5)
+    }
+
+    internal fun secondaryServiceGeneration(): Long? = secondaryConnections.monitoringTicket()?.generation
+
+    internal fun isSecondaryServiceCurrent(generation: Long): Boolean =
+        secondaryServiceGeneration() == generation
+
     /**
      * Detects current device ROM / system customization layer.
      * Supports parameter overrides for test simulations.
@@ -1391,7 +1409,9 @@ DUALWIFI_EOF
     ) {
         val ticket = secondaryConnections.connect()
         scope.launch {
-            connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities, ticket)
+            secondaryConnections.withConnection(ticket) {
+                connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities, ticket)
+            }
         }
     }
 
@@ -1412,8 +1432,12 @@ DUALWIFI_EOF
         frequencyMhz: Int,
         bssid: String? = null,
         capabilities: String? = null
-    ): Boolean = connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities,
-        secondaryConnections.connect())
+    ): Boolean {
+        val ticket = secondaryConnections.connect()
+        return secondaryConnections.withConnection(ticket) {
+            connectSecondaryWifi(context, ssid, passphrase, frequencyMhz, bssid, capabilities, ticket)
+        }
+    }
 
     private suspend fun connectSecondaryWifi(
         context: Context,
@@ -1460,6 +1484,7 @@ DUALWIFI_EOF
         }
         var connectionAccepted = false
         var requestChanged = false
+        var slaveRequestStarted = false
         try {
             checkCurrentSecondaryIntent(ticket)
             check(canConnectSecondaryNetwork(context, ssid)) {
@@ -1498,6 +1523,8 @@ DUALWIFI_EOF
                 }
                 val netId = getNetworkIdForSsid(ssid)
                 if (netId != null) {
+                    checkCurrentSecondaryIntent(ticket)
+                    slaveRequestStarted = true
                     Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
                     // 1. Send broadcast to MultiRouteModule in system_server (LSPosed path)
                     val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI).apply {
@@ -1580,7 +1607,7 @@ DUALWIFI_EOF
                             caps = capabilities
                         )
                     }
-                    DualWifiService.start(context, secState.secondarySsid ?: ssid, secState.secondaryIface ?: "wlan1")
+                    DualWifiService.start(context, secState.secondarySsid ?: ssid, secState.secondaryIface ?: "wlan1", ticket.generation)
                     scope.launch {
                         SuHelper.syncAllRouteRules(context)
                     }
@@ -1614,7 +1641,10 @@ DUALWIFI_EOF
             }
             false
         } finally {
-            if (!connectionAccepted && requestChanged) releaseOwnedShellRequest(context)
+            if (!connectionAccepted) {
+                if (requestChanged) releaseOwnedShellRequest(context)
+                if (slaveRequestStarted) releaseSlaveConnection(context)
+            }
         }
       }
     }
@@ -1628,7 +1658,7 @@ DUALWIFI_EOF
      */
     suspend fun autoReconnectSecondary(context: Context): Boolean {
       val ticket = secondaryConnections.retry() ?: return false
-      return withContext(Dispatchers.IO) {
+      return secondaryConnections.withConnection(ticket) { withContext(Dispatchers.IO) {
         if (!com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context)) {
             return@withContext false
         }
@@ -1662,15 +1692,16 @@ DUALWIFI_EOF
         Log.i(TAG, "Auto reconnecting secondary Wi-Fi: $ssid")
         if (!secondaryConnections.isCurrent(ticket)) return@withContext false
         connectSecondaryWifi(context, ssid, pass, freq, bssid, caps, ticket)
-      }
+      } }
     }
 
     /**
      * Disconnects the secondary Wi-Fi network.
      */
-    fun disconnectSecondaryWifi(context: Context, clearSavedPreference: Boolean = true) {
+    fun disconnectSecondaryWifi(context: Context, clearSavedPreference: Boolean = true, expectedGeneration: Long? = null): Boolean {
         // Invalidate an in-flight attempt before waiting for any blocking root operation.
-        val ticket = secondaryConnections.disconnect(suppressReconnect = clearSavedPreference)
+        val ticket = if (expectedGeneration == null) secondaryConnections.disconnect(suppressReconnect = clearSavedPreference)
+            else secondaryConnections.disconnectIfCurrent(SecondaryConnectionCoordinator.Ticket(expectedGeneration)) ?: return false
         scope.launch {
           secondaryConnections.serialized {
             // A later explicit connect may have overtaken this queued disconnect.
@@ -1682,19 +1713,7 @@ DUALWIFI_EOF
             releaseOwnedShellRequest(context)
             val rom = detectRomType()
             if (rom.romType == RomType.XIAOMI_HYPEROS) {
-            // Broadcast disconnect to system_server
-            val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI).apply {
-                setPackage("android")
-                addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
-            }
-            runCatching { context.sendBroadcast(slaveIntent) }
-
-            val apkPath = context.applicationInfo.sourceDir
-            val disconnectScript = """
-                service call SlaveWifiService 5 2>/dev/null
-                CLASSPATH="$apkPath" app_process / com.multiroute.wifi.SlaveWifiBridge disconnect 2>/dev/null
-            """.trimIndent()
-            SuHelper.executeCommand(disconnectScript, timeoutSeconds = 5)
+                releaseSlaveConnection(context)
             }
             delay(500)
             refreshConnectionState(context)
@@ -1707,5 +1726,6 @@ DUALWIFI_EOF
             }
           }
         }
+        return true
     }
 }
