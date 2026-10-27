@@ -155,6 +155,7 @@ MultiRoute includes a built-in **Dual Wi-Fi Assistant (STA + STA Concurrency Man
 | **Generic Root Force Scheme**<br>`ROOT_DIRECT` | Uses Root (UID 0) and `SYSTEM_UID` privileges to register requests directly into the Android Wi-Fi stack, bypassing Framework Overlay requirements and system prompt dialogs. | Works across OPPO/OnePlus (ColorOS), vivo/iQOO (OriginOS), Samsung (One UI), and other custom ROMs. |
 
 AOSP and generic Multi-Internet schemes connect only to networks already saved by the system. Save a new access point in system Wi-Fi settings before connecting; the Xiaomi scheme continues to use its existing mechanism.
+Saved networks use the system configuration without supplying a password in MultiRoute. Unsaved networks offer an action to open system Wi-Fi settings.
 
 ### 2. Hardware & Device Requirements
 

@@ -8,6 +8,21 @@ import org.junit.Test
 
 class DualWifiScanParsingTest {
 
+    @Test fun savedFlagsComeFromSystemConfigurationsWithoutPasswords() {
+        val lines = listOf(
+            "BSSID / Frequency / RSSI / Age / SSID / Flags",
+            "12:34:56:78:9a:bc 2412 -50 1.0 Guest [ESS]",
+            "12:34:56:78:9a:be 5180 -55 1.0 Office [WPA2-EAP-CCMP][ESS]",
+            "12:34:56:78:9a:c0 5260 -60 1.0 Old [WPA2-PSK-CCMP][ESS]"
+        )
+        val results = DualWifiManager.parseScanResultLines(lines,
+            savedPasswords = mapOf("Old" to "stale-password"), savedNetworkSsids = setOf("Guest", "Office"))
+        assertTrue(results.single { it.ssid == "Guest" }.isSaved)
+        assertTrue(results.single { it.ssid == "Office" }.isSaved)
+        assertEquals(null, results.single { it.ssid == "Office" }.savedPassword)
+        assertEquals(false, results.single { it.ssid == "Old" }.isSaved)
+    }
+
     @Test
     fun testXiaomiHyperOsMimoRssiFormat() {
         // Real dump from Xiaomi 15 Pro (HyperOS 2) with Qualcomm FastConnect MIMO per-antenna RSSI

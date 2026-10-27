@@ -47,7 +47,7 @@ fun DualWifiScreen(
     val status = uiState.status
     val capability = status.capability
 
-    var passwordInput by remember { mutableStateOf("") }
+    var passwordInput by remember(uiState.pendingPasswordItem) { mutableStateOf("") }
     var selectedDetailItem by remember { mutableStateOf<WifiScanItem?>(null) }
 
     Scaffold(
@@ -193,24 +193,30 @@ fun DualWifiScreen(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )
                     ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                            Text(
-                                text = msg,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { viewModel.clearInfoMessage() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.needsSystemWifiSettings) Icons.Default.Info else Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Text(
+                                    text = msg,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = { viewModel.clearInfoMessage() }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            if (uiState.needsSystemWifiSettings) {
+                                TextButton(onClick = { viewModel.openSystemWifiSettings() }, modifier = Modifier.align(Alignment.End)) {
+                                    Text(stringResource(R.string.dual_wifi_open_system_wifi))
+                                }
                             }
                         }
                     }
@@ -382,7 +388,7 @@ fun DualWifiScreen(
                     onClick = {
                         val pass = passwordInput
                         passwordInput = ""
-                        viewModel.connectSecondary(item, pass)
+                        viewModel.confirmSecondaryPassword(item, pass)
                     },
                     enabled = passwordInput.isNotEmpty()
                 ) {
@@ -1452,7 +1458,7 @@ private fun WifiDetailBottomSheet(
                 DetailInfoRow(
                     icon = Icons.Default.Key,
                     label = stringResource(R.string.dual_wifi_detail_saved),
-                    value = if (item.isSaved) "已保存网络凭据 (可一键直连)" else "未保存凭据 (需输入密码)"
+                    value = stringResource(if (item.isSaved) R.string.dual_wifi_saved_configuration else R.string.dual_wifi_unsaved_configuration)
                 )
 
                 if (isHotspotEnabled) {

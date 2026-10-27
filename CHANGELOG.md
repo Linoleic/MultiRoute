@@ -29,6 +29,7 @@ bilingual, Chinese first: the release page is what most users read.
 - **双 Wi-Fi 断开行为**：断开操作会使在途连接请求失效，不再重启服务并自动连回。
 - **双 Wi-Fi 连接生命周期**：合并重叠的自动重连，取消或预检查失败后释放连接占位；前台服务与通知校验连接代次，忽略迟到消息；小米连接超时或取消后尝试释放已发起的副网连接。
 - **AOSP 未保存网络提示**：立即提示先在系统 Wi-Fi 设置中保存网络，避免无效请求等待超时。
+- **AOSP 连接入口**：依据系统保存配置识别可直连网络，已保存的加密网络不再索要明文密码；请求仅携带频段及接入点，未保存网络提供系统设置入口。手动选择的连接方案不再被厂商品牌覆盖，切换网络或方案会清除旧密码弹窗。
 - **浅色主题状态栏**：主题变化时同步状态栏图标明暗，修复系统为深色而应用切换为浅色时图标仍为白色、对比不足的问题。
 - **离线目标的开机恢复**：所有指派通道离线时也按最新配置更新恢复脚本，避免修改或导入规则后仍在下次启动重放旧出口；脚本部署失败会返回同步失败。
 - **配置导出与恢复**：不再将副 Wi-Fi 密码等设置误当成应用分流导出；恢复手动模式与全部选中场景。清空分流和导入部分配置保留无关设置；写入前验证并备份，备份失败停止替换，写入失败尝试回滚并报告错误。
@@ -63,6 +64,7 @@ bilingual, Chinese first: the release page is what most users read.
 - **Dual Wi-Fi Disconnect Behavior:** Disconnect invalidates in-flight connection requests instead of restarting the service and reconnecting automatically.
 - **Dual Wi-Fi Connection Lifecycle:** Coalesce overlapping reconnect attempts and release reservations after cancellation or preflight failure. Validate connection generations for service starts and notification actions, and attempt to release Xiaomi secondary connections after timeout or cancellation.
 - **AOSP Unsaved Network Feedback:** Prompt immediately to save the network in system Wi-Fi settings instead of waiting for an ineffective request to time out.
+- **AOSP Connection Entry:** Identify saved configurations independently of extracted passwords and request saved networks by band and access point. Provide a system settings action for unsaved networks, honor manual schemes on vendor devices, and clear stale password dialogs when the selection changes.
 - **Light Theme Status Bar:** Update status bar icon appearance when the app theme changes, fixing white icons on a light background when the system uses dark mode.
 - **Boot Recovery for Offline Targets:** Update the recovery script from current assignments even when every target is offline, preventing stale egress assignments from being replayed at the next boot. Script deployment failures now report a failed sync.
 - **Configuration Export and Restore:** Exclude secondary Wi-Fi passwords and unrelated settings from routing exports; restore manual mode and every selected plan. Clearing routing or importing selected categories preserves other settings. Validate and back up before writing, abort if backup fails, and attempt rollback with an error on write failure.

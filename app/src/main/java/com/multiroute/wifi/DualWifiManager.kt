@@ -587,7 +587,8 @@ DUALWIFI_EOF
             kotlinx.coroutines.delay(1200)
 
             val lines = SuHelper.executeShellWithOutput("cmd wifi list-scan-results 2>/dev/null", timeoutSeconds = 5)
-            val savedPasswords = getSavedWifiPasswords()
+            val savedNetworks = getSavedNetworkIds()
+            val savedPasswords = if (connectionScheme(context) == DualWifiScheme.XIAOMI_SLAVE) getSavedWifiPasswords() else emptyMap()
             val detailsMap = NetworkUtils.getConnectedWifiDetails()
             val primIface = _status.value.capability.primaryIface?.takeIf { it != "wlan1" } ?: "wlan0"
             val secIface = _status.value.capability.secondaryIface?.takeIf { it != primIface } ?: "wlan1"
@@ -620,7 +621,8 @@ DUALWIFI_EOF
                 secondaryBssid = secondaryBssid,
                 secondaryFreq = secondaryFreq,
                 isSecConnected = isSecConnected,
-                frameworkScanResults = frameworkScanResults
+                frameworkScanResults = frameworkScanResults,
+                savedNetworkSsids = savedNetworks.keys
             ).toMutableList()
 
             // Smart Multi-Tiered Sorting:
@@ -664,7 +666,8 @@ DUALWIFI_EOF
         secondaryBssid: String? = null,
         secondaryFreq: Int = 0,
         isSecConnected: Boolean = false,
-        frameworkScanResults: List<android.net.wifi.ScanResult>? = null
+        frameworkScanResults: List<android.net.wifi.ScanResult>? = null,
+        savedNetworkSsids: Set<String> = savedPasswords.keys
     ): List<WifiScanItem> {
         val itemsMap = mutableMapOf<String, WifiScanItem>()
 
@@ -864,7 +867,7 @@ DUALWIFI_EOF
             }
             val dedupKey = "$ssid#$bandKey"
 
-            val isSaved = savedPasswords.containsKey(ssid)
+            val isSaved = ssid in savedNetworkSsids
             val savedPass = savedPasswords[ssid]
 
             val candidate = WifiScanItem(
@@ -1192,15 +1195,30 @@ DUALWIFI_EOF
      * Retrieves the framework network ID for a given SSID from `cmd wifi list-networks`.
      */
     suspend fun getNetworkIdForSsid(ssid: String): Int? = withContext(Dispatchers.IO) {
-        val lines = SuHelper.executeShellWithOutput("cmd wifi list-networks 2>/dev/null", timeoutSeconds = 3)
-        parseNetworkIdFromList(lines, ssid)
+        getSavedNetworkIds()[ssid.trim().trim('"')]
+    }
+
+    private suspend fun getSavedNetworkIds(): Map<String, Int> {
+        val lines = SuHelper.executeShellWithOutput("cmd wifi list-networks", timeoutSeconds = 3)
+        return parseSavedNetworkListing(lines)
+    }
+
+    internal fun parseSavedNetworkListing(lines: List<String>): Map<String, Int> {
+        check(lines.any { it.trim() == "No networks" || Regex("^Network\\s+Id\\s+SSID", RegexOption.IGNORE_CASE).containsMatchIn(it.trim()) }) {
+            "Unable to read system Wi-Fi configurations"
+        }
+        return parseSavedNetworkIds(lines)
     }
 
     /**
      * Parses the network ID for the specified SSID from `cmd wifi list-networks` output lines.
      */
     fun parseNetworkIdFromList(lines: List<String>, targetSsid: String): Int? {
-        val cleanTarget = targetSsid.trim().trim('"')
+        return parseSavedNetworkIds(lines)[targetSsid.trim().trim('"')]
+    }
+
+    internal fun parseSavedNetworkIds(lines: List<String>): Map<String, Int> {
+        val networks = mutableMapOf<String, Int>()
         for (line in lines) {
             val trimmed = line.trim()
             if (trimmed.isEmpty() || trimmed.startsWith("Network Id", ignoreCase = true)) continue
@@ -1209,12 +1227,10 @@ DUALWIFI_EOF
             if (match != null) {
                 val id = match.groupValues[1].toIntOrNull()
                 val netSsid = match.groupValues[2].trim().trim('"')
-                if (id != null && netSsid == cleanTarget) {
-                    return id
-                }
+                if (id != null) networks[netSsid] = id
             }
         }
-        return null
+        return networks
     }
 
     /**
@@ -1415,11 +1431,15 @@ DUALWIFI_EOF
         }
     }
 
-    suspend fun canConnectSecondaryNetwork(context: Context, ssid: String): Boolean = withContext(Dispatchers.IO) {
+    private fun connectionScheme(context: Context): DualWifiScheme {
         val rom = detectRomType()
         val configured = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
-        val usesXiaomi = getEffectiveScheme(configured, rom) == DualWifiScheme.XIAOMI_SLAVE || rom.romType == RomType.XIAOMI_HYPEROS
-        SecondaryNetworkPolicy.canConnect(usesXiaomi) { getNetworkIdForSsid(ssid) }
+        return getEffectiveScheme(configured, rom)
+    }
+
+    internal suspend fun secondaryNetworkEntry(context: Context, item: WifiScanItem): SecondaryNetworkPolicy.Entry = withContext(Dispatchers.IO) {
+        SecondaryNetworkPolicy.entry(connectionScheme(context) == DualWifiScheme.XIAOMI_SLAVE,
+            item.isSecure, !item.savedPassword.isNullOrEmpty()) { getNetworkIdForSsid(item.ssid) }
     }
 
     /**
@@ -1487,9 +1507,18 @@ DUALWIFI_EOF
         var slaveRequestStarted = false
         try {
             checkCurrentSecondaryIntent(ticket)
-            check(canConnectSecondaryNetwork(context, ssid)) {
+            val isXiaomiSlave = connectionScheme(context) == DualWifiScheme.XIAOMI_SLAVE
+            check(SecondaryNetworkPolicy.canConnect(isXiaomiSlave) { getNetworkIdForSsid(ssid) }) {
                 context.getString(com.multiroute.R.string.dual_wifi_saved_network_required)
             }
+            // Resolve and validate the request before releasing the current link.
+            val savedRequest = if (!isXiaomiSlave) {
+                val ap = bssid?.takeIf { it.isNotBlank() } ?: parseScanResultLines(
+                    SuHelper.executeShellWithOutput("cmd wifi list-scan-results 2>/dev/null", timeoutSeconds = 3)
+                ).firstOrNull { it.ssid == ssid && isSameBand(it.frequencyMhz, frequencyMhz) }?.bssid
+                checkNotNull(ap) { context.getString(com.multiroute.R.string.dual_wifi_rescan_required) }
+                WifiShellCommands.savedInternetRequest(ap, frequencyMhz)
+            } else null
             checkCurrentSecondaryIntent(ticket)
             // Only replace requests created by this app; other shell clients retain their requests.
             requestChanged = true
@@ -1505,56 +1534,41 @@ DUALWIFI_EOF
             check(SuHelper.executeCommand(prepScript, timeoutSeconds = 5))
             checkCurrentSecondaryIntent(ticket)
 
-            // 2. Resolve security type: open, owe, wpa2, wpa3, wep
-            val secType = resolveSecurityType(capabilities, passphrase)
-            val passArg = if (secType != "open" && secType != "owe" && !passphrase.isNullOrEmpty()) " " + WifiShellCommands.quote(passphrase) else ""
-
-            val rom = detectRomType()
-            val configuredScheme = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
-            val effectiveScheme = getEffectiveScheme(configuredScheme, rom)
-            val isXiaomiSlave = effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || rom.romType == RomType.XIAOMI_HYPEROS
-
-            var connectedViaSlaveService = false
             if (isXiaomiSlave) {
                 // SlaveWifiService requires a saved netId. Reuse existing configurations untouched.
                 if (getNetworkIdForSsid(ssid) == null) {
+                    val secType = resolveSecurityType(capabilities, passphrase)
+                    val passArg = if (secType != "open" && secType != "owe" && !passphrase.isNullOrEmpty()) " " + WifiShellCommands.quote(passphrase) else ""
                     check(SuHelper.executeCommand("cmd wifi add-network ${WifiShellCommands.quote(ssid)} $secType$passArg -d",
                         timeoutSeconds = 3, sensitive = true))
                 }
                 val netId = getNetworkIdForSsid(ssid)
-                if (netId != null) {
-                    checkCurrentSecondaryIntent(ticket)
-                    slaveRequestStarted = true
-                    Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
-                    // 1. Send broadcast to MultiRouteModule in system_server (LSPosed path)
-                    val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI).apply {
-                        setPackage("android")
-                        putExtra(com.multiroute.util.ModuleStateParser.EXTRA_NET_ID, netId)
-                        if (!bssid.isNullOrEmpty()) {
-                            putExtra(com.multiroute.util.ModuleStateParser.EXTRA_BSSID, bssid)
-                        }
-                        addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
+                checkNotNull(netId) { context.getString(com.multiroute.R.string.dual_wifi_saved_network_required) }
+                checkCurrentSecondaryIntent(ticket)
+                slaveRequestStarted = true
+                Log.i(TAG, "Connecting secondary Wi-Fi via Xiaomi SlaveWifiService: netId=$netId bssid=$bssid")
+                // 1. Send broadcast to MultiRouteModule in system_server (LSPosed path)
+                val slaveIntent = android.content.Intent(com.multiroute.util.ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI).apply {
+                    setPackage("android")
+                    putExtra(com.multiroute.util.ModuleStateParser.EXTRA_NET_ID, netId)
+                    if (!bssid.isNullOrEmpty()) {
+                        putExtra(com.multiroute.util.ModuleStateParser.EXTRA_BSSID, bssid)
                     }
-                    runCatching { context.sendBroadcast(slaveIntent) }
-
-                    // 2. Execute SlaveWifiBridge via app_process as Root (universal Root path)
-                    val apkPath = context.applicationInfo.sourceDir
-                    val bssidEscaped = if (!bssid.isNullOrEmpty()) " \"$bssid\"" else ""
-                    val bridgeCmd = "CLASSPATH=\"$apkPath\" app_process / com.multiroute.wifi.SlaveWifiBridge connect $netId$bssidEscaped"
-                    SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)
-                    connectedViaSlaveService = true
-                } else {
-                    Log.w(TAG, "Network ID not found for SSID '$ssid' in list-networks; falling back to cmd wifi add-request")
+                    addFlags(android.content.Intent.FLAG_RECEIVER_FOREGROUND)
                 }
-            }
+                runCatching { context.sendBroadcast(slaveIntent) }
 
-            if (!connectedViaSlaveService) {
+                // 2. Execute SlaveWifiBridge via app_process as Root (universal Root path)
+                val apkPath = context.applicationInfo.sourceDir
+                val bssidEscaped = if (!bssid.isNullOrEmpty()) " \"$bssid\"" else ""
+                val bridgeCmd = "CLASSPATH=\"$apkPath\" app_process / com.multiroute.wifi.SlaveWifiBridge connect $netId$bssidEscaped"
+                SuHelper.executeCommand(bridgeCmd, timeoutSeconds = 5)
+            } else {
                 checkCurrentSecondaryIntent(ticket)
-                val request = WifiShellCommands.internetRequest(ssid, secType, passphrase, bssid, frequencyMhz)
                 check(context.getSharedPreferences(com.multiroute.data.RouteConfigProvider.PREF_NAME, Context.MODE_PRIVATE)
-                    .edit().putString(SHELL_REQUEST_PREF, WifiShellCommands.internetRequestKey(ssid, frequencyMhz)).commit())
+                    .edit().putString(SHELL_REQUEST_PREF, WifiShellCommands.savedInternetRequestKey(frequencyMhz)).commit())
                 checkCurrentSecondaryIntent(ticket)
-                check(SuHelper.executeCommand(request, timeoutSeconds = 5, sensitive = true))
+                check(SuHelper.executeCommand(checkNotNull(savedRequest), timeoutSeconds = 5))
                 SuHelper.executeCommand("cmd wifi start-scan", timeoutSeconds = 3)
             }
 
@@ -1601,7 +1615,7 @@ DUALWIFI_EOF
                         com.multiroute.data.RouteConfigProvider.saveLastSecondaryWifi(
                             context,
                             ssid = ssid,
-                            pass = passphrase,
+                            pass = if (isXiaomiSlave) passphrase else null,
                             freq = frequencyMhz,
                             bssid = bssid,
                             caps = capabilities

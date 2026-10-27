@@ -382,6 +382,10 @@
     <string name="dual_wifi_secondary_label">副 Wi-Fi 通道 (并发接口)</string>
     <string name="dual_wifi_not_connected">未连接</string>
     <string name="dual_wifi_saved_network_required">当前方案仅支持已保存网络，请先在系统 Wi-Fi 设置中保存该网络，再返回连接。</string>
+    <string name="dual_wifi_saved_network_check_failed">无法检查系统保存的网络，请确认 Root 授权后重试。</string>
+    <string name="dual_wifi_rescan_required">未找到该网络的接入点，请重新扫描后再连接。</string>
+    <string name="dual_wifi_saved_configuration">系统已保存配置，无需在应用中提供密码</string>
+    <string name="dual_wifi_unsaved_configuration">系统未保存配置，连接要求取决于当前方案</string>
     <string name="dual_wifi_disconnect">断开副 Wi-Fi</string>
     <string name="dual_wifi_scan_title">附近可用 Wi-Fi</string>
     <string name="dual_wifi_scan_btn">扫描 Wi-Fi</string>

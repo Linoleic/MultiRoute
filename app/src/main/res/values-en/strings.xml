@@ -382,6 +382,10 @@
     <string name="dual_wifi_secondary_label">Secondary Wi-Fi (Concurrency)</string>
     <string name="dual_wifi_not_connected">Not connected</string>
     <string name="dual_wifi_saved_network_required">This scheme supports saved networks only. Save this network in system Wi-Fi settings, then return to connect.</string>
+    <string name="dual_wifi_saved_network_check_failed">Could not check saved networks. Check root access and try again.</string>
+    <string name="dual_wifi_rescan_required">No access point found for this network. Scan again before connecting.</string>
+    <string name="dual_wifi_saved_configuration">Configuration saved by the system; no password needed in this app</string>
+    <string name="dual_wifi_unsaved_configuration">No saved system configuration; connection requirements depend on the selected scheme</string>
     <string name="dual_wifi_disconnect">Disconnect Secondary</string>
     <string name="dual_wifi_scan_title">Nearby Wi-Fi Networks</string>
     <string name="dual_wifi_scan_btn">Scan Wi-Fi</string>

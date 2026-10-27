@@ -5,6 +5,20 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SlaveWifiBridgeTest {
+    @Test fun emptySavedListIsDistinctFromAFailedRootQuery() {
+        assertEquals(emptyMap<String, Int>(), DualWifiManager.parseSavedNetworkListing(listOf("No networks")))
+        assertEquals(mapOf("Office" to 0), DualWifiManager.parseSavedNetworkListing(
+            listOf("Network Id      SSID                         Security type", "0     Office     wpa2-eap")))
+    }
+
+    @Test(expected = IllegalStateException::class) fun failedRootQueryCannotMeanUnsavedNetwork() {
+        DualWifiManager.parseSavedNetworkListing(listOf("Permission denied"))
+    }
+
+    @Test(expected = IllegalStateException::class) fun timedOutRootQueryCannotMeanUnsavedNetwork() {
+        DualWifiManager.parseSavedNetworkListing(emptyList())
+    }
+
     @Test
     fun savedNetworkLookupDoesNotMatchOnlyAPrefixOrIgnoreCase() {
         val networks = listOf("7    Home open room    wpa2-psk", "8    TestAP    wpa3-sae")

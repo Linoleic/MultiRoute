@@ -4,17 +4,16 @@ package com.multiroute.wifi
 object WifiShellCommands {
     fun quote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 
-    fun internetRequest(ssid: String, security: String, password: String?, bssid: String?, frequencyMhz: Int): String {
-        require(ssid.isNotBlank())
-        require(!ssid.startsWith("-")) { "当前系统命令不支持以 - 开头的网络名称" }
-        require(security in setOf("open", "owe", "wpa2", "wpa3"))
-        val secret = if (security in setOf("wpa2", "wpa3")) " " + quote(requireNotNull(password)) else ""
-        val ap = bssid?.takeIf { it.isNotEmpty() }?.let { " -b " + quote(it) }.orEmpty()
-        // Android 16 consumes a leading option only as -g/-s. Internet is parsed after credentials.
-        return "cmd wifi add-request ${quote(ssid)} $security$secret$ap -d ${band(frequencyMhz)} -i"
+    fun savedInternetRequest(bssid: String, frequencyMhz: Int): String {
+        require(Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}").matches(bssid))
+        require(bssid.take(2).toInt(16) and 1 == 0 &&
+            bssid != "00:00:00:00:00:00" && bssid != "02:00:00:00:00:00")
+        // The privileged Multi-Internet path selects saved credentials by band/BSSID.
+        // -s omits SSID/security arguments; it does not create or rewrite a configuration.
+        return "cmd wifi add-request -s -b ${quote(bssid)} -d ${band(frequencyMhz)} -i"
     }
 
-    fun internetRequestKey(ssid: String, frequencyMhz: Int): String = "${ssid}_${band(frequencyMhz)}g_internet"
+    fun savedInternetRequestKey(frequencyMhz: Int): String = "NoSsid_${band(frequencyMhz)}g_internet"
 
     private fun band(frequencyMhz: Int): Int = when (frequencyMhz) {
         in 2400..2500 -> 2

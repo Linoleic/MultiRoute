@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.multiroute.wifi.DualWifiManager
 import com.multiroute.wifi.DualWifiStatus
 import com.multiroute.wifi.WifiScanItem
+import com.multiroute.wifi.SecondaryNetworkPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +21,8 @@ data class DualWifiUiState(
     val pendingPasswordItem: WifiScanItem? = null,
     val isAutoReconnect: Boolean = true,
     val selectedScheme: com.multiroute.wifi.DualWifiScheme = com.multiroute.wifi.DualWifiScheme.AUTO,
-    val infoMessage: String? = null
+    val infoMessage: String? = null,
+    val needsSystemWifiSettings: Boolean = false
 )
 
 class DualWifiViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,8 +55,10 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onSelectScheme(scheme: com.multiroute.wifi.DualWifiScheme) {
+        selectionGeneration++
         com.multiroute.data.RouteConfigProvider.setDualWifiScheme(getApplication(), scheme.id)
-        _uiState.update { it.copy(selectedScheme = scheme) }
+        _uiState.update { it.copy(selectedScheme = scheme, pendingPasswordItem = null,
+            infoMessage = null, needsSystemWifiSettings = false) }
         viewModelScope.launch {
             DualWifiManager.checkCapability(getApplication())
         }
@@ -88,17 +93,24 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
 
     fun onSelectScanItem(item: WifiScanItem) {
         val selection = ++selectionGeneration
+        _uiState.update { it.copy(pendingPasswordItem = null, infoMessage = null, needsSystemWifiSettings = false) }
         viewModelScope.launch {
-            val allowed = DualWifiManager.canConnectSecondaryNetwork(getApplication(), item.ssid)
-            if (selection != selectionGeneration) return@launch
-            if (!allowed) {
-                _uiState.update { it.copy(infoMessage = getApplication<Application>().getString(com.multiroute.R.string.dual_wifi_saved_network_required)) }
+            val entry = try {
+                DualWifiManager.secondaryNetworkEntry(getApplication(), item)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (selection == selectionGeneration) _uiState.update {
+                    it.copy(infoMessage = getApplication<Application>().getString(com.multiroute.R.string.dual_wifi_saved_network_check_failed))
+                }
                 return@launch
             }
-            if (item.isSaved || !item.isSecure) {
-                connectSecondary(item, item.savedPassword)
-            } else {
-                _uiState.update { it.copy(pendingPasswordItem = item) }
+            if (selection != selectionGeneration) return@launch
+            when (entry) {
+                SecondaryNetworkPolicy.Entry.SYSTEM_SETTINGS -> _uiState.update { it.copy(
+                    infoMessage = getApplication<Application>().getString(com.multiroute.R.string.dual_wifi_saved_network_required),
+                    needsSystemWifiSettings = true) }
+                SecondaryNetworkPolicy.Entry.CONNECT -> connectSecondary(item, item.savedPassword)
+                SecondaryNetworkPolicy.Entry.PASSWORD -> _uiState.update { it.copy(pendingPasswordItem = item) }
             }
         }
     }
@@ -108,7 +120,12 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(pendingPasswordItem = null) }
     }
 
-    fun connectSecondary(item: WifiScanItem, password: String?) {
+    fun confirmSecondaryPassword(item: WifiScanItem, password: String) {
+        if (_uiState.value.pendingPasswordItem != item || password.isEmpty()) return
+        connectSecondary(item, password)
+    }
+
+    private fun connectSecondary(item: WifiScanItem, password: String?) {
         selectionGeneration++
         _uiState.update { it.copy(pendingPasswordItem = null) }
         DualWifiManager.connectSecondaryWifiAsync(
@@ -123,6 +140,7 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
 
     fun disconnectSecondary() {
         selectionGeneration++
+        _uiState.update { it.copy(pendingPasswordItem = null, infoMessage = null, needsSystemWifiSettings = false) }
         DualWifiManager.disconnectSecondaryWifi(getApplication())
         viewModelScope.launch {
             kotlinx.coroutines.delay(600)
@@ -168,6 +186,6 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun clearInfoMessage() {
-        _uiState.update { it.copy(infoMessage = null) }
+        _uiState.update { it.copy(infoMessage = null, needsSystemWifiSettings = false) }
     }
 }

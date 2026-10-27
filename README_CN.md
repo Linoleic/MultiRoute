@@ -145,6 +145,7 @@ MultiRoute 内建了**双 Wi-Fi 助手（STA + STA 并发管理）**，结合射
 | **通用 Root 强制直连方案**<br>`ROOT_DIRECT` | 借助 Root（UID 0）与系统特权（`SYSTEM_UID`）直接向底层 Wi-Fi 栈下发连接请求，绕过 Framework Overlay 限制与系统确认弹窗。 | 适用于 OPPO/一加 (ColorOS)、vivo/iQOO (OriginOS)、三星 (One UI) 及其他定制 ROM。 |
 
 AOSP / 通用 Multi-Internet 方案仅连接系统已保存的网络。首次连接某个 AP 前，请先在系统 Wi-Fi 设置中保存该网络；小米方案沿用原有机制。
+已保存网络使用系统配置完成认证，无需在 MultiRoute 中提供密码；未保存网络的提示提供打开系统 Wi-Fi 设置的入口。
 
 ### 2. 适用机型与硬件门槛
 

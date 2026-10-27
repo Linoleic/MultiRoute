@@ -5,6 +5,37 @@ import org.junit.Test
 import kotlinx.coroutines.test.runTest
 
 class SecondaryNetworkPolicyTest {
+    @Test fun savedEncryptedNetworkConnectsWithoutAnExtractedPassword() = runTest {
+        assertEquals(SecondaryNetworkPolicy.Entry.CONNECT,
+            SecondaryNetworkPolicy.entry(false, true, false) { 7 })
+    }
+
+    @Test fun savedOpenNetworkWithIdZeroConnectsFromTheEntry() = runTest {
+        assertEquals(SecondaryNetworkPolicy.Entry.CONNECT,
+            SecondaryNetworkPolicy.entry(false, false, false) { 0 })
+    }
+
+    @Test fun aospUnsavedNetworksGoToSettingsEvenWithACachedPassword() = runTest {
+        assertEquals(SecondaryNetworkPolicy.Entry.SYSTEM_SETTINGS,
+            SecondaryNetworkPolicy.entry(false, true, true) { null })
+        assertEquals(SecondaryNetworkPolicy.Entry.SYSTEM_SETTINGS,
+            SecondaryNetworkPolicy.entry(false, false, false) { null })
+    }
+
+    @Test fun xiaomiSavedNetworkDoesNotAskForAnExtractedPassword() = runTest {
+        assertEquals(SecondaryNetworkPolicy.Entry.CONNECT,
+            SecondaryNetworkPolicy.entry(true, true, false) { 4 })
+    }
+
+    @Test fun xiaomiProvisioningRetainsThePasswordEntryForNewEncryptedNetworks() = runTest {
+        assertEquals(SecondaryNetworkPolicy.Entry.PASSWORD,
+            SecondaryNetworkPolicy.entry(true, true, false) { null })
+        assertEquals(SecondaryNetworkPolicy.Entry.CONNECT,
+            SecondaryNetworkPolicy.entry(true, true, true) { null })
+        assertEquals(SecondaryNetworkPolicy.Entry.CONNECT,
+            SecondaryNetworkPolicy.entry(true, false, false) { null })
+    }
+
     @Test fun savedOpenNetworkWithIdZeroDoesNotRequireAPassword() = runTest {
         var lookups = 0
         assertTrue(SecondaryNetworkPolicy.canConnect(false) { lookups++; 0 })
