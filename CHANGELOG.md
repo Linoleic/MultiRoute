@@ -5,12 +5,14 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
-## v1.5.0 - 2026-10-25
+## v1.5.0 - Unreleased
 
 **中文**
 
+> 状态：待发布。本节记录开发变更，尚未作为正式版本发布。
+
 ### 新增 (Added)
-- **个人热点出口定向与分流**：支持将个人热点（SoftAP / Tethering）连接设备的网络出口指定到蜂窝网络、副 Wi-Fi 或系统默认网络；通过 Hook `UpstreamNetworkMonitor.getCurrentPreferredUpstream` 实现动态重定向与断网自动降级回退。
+- **个人热点出口选择**：可选择蜂窝网络、副 Wi-Fi 或系统默认网络，并请求 Tethering 重新评估上游。转发、NAT、IPv6 与卸载仍由 Android 管理，独立热点客户端端到端行为尚未覆盖。
 - **热点出口控制卡片**：网络通道页新增「热点出口与分流」卡片，展示热点工作频段、系统实际出口和上行 Hook 状态，支持切换与未开启热点时的预设。Hook 状态不代表硬件加速状态。
 - **热点下行接口识别与隔离**：自动识别个人热点下行接口（如 `ap0`、`swlan0`、`wlan2` 等），标注为「个人热点」通道类型；详情面板展示频段、接口与目标出口；自动从应用分流与场景方案目标中排除，避免应用绑定下行接口导致通信异常。
 - **VPN 虚拟接口识别与属性展示**：自动识别系统内 VPN 虚拟网络接口（如 `tun0`），标注为「虚拟专网 (VPN)」通道类型；详情面板展示 VPN 创建应用包名及标签、隧道内网 IP 地址及底层承载网络（Underlying Networks）。
@@ -19,12 +21,13 @@ bilingual, Chinese first: the release page is what most users read.
 - **配置备份 v2**：明确区分应用分流、完整场景选择、网络策略、热点出口、双 Wi-Fi 偏好、外观和测速节点；支持导入预览、按类别恢复及旧版 v1 配置迁移。
 - **LSPosed 模块作用域扩充**：为支持 NetworkStack APEX 内热点调度 Hook，模块作用域在原有系统框架（`system` / `android`）基础上，新增 NetworkStack / Tethering 相关包（`com.android.networkstack.tethering`、`com.google.android.networkstack.tethering`、`com.android.networkstack`、`com.google.android.networkstack`）。模块内 `scope.list` 与 `xposedscope` 清单元数据已同步更新。
 - **双 Wi-Fi 状态概览**：重构「双 Wi-Fi 激活与管理」卡片，主界面直接展示主 Wi-Fi 与副 Wi-Fi 的连接 SSID 与工作频段。
-- **应用分流列表过滤**：将 VPN 虚拟网络接口排除在普通应用分流与场景方案的候选通道之外。
+- **应用分流列表过滤**：将热点下行接口从普通应用分流与场景方案的候选目标中排除；VPN 保留为可选目标，分应用选择器会限制 VPN 所属 UID 与识别出的常见 VPN 客户端选择 VPN 通道。
 
 ### 修复 (Fixed)
 - **双 Wi-Fi 诊断状态**：物理链路摘要与实时连接卡片共用连接状态及参数，避免连接或断开后仍显示旧检测结果。
 - **Pixel Mainline 网络选择**：兼容以 Map 保存 NetworkAgent 的系统服务；反射字段缺失时缓存空结果，避免 Hook 因向 ConcurrentHashMap 写入空值而异常。显式蜂窝接口仅精确匹配，通用蜂窝选择排除 IMS。
-- **双 Wi-Fi 请求与配置保护**：AOSP 副网请求声明 INTERNET 能力并转义 SSID、凭据；复用小米已保存配置，AOSP 不再重写保存网络。连接与断开只清理本模块登记的请求，不再删除保存网络、清空其他请求或强制清除接口地址；激活后核对实际就绪状态。
+- **双 Wi-Fi 请求与配置保护**：AOSP 副网请求声明 INTERNET 能力，按频段和 BSSID 使用系统保存配置，不携带密码；日常连接与断开仅释放本模块登记的 shell 请求。小米方案复用已保存配置，断开时释放原生副 WLAN；不再删除保存网络或强制清除接口地址。激活后核对实际就绪状态。
+- **小米原生请求重复下发**：连接与断开各使用一次同步 Root 桥接，避免同时广播和桥接产生重复请求，或迟到的断开干扰后续连接。
 - **并发配置更新**：配置只更新受影响的键，回滚时保留并发运行态。
 - **双 Wi-Fi 断开行为**：断开操作会使在途连接请求失效，不再重启服务并自动连回。
 - **双 Wi-Fi 连接生命周期**：合并重叠的自动重连，取消或预检查失败后释放连接占位；前台服务与通知校验连接代次，忽略迟到消息；小米连接超时或取消后尝试释放已发起的副网连接。
@@ -45,8 +48,10 @@ bilingual, Chinese first: the release page is what most users read.
 
 **English**
 
+> Status: Unreleased. This section records development changes; it is not a published release.
+
 ### Added
-- **Personal Hotspot Upstream Steering:** Route personal hotspot (SoftAP / Tethering) client traffic through a designated upstream interface: Cellular, Secondary Wi-Fi, or System Default. Hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` for dynamic re-evaluation and automatic fallback on disconnect.
+- **Personal Hotspot Upstream Selection:** Select Cellular, Secondary Wi-Fi or System Default and request Tethering to re-evaluate its upstream. Android manages forwarding, NAT, IPv6 and offload; independent hotspot-client end-to-end behavior has not been covered.
 - **Hotspot Upstream Management Card:** Displays the hotspot band, actual system upstream and upstream Hook status, with switching and offline presets. Hook status does not indicate hardware offload status.
 - **Hotspot Downlink Interface Detection & Isolation:** Automatically identifies hotspot AP downlink interfaces (`ap0`, `swlan0`, `wlan2`, etc.) and marks channel type as "Personal Hotspot". Details sheet displays operating band, downlink interface name, live status, and upstream target; excludes downlink interfaces from app routing and scenario targets to avoid unreachable states.
 - **VPN Virtual Interface Detection & Diagnostics:** Identifies VPN virtual interfaces (e.g. `tun0`) and marks channel type as "VPN Tunnel". Detail sheet displays creator application package and label, tunnel virtual IP address, and underlying transport network.
@@ -55,12 +60,13 @@ bilingual, Chinese first: the release page is what most users read.
 - **Configuration Backup v2:** Separate app routing, complete plan selections, network policies, hotspot upstream, dual Wi-Fi preferences, appearance and test endpoints. Preview and restore selected categories, with migration from v1 files.
 - **LSPosed Module Scope Expansion:** Expanded module scope beyond the system framework (`system` / `android`) to include NetworkStack / Tethering packages (`com.android.networkstack.tethering`, `com.google.android.networkstack.tethering`, `com.android.networkstack`, `com.google.android.networkstack`) for `UpstreamNetworkMonitor` hook support. Updated `scope.list` and `xposedscope` manifest metadata accordingly.
 - **Dual Wi-Fi Status Overview:** Refined the "Dual Wi-Fi Activation & Management" card to display an active SSID and frequency band summary directly on the main screen.
-- **Routing Target Filtering:** Excluded VPN virtual interfaces from app routing and scenario candidate targets.
+- **Routing Target Filtering:** Excluded hotspot downlinks from app routing and scenario targets. VPN networks remain selectable; app assignment pickers restrict VPN owner UIDs and recognized VPN clients from selecting VPN channels.
 
 ### Fixed
 - **Dual Wi-Fi Diagnostic State:** Read link activity and parameters from the live connection state shared by the connection card, avoiding stale detection results after connecting or disconnecting.
 - **Pixel Mainline Network Selection:** Support Map-based NetworkAgent registries and cache missing reflection fields without inserting null into ConcurrentHashMap. Match explicit cellular interfaces exactly and exclude IMS from the generic cellular selection.
-- **Dual Wi-Fi Requests and Saved Networks:** Request INTERNET for AOSP secondary links and quote SSIDs and credentials. Reuse saved Xiaomi configurations without rewriting them; AOSP requests do not modify saved networks. Only release requests tracked by this module, preserving saved networks, other clients' requests and framework-managed interface state. Activation checks actual readiness.
+- **Dual Wi-Fi Requests and Saved Networks:** Request INTERNET for AOSP secondary links by band and BSSID using saved system configurations, without passwords. Normal connection and disconnection release only shell requests recorded by this module. The Xiaomi scheme reuses saved configurations and releases the native secondary WLAN on disconnect. Preserve saved networks and framework-managed interface addresses; check actual readiness after activation.
+- **Duplicate Xiaomi Native Requests:** Use one synchronous root bridge call for each connection or disconnect, avoiding duplicate requests and late disconnects caused by dispatching both a broadcast and a bridge command.
 - **Concurrent Configuration Updates:** Update only affected keys and preserve concurrent runtime state during rollback.
 - **Dual Wi-Fi Disconnect Behavior:** Disconnect invalidates in-flight connection requests instead of restarting the service and reconnecting automatically.
 - **Dual Wi-Fi Connection Lifecycle:** Coalesce overlapping reconnect attempts and release reservations after cancellation or preflight failure. Validate connection generations for service starts and notification actions, and attempt to release Xiaomi secondary connections after timeout or cancellation.
