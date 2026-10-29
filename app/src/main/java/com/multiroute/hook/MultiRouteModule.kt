@@ -63,6 +63,8 @@ class MultiRouteModule : XposedModule() {
     }
 
     private var isConnectivityHooked = false
+    @Volatile private var connectivityService: Any? = null
+    private var cellularPreferenceFingerprint: String? = null
     private val isSlaveWifiHooked = AtomicBoolean(false)
     private val isDualStaHooked = AtomicBoolean(false)
     @Volatile private var isTetheringHooked = false
@@ -315,6 +317,7 @@ class MultiRouteModule : XposedModule() {
 
         var hookedCount = 0
         if (hookGetMobileDataPreferredUids(csClass)) hookedCount++
+        if (hookCellularDefaultRequests(csClass)) hookedCount++
         if (hookGetDefaultNetworkForUid(csClass)) hookedCount++
         if (hookGetActiveNetworkForUidInternal(csClass)) hookedCount++
 
@@ -355,6 +358,116 @@ class MultiRouteModule : XposedModule() {
         }
     }
 
+    /**
+     * A route override alone does not change netd's per-UID DNS network or socket mark.
+     * Split the platform's mobile preference into subscription-specific multilayer requests;
+     * ConnectivityService then updates netd and default-network callbacks itself.
+     */
+    private fun hookCellularDefaultRequests(csClass: Class<*>): Boolean {
+        val factory = csClass.declaredMethods.firstOrNull {
+            it.name == "createNrisFromMobileDataPreferredUids" && it.parameterTypes.size == 1 &&
+                Set::class.java.isAssignableFrom(it.parameterTypes[0])
+        } ?: return false
+        val createRequest = csClass.declaredMethods.firstOrNull {
+            it.name == "createDefaultInternetRequestForTransport" && it.parameterTypes.size == 2
+        } ?: return false
+        val createNris = csClass.declaredMethods.firstOrNull {
+            it.name == "createNrisForPreferenceOrder" && it.parameterTypes.size == 3
+        } ?: return false
+        val typeClass = createRequest.parameterTypes[1]
+        val types = typeClass.enumConstants ?: return false
+        val requestType = types.firstOrNull { (it as Enum<*>).name == "REQUEST" } ?: return false
+        val fallbackType = types.firstOrNull { (it as Enum<*>).name == "TRACK_DEFAULT" } ?: return false
+        val preference = runCatching {
+            csClass.getDeclaredField("PREFERENCE_ORDER_MOBILE_DATA_PREFERERRED")
+                .apply { isAccessible = true }.getInt(null)
+        }.getOrNull() ?: return false
+        listOf(factory, createRequest, createNris).forEach { it.isAccessible = true }
+        return try {
+            deoptimize(factory)
+            hook(factory).intercept { chain ->
+                connectivityService = chain.thisObject
+                reloadPreferencesCacheIfNeeded()
+                @Suppress("UNCHECKED_CAST")
+                val allUids = chain.getArg(0) as Set<Int>
+                val pinned = mutableSetOf<Int>()
+                val result = android.util.ArraySet<Any>()
+                try {
+                    val groups = CellularDefaultNetworkPolicy.groups(allUids, HashMap(cachedUidRoutes))
+                    for ((iface, uids) in groups) {
+                        val agent = findNetworkAgentForChannel(chain.thisObject, iface) ?: continue
+                        val nc = findNetworkCapabilitiesField(agent.javaClass)?.apply { isAccessible = true }
+                            ?.get(agent) as? NetworkCapabilities ?: continue
+                        if (!nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                            !nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+                        val specifier = NetworkCapabilities::class.java.getMethod("getNetworkSpecifier")
+                            .invoke(nc) as? android.net.TelephonyNetworkSpecifier ?: continue
+                        val selected = createRequest.invoke(chain.thisObject,
+                            NetworkCapabilities.TRANSPORT_CELLULAR, requestType)
+                        val capabilities = selected.javaClass.getField("networkCapabilities")
+                            .get(selected) as NetworkCapabilities
+                        NetworkCapabilities::class.java.getMethod("setNetworkSpecifier",
+                            android.net.NetworkSpecifier::class.java).invoke(capabilities, specifier)
+                        // Mode 2 may expose a restricted Internet bearer. This is a system-owned
+                        // per-UID request, not an unprivileged app request for restricted access.
+                        if (!nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) {
+                            NetworkCapabilities::class.java.getMethod("removeCapability", Int::class.javaPrimitiveType)
+                                .invoke(capabilities, NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                        }
+                        val fallback = createRequest.invoke(chain.thisObject, -1, fallbackType)
+                        @Suppress("UNCHECKED_CAST")
+                        val nris = createNris.invoke(chain.thisObject, uids, listOf(selected, fallback), preference) as Set<Any>
+                        result.addAll(nris)
+                        pinned.addAll(uids)
+                        log(Log.INFO, TAG, "[CellularDefault] $uids -> $iface ($specifier)")
+                    }
+                } catch (t: Throwable) {
+                    log(Log.ERROR, TAG, "[CellularDefault] Could not pin subscription; using platform preference", t)
+                    result.clear()
+                    pinned.clear()
+                }
+                // Call the original exactly once, including on unsupported ROMs.
+                @Suppress("UNCHECKED_CAST")
+                val unchanged = chain.proceed(arrayOf<Any>(allUids - pinned)) as Set<Any>
+                result.addAll(unchanged)
+                result
+            }
+            log(Log.INFO, TAG, "Successfully hooked subscription-specific mobile defaults")
+            true
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "Failed to hook subscription-specific mobile defaults", t)
+            false
+        }
+    }
+
+    private fun refreshCellularDefaults() {
+        val service = connectivityService ?: return
+        val handler = getAllFields(service.javaClass).firstOrNull { it.name == "mHandler" }
+            ?.apply { isAccessible = true }?.get(service) as? android.os.Handler ?: return
+        handler.post {
+            try {
+                lastPrefCacheTime = 0L
+                reloadPreferencesCacheIfNeeded()
+                val routes = cachedUidRoutes.filterValues { CellularDefaultNetworkPolicy.isCellular(it) }
+                val fingerprint = routes.toSortedMap().map { (uid, iface) ->
+                    val agent = findNetworkAgentForChannel(service, iface)
+                    val nc = agent?.let { findNetworkCapabilitiesField(it.javaClass)
+                        ?.apply { isAccessible = true }?.get(it) } as? NetworkCapabilities
+                    val specifier = nc?.let { NetworkCapabilities::class.java
+                        .getMethod("getNetworkSpecifier").invoke(it) }
+                    "$uid:$iface:$specifier:${nc?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)}"
+                }.joinToString(";")
+                if (fingerprint != cellularPreferenceFingerprint) {
+                    service.javaClass.getDeclaredMethod("updateMobileDataPreferredUids")
+                        .apply { isAccessible = true }.invoke(service)
+                    cellularPreferenceFingerprint = fingerprint
+                }
+            } catch (t: Throwable) {
+                log(Log.WARN, TAG, "[CellularDefault] Refresh failed", t)
+            }
+        }
+    }
+
     private fun hookGetDefaultNetworkForUid(csClass: Class<*>): Boolean {
         val method = csClass.declaredMethods.firstOrNull {
             it.name == "getDefaultNetworkForUid" &&
@@ -367,6 +480,7 @@ class MultiRouteModule : XposedModule() {
             deoptimize(method)
             hook(method).intercept { chain ->
                 val uid = chain.getArg(0) as Int
+                connectivityService = chain.thisObject
                 val targetChannel = getTargetChannelForUid(uid)
 
                 if (targetChannel != null && targetChannel != CHANNEL_DEFAULT) {
@@ -731,6 +845,7 @@ class MultiRouteModule : XposedModule() {
                     }
 
                     when (intent?.action) {
+                        ModuleStateParser.ACTION_ROUTES_CHANGED -> refreshCellularDefaults()
                         ModuleStateParser.ACTION_KEEPALIVE_CHANGED -> {
                             if (!isKeepSlaveWifiScreenOff()) {
                                 log(Log.INFO, TAG, "[KeepAlive] Switch is off; no hooks installed.")
@@ -786,6 +901,7 @@ class MultiRouteModule : XposedModule() {
             }
             val filter = android.content.IntentFilter().apply {
                 addAction(ModuleStateParser.ACTION_KEEPALIVE_CHANGED)
+                addAction(ModuleStateParser.ACTION_ROUTES_CHANGED)
                 addAction(ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI)
                 addAction(ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI)
             }

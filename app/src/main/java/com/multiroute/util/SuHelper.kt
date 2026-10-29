@@ -588,6 +588,7 @@ object SuHelper {
             executeCommand(cleanupScript, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
             executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
             executeCommand("rm -f ${RouteRuleBuilder.RULE_CACHE_PATH}")
+            notifyRouteRulesChanged(context)
             return true
         }
 
@@ -670,6 +671,9 @@ object SuHelper {
                 // instead, and the app re-applies the redirect with fresh resolvers once it runs.
                 updateRuleCache(activeChannelMap)
             }
+            // UID membership can stay unchanged while the selected SIM changes. A setting write
+            // alone then emits no observer event, so refresh after publishing the new route cache.
+            notifyRouteRulesChanged(context)
             return bootSaved
         }
 
@@ -694,6 +698,13 @@ object SuHelper {
         if (!direct) {
             executeCommand("settings put secure mobile_data_preferred_uids \"$text\"")
         }
+    }
+
+    private fun notifyRouteRulesChanged(context: Context) {
+        runCatching {
+            context.sendBroadcast(android.content.Intent(ModuleStateParser.ACTION_ROUTES_CHANGED)
+                .setPackage("android"))
+        }.onFailure { Log.w(TAG, "Could not notify system_server of route changes", it) }
     }
 
     /**

@@ -142,6 +142,12 @@ object RouteRuleBuilder {
             for (uid in uids) {
                 commands.add("$IP_BIN rule add uidrange $uid-$uid lookup $iface pref $pref;")
                 commands.add("$IP_BIN -6 rule add uidrange $uid-$uid lookup $iface pref $pref;")
+                if (iface.startsWith("rmnet") || iface.startsWith("ccmni") || iface == "cellular") {
+                    // Fail fast instead of silently falling through to the other SIM's IPv6.
+                    // Re-evaluated on every sync/boot, so acquiring IPv6 restores normal routing.
+                    commands.add("if ! $IP_BIN -6 route show table $iface 2>/dev/null | /system/bin/grep -q '^default'; then " +
+                        "$IP_BIN -6 rule add unreachable uidrange $uid-$uid pref $pref; fi;")
+                }
             }
         }
         return commands

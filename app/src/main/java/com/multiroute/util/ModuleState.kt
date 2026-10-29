@@ -43,6 +43,7 @@ object ModuleStateParser {
      * re-checks the persistent flag when it arrives, so a stray broadcast cannot enable anything by itself.
      */
     const val ACTION_KEEPALIVE_CHANGED = "com.multiroute.ACTION_KEEPALIVE_CHANGED"
+    const val ACTION_ROUTES_CHANGED = "com.multiroute.ACTION_ROUTES_CHANGED"
 
     /** Broadcast dispatched to system_server to initiate secondary Wi-Fi connection via SlaveWifiService. */
     const val ACTION_CONNECT_SLAVE_WIFI = "com.multiroute.ACTION_CONNECT_SLAVE_WIFI"
