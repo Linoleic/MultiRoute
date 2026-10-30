@@ -110,7 +110,7 @@ fun DualWifiScreen(
 
             // 1. 连接方案选择与软硬件支持状态
             item {
-                ConnectionSchemeAndSupportCard(
+                DualWifiSupportCard(
                     status = status,
                     selectedScheme = uiState.selectedScheme,
                     onSelectScheme = { viewModel.onSelectScheme(it) },
@@ -424,7 +424,7 @@ fun DualWifiScreen(
 }
 
 @Composable
-private fun ConnectionSchemeAndSupportCard(
+private fun DualWifiSupportCard(
     status: DualWifiStatus,
     selectedScheme: com.multiroute.wifi.DualWifiScheme,
     onSelectScheme: (com.multiroute.wifi.DualWifiScheme) -> Unit,
@@ -450,14 +450,6 @@ private fun ConnectionSchemeAndSupportCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            SchemeSelectorContent(
-                capability = capability,
-                selectedScheme = selectedScheme,
-                onSelectScheme = onSelectScheme
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
             // Keep the default card compact: hardware support is the only diagnostic shown until expanded.
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -549,6 +541,12 @@ private fun ConnectionSchemeAndSupportCard(
                                 com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> stringResource(R.string.wifi_i18n_mechanism_root)
                                 com.multiroute.wifi.DualWifiScheme.AUTO -> stringResource(R.string.wifi_i18n_mechanism_auto)
                             })
+                        },
+                        content = {
+                            SchemeSelectorContent(
+                                selectedScheme = selectedScheme,
+                                onSelectScheme = onSelectScheme
+                            )
                         }
                     )
 
@@ -646,7 +644,8 @@ private fun DiagnosticItemRow(
     title: String,
     statusText: String,
     isOk: Boolean,
-    details: List<String>
+    details: List<String>,
+    content: (@Composable () -> Unit)? = null
 ) {
     Surface(
         shape = RoundedCornerShape(10.dp),
@@ -730,6 +729,8 @@ private fun DiagnosticItemRow(
                     }
                 }
             }
+
+            content?.invoke()
         }
     }
 }
@@ -1283,50 +1284,20 @@ private fun romLabel(type: com.multiroute.wifi.RomType): String = stringResource
 
 @Composable
 private fun SchemeSelectorContent(
-    capability: DualWifiCapability,
     selectedScheme: com.multiroute.wifi.DualWifiScheme,
     onSelectScheme: (com.multiroute.wifi.DualWifiScheme) -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 26.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                modifier = Modifier.weight(1f).padding(end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = stringResource(R.string.dual_wifi_scheme_title),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-            ) {
-                Text(
-                    text = schemeBadge(capability.effectiveScheme),
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-        }
-
+        Text(
+            text = stringResource(R.string.dual_wifi_scheme_title),
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
         Text(
             text = stringResource(R.string.dual_wifi_scheme_hint),
             style = MaterialTheme.typography.bodySmall,
