@@ -27,8 +27,12 @@ object DualSimController {
             if (!SuHelper.isRootAvailable()) return@withLock false
             val running = processes()
             if (running.size == 1 && running[0].second == selected) return@withLock true
+            val apk = context.applicationInfo.sourceDir.replace("'", "'\\''")
             for ((pid, _) in running) {
-                if (!SuHelper.executeCommand("kill -TERM $pid")) return@withLock false
+                // Android app_process may exit on SIGTERM without running Java shutdown hooks.
+                // Ask the daemon to release requests and restore properties before acknowledging.
+                if (!SuHelper.executeCommand("/system/bin/env CLASSPATH='$apk' /system/bin/app_process /system/bin $ENTRY stop $pid",
+                        timeoutSeconds = 8)) return@withLock false
             }
             var attempts = 0
             while (attempts++ < 30 && processes().isNotEmpty()) {
@@ -36,7 +40,6 @@ object DualSimController {
             }
             if (processes().isNotEmpty()) return@withLock false
             if (selected == 0) return@withLock true
-            val apk = context.applicationInfo.sourceDir.replace("'", "'\\''")
             val command = "setsid /system/bin/env CLASSPATH='$apk' /system/bin/app_process /system/bin $ENTRY $selected </dev/null >/dev/null 2>&1 &"
             if (!SuHelper.executeCommand(command, timeoutSeconds = 5)) return@withLock false
             delay(1200)

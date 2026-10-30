@@ -174,6 +174,18 @@ public final class DualSimDaemon {
     }
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 2 && args[0].equals("stop")) {
+            int pid = Integer.parseInt(args[1]);
+            if (pid <= 0) throw new IllegalArgumentException("Invalid daemon PID");
+            try (android.net.LocalSocket client = new android.net.LocalSocket()) {
+                client.connect(new android.net.LocalSocketAddress("multiroute.dualsim." + pid));
+                client.setSoTimeout(5000);
+                if (client.getPeerCredentials().getUid() != 0) throw new SecurityException("Not our root daemon");
+                client.getOutputStream().write(1);
+                if (client.getInputStream().read() != 1) throw new IllegalStateException("Cleanup not acknowledged");
+            }
+            return;
+        }
         if (args.length != 1 || !(args[0].equals("1") || args[0].equals("2"))) {
             throw new IllegalArgumentException("Expected mode 1 or 2");
         }
@@ -186,29 +198,60 @@ public final class DualSimDaemon {
         Method get = properties.getMethod("get", String.class, String.class);
         Method set = properties.getMethod("set", String.class, String.class);
         String key = "ril.multisim.dualdata_status";
-        String original = (String) get.invoke(null, key, "2");
+        // Preserve an unset/empty value too; inventing "2" changes devices without this property.
+        String original = (String) get.invoke(null, key, "");
         boolean changed = args[0].equals("1") && !original.equals("1");
         ConnectivityManager cm = context.getSystemService(ConnectivityManager.class);
         Session session = new Session(context, cm, args[0].equals("2"), () -> {
             if (args[0].equals("1")) {
                 try {
-                    if (!"1".equals(get.invoke(null, key, "2"))) set.invoke(null, key, "1");
+                    if (!"1".equals(get.invoke(null, key, ""))) set.invoke(null, key, "1");
                 } catch (Exception e) { throw new IllegalStateException("Cannot enable dual data", e); }
             }
         });
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try { session.close(); } catch (Exception ignored) { }
+        Runnable cleanup = () -> {
+            session.close();
             try {
-                if (changed && "1".equals(get.invoke(null, key, "2"))) set.invoke(null, key, original);
-            } catch (Exception ignored) { }
-        }));
-        try {
+                if (changed && "1".equals(get.invoke(null, key, ""))) set.invoke(null, key, original);
+            } catch (Exception e) { throw new IllegalStateException("Cannot restore dual data property", e); }
+        };
+        Runtime.getRuntime().addShutdownHook(new Thread(cleanup));
+        try (android.net.LocalServerSocket control = new android.net.LocalServerSocket(
+                "multiroute.dualsim." + android.os.Process.myPid())) {
+            Thread listener = new Thread(() -> {
+                while (!session.closed) {
+                    try (android.net.LocalSocket client = control.accept()) {
+                        // The controller invokes the stop command as root. Reject other apps before reading.
+                        if (client.getPeerCredentials().getUid() != 0) continue;
+                        client.setSoTimeout(2000);
+                        if (client.getInputStream().read() != 1) continue;
+                        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+                        session.handler.post(() -> {
+                            try {
+                                // Serialize cleanup with subscription retargeting to prevent property re-enablement.
+                                cleanup.run();
+                                client.getOutputStream().write(1);
+                            } catch (Exception e) {
+                                android.util.Log.e("MultiRouteDualSim", "Controlled cleanup failed", e);
+                            } finally {
+                                done.countDown();
+                                session.handler.getLooper().quitSafely();
+                            }
+                        });
+                        done.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                        return;
+                    } catch (Exception e) {
+                        if (!session.closed) android.util.Log.w("MultiRouteDualSim", "Control request failed", e);
+                    }
+                }
+            }, "MultiRouteDualSim-control");
+            listener.setDaemon(true);
+            listener.start();
             if (changed) set.invoke(null, key, "1");
             session.start();
             Looper.loop();
         } finally {
-            try { session.close(); } catch (Exception ignored) { }
-            if (changed && "1".equals(get.invoke(null, key, "2"))) set.invoke(null, key, original);
+            cleanup.run();
         }
     }
 }
