@@ -24,6 +24,7 @@ class RouteConfigProvider : ContentProvider() {
         const val METHOD_SET_ROUTE = "setRoute"
         const val KEY_CHANNEL_ID = "channel_id"
         const val KEY_KEEP_SLAVE_WIFI_SCREEN_OFF = "keep_slave_wifi_screen_off"
+        private const val KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL = "dual_wifi_keep_screen_off_original"
 
         /**
          * Bookkeeping for the UID list this app merged into the platform's `mobile_data_preferred_uids`
@@ -59,6 +60,7 @@ class RouteConfigProvider : ContentProvider() {
          */
         const val KEY_FAILOVER_PROBE_INTERNET = "failover_probe_internet"
         const val KEY_DUAL_WIFI_AUTO_RECONNECT = "dual_wifi_auto_reconnect"
+        private const val KEY_DUAL_WIFI_DISABLED = "dual_wifi_disabled"
         const val KEY_DUAL_WIFI_LAST_SSID = "dual_wifi_last_ssid"
         const val KEY_DUAL_WIFI_LAST_PASS = "dual_wifi_last_pass"
         const val KEY_DUAL_WIFI_LAST_FREQ = "dual_wifi_last_freq"
@@ -155,6 +157,16 @@ class RouteConfigProvider : ContentProvider() {
                 .edit().putBoolean(KEY_DUAL_WIFI_AUTO_RECONNECT, enabled).apply()
         }
 
+        fun isDualWifiDisabled(context: Context): Boolean {
+            return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_DUAL_WIFI_DISABLED, false)
+        }
+
+        fun setDualWifiDisabled(context: Context, disabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_DUAL_WIFI_DISABLED, disabled).apply()
+        }
+
         fun saveLastSecondaryWifi(
             context: Context,
             ssid: String,
@@ -224,6 +236,34 @@ class RouteConfigProvider : ContentProvider() {
         fun setKeepSlaveWifiScreenOff(context: Context, enabled: Boolean) {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             sp.edit().putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, enabled).apply()
+        }
+
+        /** Records the user's value before Dual Wi-Fi temporarily forces Xiaomi's slave radio awake. */
+        fun recordKeepSlaveWifiScreenOffBeforeDualWifi(context: Context) {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            if (!sp.contains(KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL)) {
+                sp.edit().putBoolean(KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL,
+                    sp.getBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, false)).commit()
+            }
+        }
+
+        fun getKeepSlaveWifiScreenOffBeforeDualWifi(context: Context): Boolean? {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return if (sp.contains(KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL))
+                sp.getBoolean(KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL, false) else null
+        }
+
+        fun clearKeepSlaveWifiScreenOffBeforeDualWifi(context: Context) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+                .remove(KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL).apply()
+        }
+
+        /** A direct settings change becomes the new user value, not a temporary module override. */
+        fun setKeepSlaveWifiScreenOffByUser(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_KEEP_SLAVE_WIFI_SCREEN_OFF, enabled)
+                .remove(KEY_DUAL_WIFI_KEEP_SCREEN_OFF_ORIGINAL)
+                .apply()
         }
 
         fun getTargetChannel(context: Context, ruleKey: String): String {

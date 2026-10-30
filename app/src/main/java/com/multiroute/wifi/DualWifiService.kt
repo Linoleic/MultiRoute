@@ -147,7 +147,9 @@ class DualWifiService : Service() {
                 try {
                     DualWifiManager.refreshConnectionState(this@DualWifiService)
                     val status = DualWifiManager.status.value
-                    if (!status.secondaryConnected && com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(this@DualWifiService)) {
+                    if (!status.secondaryConnected &&
+                        !com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(this@DualWifiService) &&
+                        com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(this@DualWifiService)) {
                         android.util.Log.d("DualWifiService", "Secondary Wi-Fi dropped, attempting auto-reconnect...")
                         DualWifiManager.autoReconnectSecondary(this@DualWifiService)
                     }

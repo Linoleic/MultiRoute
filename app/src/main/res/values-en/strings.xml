@@ -374,6 +374,13 @@
     <string name="dual_wifi_mode_inactive">Multi-Internet mode inactive</string>
     <string name="dual_wifi_activate_btn">1-Click Activate Dual Wi-Fi (Root Required)</string>
     <string name="dual_wifi_activating">Activating Dual Wi-Fi Concurrency...</string>
+    <string name="dual_wifi_feature_enable">Enable Dual Wi-Fi</string>
+    <string name="dual_wifi_feature_disable">Disable Dual Wi-Fi</string>
+    <string name="dual_wifi_feature_disabling">Disabling…</string>
+    <string name="dual_wifi_disable_success">Dual Wi-Fi is disabled. The saved secondary network and auto-reconnect preference are kept; future reconnections follow that preference after you connect a secondary network.</string>
+    <string name="dual_wifi_disable_failed">Could not confirm that Dual Wi-Fi is fully disabled. Check root access and system status, then try again.</string>
+    <string name="dual_wifi_disable_hotspot_blocked">The hotspot is routed through secondary Wi-Fi. Change the hotspot upstream or turn off the hotspot before disabling Dual Wi-Fi.</string>
+    <string name="dual_wifi_enable_first">Enable Dual Wi-Fi before connecting a secondary network.</string>
     <string name="dual_wifi_activate_success">Dual Wi-Fi activated successfully!</string>
     <string name="dual_wifi_activate_failed">Activation failed, please check root permission</string>
     <string name="dual_wifi_recheck">Recheck</string>
@@ -492,6 +499,8 @@
     <string name="wifi_i18n_needs_activation">Activation required</string>
     <string name="wifi_i18n_hardware_supported">Hardware supported</string>
     <string name="wifi_i18n_hardware_unsupported">Hardware unsupported</string>
+    <string name="wifi_i18n_show_details">Support details</string>
+    <string name="wifi_i18n_hide_details">Collapse</string>
     <string name="wifi_i18n_hardware_concurrency">Hardware concurrency (STA + STA)</string>
     <string name="wifi_i18n_chipset">Radio chipset: %1$s%2$s</string>
     <string name="wifi_i18n_soc_suffix"> [SoC: %1$s]</string>

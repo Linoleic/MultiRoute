@@ -374,6 +374,13 @@
     <string name="dual_wifi_mode_inactive">多互联网模式尚未激活</string>
     <string name="dual_wifi_activate_btn">一键激活双 Wi-Fi (需要 Root)</string>
     <string name="dual_wifi_activating">正在激活双 Wi-Fi 并发...</string>
+    <string name="dual_wifi_feature_enable">启用双 Wi-Fi</string>
+    <string name="dual_wifi_feature_disable">停用双 Wi-Fi</string>
+    <string name="dual_wifi_feature_disabling">正在停用…</string>
+    <string name="dual_wifi_disable_success">双 Wi-Fi 已停用。已保存的副网络和自动重连偏好已保留；连接副 Wi-Fi 后，后续重连仍按原偏好执行。</string>
+    <string name="dual_wifi_disable_failed">未能确认双 Wi-Fi 已完全停用，请检查 Root 权限和系统状态后重试。</string>
+    <string name="dual_wifi_disable_hotspot_blocked">热点出口指向副 Wi-Fi。请先切换热点出口或关闭热点，再停用双 Wi-Fi。</string>
+    <string name="dual_wifi_enable_first">请先启用双 Wi-Fi，再连接副 Wi-Fi。</string>
     <string name="dual_wifi_activate_success">双 Wi-Fi 激活成功！</string>
     <string name="dual_wifi_activate_failed">激活失败，请检查 Root 授权</string>
     <string name="dual_wifi_recheck">重新检测</string>
@@ -492,6 +499,8 @@
     <string name="wifi_i18n_needs_activation">需要激活</string>
     <string name="wifi_i18n_hardware_supported">硬件支持</string>
     <string name="wifi_i18n_hardware_unsupported">硬件不支持</string>
+    <string name="wifi_i18n_show_details">支持详情</string>
+    <string name="wifi_i18n_hide_details">收起</string>
     <string name="wifi_i18n_hardware_concurrency">硬件并发能力 (STA + STA 并发)</string>
     <string name="wifi_i18n_chipset">射频芯片: %1$s%2$s</string>
     <string name="wifi_i18n_soc_suffix"> [SoC: %1$s]</string>

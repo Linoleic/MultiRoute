@@ -123,7 +123,9 @@ fun DualWifiScreen(
                 HardwareCapabilityCard(
                     status = status,
                     isActivating = uiState.isActivating,
+                    isDeactivating = uiState.isDeactivating,
                     onActivateClick = { viewModel.activateDualWifi() },
+                    onDeactivateClick = { viewModel.deactivateDualWifi() },
                     onClearBlocklist = { viewModel.clearBlocklist() }
                 )
             }
@@ -433,10 +435,14 @@ fun DualWifiScreen(
 private fun HardwareCapabilityCard(
     status: DualWifiStatus,
     isActivating: Boolean,
+    isDeactivating: Boolean,
     onActivateClick: () -> Unit,
+    onDeactivateClick: () -> Unit,
     onClearBlocklist: () -> Unit
 ) {
     val capability = status.capability
+    var detailsExpanded by remember { mutableStateOf(false) }
+    val dualWifiActive = capability.modeActive || status.secondaryConnected || status.isConnecting
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -450,16 +456,16 @@ private fun HardwareCapabilityCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header
+            // Keep the default card compact: hardware support is the only diagnostic shown until expanded.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = if (capability.isFullyReady) Icons.Default.CheckCircle else Icons.Default.Tune,
+                    imageVector = if (capability.hardwareSupported) Icons.Default.CheckCircle else Icons.Default.Tune,
                     contentDescription = null,
-                    tint = if (capability.isFullyReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                    tint = if (capability.hardwareSupported) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                 )
                 Text(
                     text = stringResource(R.string.wifi_i18n_support_details),
@@ -468,171 +474,164 @@ private fun HardwareCapabilityCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            // 1. 硬件并发能力 (STA + STA 并发)
-            DiagnosticItemRow(
-                icon = Icons.Default.Memory,
-                title = stringResource(R.string.wifi_i18n_hardware_concurrency),
-                statusText = stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_hardware_supported else R.string.wifi_i18n_hardware_unsupported),
-                isOk = capability.hardwareSupported,
-                details = buildList {
-                    add(stringResource(R.string.wifi_i18n_chipset, capability.wifiChipset, if (capability.romInfo.socModel.isNotEmpty()) stringResource(R.string.wifi_i18n_soc_suffix, capability.romInfo.socModel) else ""))
-                    add(stringResource(R.string.wifi_i18n_interfaces, capability.primaryIface ?: "wlan0", capability.secondaryIface ?: "wlan1"))
-                    add(stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_arch_supported else R.string.wifi_i18n_arch_unsupported))
-                }
-            )
-
-            // 2. 系统定制环境与方案
-            DiagnosticItemRow(
-                icon = Icons.Default.PhoneAndroid,
-                title = stringResource(R.string.wifi_i18n_system_scheme),
-                statusText = schemeBadge(capability.effectiveScheme),
-                isOk = true,
-                details = buildList {
-                    add(stringResource(R.string.wifi_i18n_system_environment, romLabel(capability.romInfo.romType), capability.romInfo.model, capability.romInfo.androidVersion))
-                    add(when (capability.effectiveScheme) {
-                        com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> stringResource(R.string.wifi_i18n_mechanism_xiaomi)
-                        com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> stringResource(R.string.wifi_i18n_mechanism_aosp)
-                        com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> stringResource(R.string.wifi_i18n_mechanism_root)
-                        com.multiroute.wifi.DualWifiScheme.AUTO -> stringResource(R.string.wifi_i18n_mechanism_auto)
-                    })
-                }
-            )
-
-            // 3. 系统多网络配置 Overlay
-            val isXiaomi = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE
-            val isRootDirect = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT
-            DiagnosticItemRow(
-                icon = Icons.Default.Layers,
-                title = stringResource(R.string.wifi_i18n_overlay_title),
-                statusText = when {
-                    isXiaomi -> stringResource(R.string.wifi_i18n_oem_builtin)
-                    isRootDirect -> stringResource(R.string.wifi_i18n_no_overlay_root)
-                    capability.configEnabled -> stringResource(R.string.wifi_i18n_enabled)
-                    else -> stringResource(R.string.wifi_i18n_disabled)
-                },
-                isOk = isXiaomi || isRootDirect || capability.configEnabled,
-                details = buildList {
-                    if (isRootDirect) {
-                        add(stringResource(R.string.wifi_i18n_direct_channel))
-                        add(stringResource(R.string.wifi_i18n_direct_ready))
-                    } else {
-                        add(stringResource(R.string.wifi_i18n_config_switch, capability.configEnabled))
-                        add(stringResource(R.string.wifi_i18n_current_state, capability.overlayStatus))
-                    }
-                }
-            )
-
-            // 4. 并发运行工作模式 (Multi-AP 并发)
-            DiagnosticItemRow(
-                icon = Icons.Default.Hub,
-                title = stringResource(R.string.wifi_i18n_concurrency_mode),
-                statusText = stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_active else R.string.wifi_i18n_inactive),
-                isOk = capability.modeActive,
-                details = buildList {
-                    add(stringResource(R.string.wifi_i18n_running_mode))
-                    add(stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_2_status else R.string.wifi_i18n_single_internet_status))
-                }
-            )
-
-            // 5. 副 Wi-Fi 物理层链路
-            val secLinked = status.secondaryConnected
-            DiagnosticItemRow(
-                icon = Icons.Default.WifiTethering,
-                title = stringResource(R.string.wifi_i18n_secondary_physical_link, status.secondaryIface ?: capability.secondaryIface ?: "wlan1"),
-                statusText = stringResource(if (secLinked) R.string.wifi_i18n_link_active else R.string.wifi_i18n_link_ready),
-                isOk = secLinked,
-                details = buildList {
-                    if (secLinked) {
-                        status.secondarySsid?.let { add(stringResource(R.string.wifi_i18n_network_label, it)) }
-                        status.secondaryIp?.let { add("IP: $it") }
-                        if (status.secondaryFreq > 0) add(stringResource(R.string.wifi_i18n_frequency_label, status.secondaryFreq))
-                        if (status.secondaryRssi < 0) add(stringResource(R.string.wifi_i18n_signal_label, status.secondaryRssi))
-                    } else {
-                        add(stringResource(R.string.wifi_i18n_idle_interface))
-                    }
-                }
-            )
-
-            // 一键激活按钮 (若需要激活且硬件支持)
-            if (!capability.isFullyReady && capability.hardwareSupported) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Button(
-                    onClick = onActivateClick,
-                    enabled = !isActivating,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    if (isActivating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.dual_wifi_activating))
-                    } else {
-                        Icon(Icons.Default.Bolt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.dual_wifi_activate_btn))
-                    }
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            // 清理网络临时限制按钮
-            OutlinedButton(
-                onClick = onClearBlocklist,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CleaningServices,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    Text(
-                        text = stringResource(R.string.dual_wifi_clear_blocklist),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                    Text(
-                        text = stringResource(R.string.dual_wifi_clear_blocklist_desc),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (capability.isFullyReady)
+                    color = if (capability.hardwareSupported)
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    else if (capability.hardwareSupported)
-                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-                    else
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = stringResource(when {
-                            capability.isFullyReady -> R.string.wifi_i18n_ready
-                            capability.hardwareSupported -> R.string.wifi_i18n_needs_activation
-                            else -> R.string.wifi_i18n_hardware_unsupported
-                        }),
+                        text = stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_hardware_supported else R.string.wifi_i18n_hardware_unsupported),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (capability.isFullyReady) MaterialTheme.colorScheme.primary
-                        else if (capability.hardwareSupported) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.error,
+                        color = if (capability.hardwareSupported) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { detailsExpanded = !detailsExpanded }) {
+                    Text(stringResource(if (detailsExpanded) R.string.wifi_i18n_hide_details else R.string.wifi_i18n_show_details))
+                }
+                Spacer(Modifier.weight(1f))
+                when {
+                    isDeactivating -> OutlinedButton(onClick = {}, enabled = false) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.dual_wifi_feature_disabling))
+                    }
+                    isActivating -> Button(onClick = {}, enabled = false) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.dual_wifi_activating))
+                    }
+                    dualWifiActive -> OutlinedButton(onClick = onDeactivateClick) {
+                        Text(stringResource(R.string.dual_wifi_feature_disable))
+                    }
+                    else -> Button(onClick = onActivateClick, enabled = capability.hardwareSupported) {
+                        Text(stringResource(R.string.dual_wifi_feature_enable))
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = detailsExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 1. 硬件并发能力 (STA + STA 并发)
+                    DiagnosticItemRow(
+                        icon = Icons.Default.Memory,
+                        title = stringResource(R.string.wifi_i18n_hardware_concurrency),
+                        statusText = stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_hardware_supported else R.string.wifi_i18n_hardware_unsupported),
+                        isOk = capability.hardwareSupported,
+                        details = buildList {
+                            add(stringResource(R.string.wifi_i18n_chipset, capability.wifiChipset, if (capability.romInfo.socModel.isNotEmpty()) stringResource(R.string.wifi_i18n_soc_suffix, capability.romInfo.socModel) else ""))
+                            add(stringResource(R.string.wifi_i18n_interfaces, capability.primaryIface ?: "wlan0", capability.secondaryIface ?: "wlan1"))
+                            add(stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_arch_supported else R.string.wifi_i18n_arch_unsupported))
+                        }
+                    )
+
+                    // 2. 系统定制环境与方案
+                    DiagnosticItemRow(
+                        icon = Icons.Default.PhoneAndroid,
+                        title = stringResource(R.string.wifi_i18n_system_scheme),
+                        statusText = schemeBadge(capability.effectiveScheme),
+                        isOk = true,
+                        details = buildList {
+                            add(stringResource(R.string.wifi_i18n_system_environment, romLabel(capability.romInfo.romType), capability.romInfo.model, capability.romInfo.androidVersion))
+                            add(when (capability.effectiveScheme) {
+                                com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> stringResource(R.string.wifi_i18n_mechanism_xiaomi)
+                                com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> stringResource(R.string.wifi_i18n_mechanism_aosp)
+                                com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> stringResource(R.string.wifi_i18n_mechanism_root)
+                                com.multiroute.wifi.DualWifiScheme.AUTO -> stringResource(R.string.wifi_i18n_mechanism_auto)
+                            })
+                        }
+                    )
+
+                    // 3. 系统多网络配置 Overlay
+                    val isXiaomi = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE
+                    val isRootDirect = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT
+                    DiagnosticItemRow(
+                        icon = Icons.Default.Layers,
+                        title = stringResource(R.string.wifi_i18n_overlay_title),
+                        statusText = when {
+                            isXiaomi -> stringResource(R.string.wifi_i18n_oem_builtin)
+                            isRootDirect -> stringResource(R.string.wifi_i18n_no_overlay_root)
+                            capability.configEnabled -> stringResource(R.string.wifi_i18n_enabled)
+                            else -> stringResource(R.string.wifi_i18n_disabled)
+                        },
+                        isOk = isXiaomi || isRootDirect || capability.configEnabled,
+                        details = buildList {
+                            if (isRootDirect) {
+                                add(stringResource(R.string.wifi_i18n_direct_channel))
+                                add(stringResource(R.string.wifi_i18n_direct_ready))
+                            } else {
+                                add(stringResource(R.string.wifi_i18n_config_switch, capability.configEnabled))
+                                add(stringResource(R.string.wifi_i18n_current_state, capability.overlayStatus))
+                            }
+                        }
+                    )
+
+                    // 4. 并发运行工作模式 (Multi-AP 并发)
+                    DiagnosticItemRow(
+                        icon = Icons.Default.Hub,
+                        title = stringResource(R.string.wifi_i18n_concurrency_mode),
+                        statusText = stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_active else R.string.wifi_i18n_inactive),
+                        isOk = capability.modeActive,
+                        details = buildList {
+                            add(stringResource(R.string.wifi_i18n_running_mode))
+                            add(stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_2_status else R.string.wifi_i18n_single_internet_status))
+                        }
+                    )
+
+                    // 5. 副 Wi-Fi 物理层链路
+                    val secLinked = status.secondaryConnected
+                    DiagnosticItemRow(
+                        icon = Icons.Default.WifiTethering,
+                        title = stringResource(R.string.wifi_i18n_secondary_physical_link, status.secondaryIface ?: capability.secondaryIface ?: "wlan1"),
+                        statusText = stringResource(if (secLinked) R.string.wifi_i18n_link_active else R.string.wifi_i18n_link_ready),
+                        isOk = secLinked,
+                        details = buildList {
+                            if (secLinked) {
+                                status.secondarySsid?.let { add(stringResource(R.string.wifi_i18n_network_label, it)) }
+                                status.secondaryIp?.let { add("IP: $it") }
+                                if (status.secondaryFreq > 0) add(stringResource(R.string.wifi_i18n_frequency_label, status.secondaryFreq))
+                                if (status.secondaryRssi < 0) add(stringResource(R.string.wifi_i18n_signal_label, status.secondaryRssi))
+                            } else {
+                                add(stringResource(R.string.wifi_i18n_idle_interface))
+                            }
+                        }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 清理网络临时限制按钮
+                    OutlinedButton(
+                        onClick = onClearBlocklist,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CleaningServices,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Text(
+                                text = stringResource(R.string.dual_wifi_clear_blocklist),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = stringResource(R.string.dual_wifi_clear_blocklist_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
                 }
             }
         }

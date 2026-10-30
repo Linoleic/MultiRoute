@@ -12,6 +12,7 @@ import android.util.Log
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.SuHelper
 import com.multiroute.util.HotspotHookState
+import com.multiroute.util.HotspotUpstreamPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicLong
@@ -38,6 +40,8 @@ enum class DualWifiScheme(val id: String, val label: String) {
             values().firstOrNull { it.id == id } ?: AUTO
     }
 }
+
+enum class DualWifiDeactivationResult { STOPPED, HOTSPOT_USES_SECONDARY, FAILED }
 
 enum class RomType(val label: String) {
     AOSP_PIXEL("AOSP / Pixel 类原生"),
@@ -330,6 +334,7 @@ object DualWifiManager {
                         // If hotspot was just disabled, trigger secondary Wi-Fi auto-reconnection
                         // after a short delay allowing kernel nl80211 to restore STA2 mode
                         if (apState == 11 && !_status.value.secondaryConnected &&
+                            !com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(appContext) &&
                             com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(appContext)
                         ) {
                             delay(1200)
@@ -435,10 +440,11 @@ object DualWifiManager {
             }
         )
 
-        // Auto-apply Xiaomi slave wifi screen-off keepalive when Xiaomi scheme is active
-        if (effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || romInfo.romType == RomType.XIAOMI_HYPEROS) {
+        // Keep Xiaomi's slave radio awake only while multi-internet mode is active. Remember
+        // the previous user value so the explicit stop action can restore it.
+        if (modeActive && (effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || romInfo.romType == RomType.XIAOMI_HYPEROS)) {
             if (!com.multiroute.data.RouteConfigProvider.isKeepSlaveWifiScreenOff(context)) {
-                com.multiroute.data.RouteConfigProvider.setKeepSlaveWifiScreenOff(context, true)
+                com.multiroute.data.RouteConfigProvider.recordKeepSlaveWifiScreenOffBeforeDualWifi(context)
                 SuHelper.setKeepSlaveWifiScreenOff(context, true)
             }
         }
@@ -523,12 +529,12 @@ DUALWIFI_EOF
                 SuHelper.executeCommand(script, timeoutSeconds = 10)
             }
             DualWifiScheme.XIAOMI_SLAVE -> {
-                SuHelper.setKeepSlaveWifiScreenOff(context, true)
+                com.multiroute.data.RouteConfigProvider.recordKeepSlaveWifiScreenOffBeforeDualWifi(context)
+                val keepAwake = SuHelper.setKeepSlaveWifiScreenOff(context, true)
                 val script = """
                     cmd wifi set-multi-internet-mode 2 2>/dev/null
                 """.trimIndent()
-                SuHelper.executeCommand(script, timeoutSeconds = 5)
-                true
+                keepAwake && SuHelper.executeCommand(script, timeoutSeconds = 5)
             }
             DualWifiScheme.ROOT_DIRECT, DualWifiScheme.AUTO -> {
                 val script = """
@@ -539,7 +545,71 @@ DUALWIFI_EOF
         }
 
         val capability = checkCapability(context)
-        success && capability.isFullyReady
+        val activated = success && capability.isFullyReady
+        if (activated) com.multiroute.data.RouteConfigProvider.setDualWifiDisabled(context, false)
+        activated
+    }
+
+    /** Turns off the global Multi-Internet mode and stops this app's secondary Wi-Fi lifecycle. */
+    suspend fun deactivateDualWifi(context: Context): DualWifiDeactivationResult = withContext(Dispatchers.IO) {
+        refreshConnectionState(context)
+        val before = _status.value
+        val hotspotTarget = HotspotUpstreamPolicy.normalize(before.hotspotUpstreamTarget)
+        if (before.isHotspotEnabled &&
+            (before.hotspotUpstreamActive.equals("wlan1", ignoreCase = true) || hotspotTarget == "wlan1")) {
+            return@withContext DualWifiDeactivationResult.HOTSPOT_USES_SECONDARY
+        }
+
+        // Stop background retries first, but keep the saved SSID and password for a later re-enable.
+        com.multiroute.data.RouteConfigProvider.setDualWifiDisabled(context, true)
+        val disconnectQueued = disconnectSecondaryWifi(
+            context,
+            clearSavedPreference = false,
+            suppressReconnect = true
+        )
+        context.stopService(android.content.Intent(context, DualWifiService::class.java))
+
+        // Remove the AOSP boot re-enable script immediately. Set mode 0 after disconnect cleanup
+        // completes so an in-flight connection command cannot race and restore mode 2 afterwards.
+        val bootScriptRemoved = SuHelper.executeCommand(
+            "rm -f /data/adb/service.d/01-multiroute-dualwifi.sh",
+            timeoutSeconds = 5
+        )
+
+        val linkStopped = withTimeoutOrNull(8_000L) {
+            while (true) {
+                refreshConnectionState(context)
+                val current = _status.value
+                if (!current.secondaryConnected && !current.isConnecting) return@withTimeoutOrNull true
+                delay(250)
+            }
+            @Suppress("UNREACHABLE_CODE") false
+        } ?: false
+
+        val modeCommand = SuHelper.executeCommand(
+            "cmd wifi set-multi-internet-mode 0",
+            timeoutSeconds = 8
+        )
+
+        val modeStopped = withTimeoutOrNull(5_000L) {
+            while (true) {
+                if (!checkCapability(context).modeActive) return@withTimeoutOrNull true
+                delay(250)
+            }
+            @Suppress("UNREACHABLE_CODE") false
+        } ?: false
+
+        val keepAwakeRestored = if (modeStopped) {
+            val previous = com.multiroute.data.RouteConfigProvider.getKeepSlaveWifiScreenOffBeforeDualWifi(context)
+            if (previous == null) true else {
+                val restored = SuHelper.setKeepSlaveWifiScreenOff(context, previous)
+                if (restored) com.multiroute.data.RouteConfigProvider.clearKeepSlaveWifiScreenOffBeforeDualWifi(context)
+                restored
+            }
+        } else false
+
+        if (disconnectQueued && bootScriptRemoved && modeCommand && linkStopped && modeStopped && keepAwakeRestored)
+            DualWifiDeactivationResult.STOPPED else DualWifiDeactivationResult.FAILED
     }
 
     /**
@@ -1667,9 +1737,11 @@ DUALWIFI_EOF
      * Attempts to auto-reconnect the last configured secondary Wi-Fi if enabled and not currently connected.
      */
     suspend fun autoReconnectSecondary(context: Context): Boolean {
+      if (com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(context)) return false
       val ticket = secondaryConnections.retry() ?: return false
       return secondaryConnections.withConnection(ticket) { withContext(Dispatchers.IO) {
-        if (!com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context)) {
+        if (com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(context) ||
+            !com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context)) {
             return@withContext false
         }
         refreshConnectionState(context)
@@ -1708,9 +1780,14 @@ DUALWIFI_EOF
     /**
      * Disconnects the secondary Wi-Fi network.
      */
-    fun disconnectSecondaryWifi(context: Context, clearSavedPreference: Boolean = true, expectedGeneration: Long? = null): Boolean {
+    fun disconnectSecondaryWifi(
+        context: Context,
+        clearSavedPreference: Boolean = true,
+        expectedGeneration: Long? = null,
+        suppressReconnect: Boolean = clearSavedPreference
+    ): Boolean {
         // Invalidate an in-flight attempt before waiting for any blocking root operation.
-        val ticket = if (expectedGeneration == null) secondaryConnections.disconnect(suppressReconnect = clearSavedPreference)
+        val ticket = if (expectedGeneration == null) secondaryConnections.disconnect(suppressReconnect = suppressReconnect)
             else secondaryConnections.disconnectIfCurrent(SecondaryConnectionCoordinator.Ticket(expectedGeneration)) ?: return false
         scope.launch {
           secondaryConnections.serialized {

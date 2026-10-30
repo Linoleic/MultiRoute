@@ -279,6 +279,10 @@ object ConfigTransfer {
                 if (!restored || !hotspotRestored) android.util.Log.e("MultiRoute-Config", "Configuration rollback incomplete")
                 throw ImportFailedException(e)
             }
+            if (Section.ROUTING in sections &&
+                doc.rulesSettings[Section.ROUTING]?.containsKey(RouteConfigProvider.KEY_KEEP_SLAVE_WIFI_SCREEN_OFF) == true) {
+                RouteConfigProvider.clearKeepSlaveWifiScreenOffBeforeDualWifi(context)
+            }
             val importedTargets = (if (Section.ASSIGNMENTS in sections) doc.assignments.values else emptyList()) +
                 (if (Section.SCENARIOS in sections) doc.profiles.flatMap { it.overrides.values } else emptyList()) +
                 (if (Section.HOTSPOT in sections) listOfNotNull(doc.hotspot) else emptyList())

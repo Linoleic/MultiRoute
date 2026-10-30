@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.multiroute.wifi.DualWifiManager
 import com.multiroute.wifi.DualWifiStatus
+import com.multiroute.wifi.DualWifiDeactivationResult
 import com.multiroute.wifi.WifiScanItem
 import com.multiroute.wifi.SecondaryNetworkPolicy
 import kotlinx.coroutines.CancellationException
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 data class DualWifiUiState(
     val status: DualWifiStatus = DualWifiStatus(),
     val isActivating: Boolean = false,
+    val isDeactivating: Boolean = false,
     val activationResult: String? = null,
     val pendingPasswordItem: WifiScanItem? = null,
     val isAutoReconnect: Boolean = true,
@@ -65,6 +67,7 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun activateDualWifi() {
+        if (_uiState.value.isActivating || _uiState.value.isDeactivating) return
         viewModelScope.launch {
             _uiState.update { it.copy(isActivating = true, activationResult = null) }
             val ok = DualWifiManager.activateDualWifi(getApplication(), _uiState.value.selectedScheme)
@@ -75,6 +78,39 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
                         if (ok) com.multiroute.R.string.wifi_i18n_activation_success
                         else com.multiroute.R.string.wifi_i18n_activation_failed
                     )
+                )
+            }
+        }
+    }
+
+    fun deactivateDualWifi() {
+        if (_uiState.value.isActivating || _uiState.value.isDeactivating) return
+        selectionGeneration++
+        _uiState.update {
+            it.copy(
+                isDeactivating = true,
+                activationResult = null,
+                pendingPasswordItem = null,
+                infoMessage = null,
+                needsSystemWifiSettings = false
+            )
+        }
+        viewModelScope.launch {
+            val result = try {
+                DualWifiManager.deactivateDualWifi(getApplication())
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                DualWifiDeactivationResult.FAILED
+            }
+            val messageId = when (result) {
+                DualWifiDeactivationResult.STOPPED -> com.multiroute.R.string.dual_wifi_disable_success
+                DualWifiDeactivationResult.HOTSPOT_USES_SECONDARY -> com.multiroute.R.string.dual_wifi_disable_hotspot_blocked
+                DualWifiDeactivationResult.FAILED -> com.multiroute.R.string.dual_wifi_disable_failed
+            }
+            _uiState.update {
+                it.copy(
+                    isDeactivating = false,
+                    infoMessage = getApplication<Application>().getString(messageId)
                 )
             }
         }
@@ -95,6 +131,14 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onSelectScanItem(item: WifiScanItem) {
+        if (com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(getApplication())) {
+            _uiState.update { it.copy(
+                pendingPasswordItem = null,
+                infoMessage = getApplication<Application>().getString(com.multiroute.R.string.dual_wifi_enable_first),
+                needsSystemWifiSettings = false
+            ) }
+            return
+        }
         val selection = ++selectionGeneration
         _uiState.update { it.copy(pendingPasswordItem = null, infoMessage = null, needsSystemWifiSettings = false) }
         viewModelScope.launch {
@@ -129,6 +173,14 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun connectSecondary(item: WifiScanItem, password: String?) {
+        if (com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(getApplication())) {
+            _uiState.update { it.copy(
+                pendingPasswordItem = null,
+                infoMessage = getApplication<Application>().getString(com.multiroute.R.string.dual_wifi_enable_first),
+                needsSystemWifiSettings = false
+            ) }
+            return
+        }
         selectionGeneration++
         _uiState.update { it.copy(pendingPasswordItem = null) }
         DualWifiManager.connectSecondaryWifiAsync(

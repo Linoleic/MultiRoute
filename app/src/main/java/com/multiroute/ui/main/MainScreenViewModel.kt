@@ -944,6 +944,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val context = getApplication<Application>()
             val current = _uiState.value.isKeepSlaveWifiScreenOff
             val next = !current
+            com.multiroute.data.RouteConfigProvider.setKeepSlaveWifiScreenOffByUser(context, next)
             SuHelper.setKeepSlaveWifiScreenOff(context, next)
             _uiState.value = _uiState.value.copy(
                 isKeepSlaveWifiScreenOff = next,
