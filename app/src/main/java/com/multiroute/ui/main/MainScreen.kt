@@ -693,7 +693,6 @@ fun ChannelsTab(
         ) {
             item { CellularControlCard(uiState, viewModel) }
             item {
-                Spacer(modifier = Modifier.height(4.dp))
                 ElevatedCard(
                     onClick = { onNavigate(com.multiroute.DualWifi) },
                     modifier = Modifier.fillMaxWidth(),

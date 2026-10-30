@@ -11,7 +11,7 @@
 [![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
-MultiRoute is an Android LSPosed module with three functions: per-app policy routing, secondary Wi-Fi connection management, and personal hotspot upstream selection. It uses Linux policy-routing rules and hooks in Android framework and Tethering components. Device and ROM support varies by function.
+MultiRoute is an Android LSPosed module for per-app network routing, secondary Wi-Fi management, and personal hotspot upstream selection. Per-app routing includes controls for the non-default SIM channel and SIM-based app or scenario assignments. It uses Linux policy-routing rules and hooks in Android framework and Tethering components. Device and ROM support varies by function.
 
 > **Requires root** (KernelSU / Magisk / APatch) and **LSPosed**, scoped to the **system framework**
 > (`system_server`) and the **NetworkStack tethering packages**.
@@ -53,6 +53,7 @@ MultiRoute combines Android framework hooks with Linux policy-routing rules:
 
 1. **Per-App Policy Routing**:
    - Assign any app to a dedicated channel (Primary Wi-Fi, Secondary Wi-Fi, Cellular, Ethernet), with independent assignment support for dual/cloned app spaces.
+   - On dual-SIM devices, enable or stop the non-default data SIM from Channels and assign apps or scenario plans to an identifiable SIM.
    - Enforced via Linux kernel policy routing (`ip rule`) without userspace VPN overhead; includes IPv4 UDP/TCP port 53 DNS rewriting, on-link LAN bypass, and automatic failover fallback on connection loss.
 
 2. **Dual Wi-Fi Activation & Management (STA + STA Concurrency)**:
@@ -108,6 +109,10 @@ The table does not establish compatibility with every device running these syste
 
 - **Per-app channel assignment** — pick a channel for any app; its traffic egresses through that link
   while other apps keep using theirs.
+- **Secondary cellular controls and SIM routing** — enable or stop the non-default data SIM from
+  Channels, and assign apps or scenario plans to an identifiable SIM. The target resolves to its
+  current network after reconnection; if the SIM cannot be matched after importing on another
+  device, select the target again.
 - **Independent configuration for cloned apps** — app-clone spaces (e.g. Xiaomi XSpace, user 999) and
   work profiles are listed as separate entries (`WeChat (999)`), so a clone and its primary install can
   use *different* channels.
@@ -134,7 +139,14 @@ The table does not establish compatibility with every device running these syste
   channel**, plus a per-channel public-IP probe with presets or a custom endpoint.
 - **Appearance and language** — theme (follow system / light / dark, animated), Material You colour, and
   per-app language (follow system / 简体中文 / English).
-- **Configuration backup and restore** — v2 JSON covers routing, complete plan selections, network policies, hotspot upstream preferences, non-secret dual Wi-Fi information, appearance and test endpoints. Preview and restore selected categories, including older v1 files. Network names and test URLs are included; Wi-Fi passwords, UID caches and logs are excluded. Import does not start the hotspot or connect secondary Wi-Fi, and device-specific schemes are checked against the destination manufacturer.
+- **Configuration backup and restore** — v3 JSON covers app routing (including SIM targets), scenario
+  selections, network policies, hotspot upstream preferences, non-secret dual Wi-Fi information,
+  appearance and test endpoints. Preview and restore selected categories; v1 and v2 files remain
+  supported. SIM targets use opaque device-scoped identifiers, not raw ICCIDs or phone numbers. If a
+  SIM cannot be matched after import on another device, select the target again. Network names and
+  test URLs are included; Wi-Fi passwords, UID caches and logs are excluded. Import does not start the
+  hotspot or connect secondary Wi-Fi, and dual Wi-Fi schemes are checked against the destination
+  manufacturer.
 - **Module status** — reports whether hooks are installed, whether `system_server` is
   still running an older build, or whether the status record is stale.
 - **System diagnostics** — diagnostic dialog supports one-tap copy, SAF file export, and system sharing, covering dual Wi-Fi status, route tables and gateways, upstream DNS and Private DNS (DoT), rule status, and filtered logcat output.

@@ -11,7 +11,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 新增
 
-- **副卡数据通道入口**：在网络通道页启用、停用非默认数据卡通道，区分激活进程和网络实际状态，并提供请求与兼容两种方式。
+- **副卡数据通道入口**：在网络通道页启用、停用非默认数据卡通道，区分激活进程和网络实际状态，并提供请求与兼容两种方式。卡片沿用网络通道图标样式，摘要显示 SIM、副卡启用状态和当前操作；网络验证状态、SIM 详情、完整说明与激活方式可展开查看，滚动离屏后保留状态与展开设置。
 - **按 SIM 保存分流目标**：可识别的 SIM 使用设备内稳定标识，网络重建后重新解析到当前接口；身份无法匹配时提示重新选择，保留旧接口规则兼容。
 - **配置备份 v3**：保存 SIM 分流与场景目标，继续读取 v1/v2 备份；跨设备导入时提示无法匹配的 SIM。
 
@@ -28,7 +28,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### Added
 
-- **Secondary cellular controls:** Enable or stop the non-default data SIM channel from the channels tab, distinguish process state from network availability, and choose request or compatibility mode.
+- **Secondary cellular controls:** Enable or stop the non-default data SIM channel from the channels tab, distinguish process state from network availability, and choose request or compatibility mode. Reuse the network-card icon style; show the SIM, enabled state and current action in the summary; expand for network validation, SIM details and full notes. Preserve state and expanded settings after scrolling offscreen.
 - **SIM routing targets:** Use device-scoped identities for identifiable SIMs and resolve the current interface after network recreation. Prompt for reselection when identity cannot be matched; retain legacy interface assignments.
 - **Configuration backup v3:** Preserve SIM assignments and scenario targets while reading v1/v2 backups. Report unmatched SIMs when importing on another device.
 

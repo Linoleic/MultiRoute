@@ -11,7 +11,7 @@
 [![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
-MultiRoute 是一个 Android LSPosed 模块，提供分应用策略路由、副 Wi-Fi 连接管理和个人热点上游选择。它使用 Linux 策略路由规则及 Android 框架和 Tethering hook。不同功能对设备与 ROM 的要求不同。
+MultiRoute 是一个 Android LSPosed 模块，提供分应用策略路由（含副卡通道控制与按 SIM 分流）、副 Wi-Fi 连接管理和个人热点上游选择。它使用 Linux 策略路由规则及 Android 框架和 Tethering hook。不同功能对设备与 ROM 的要求不同。
 
 > **需要 Root**（KernelSU / Magisk / APatch）与 **LSPosed**，作用域包含系统框架（`system_server`）及网络堆栈（Tethering APEX）。
 
@@ -52,6 +52,7 @@ MultiRoute 结合 Android 框架 hook 与 Linux 策略路由规则实现这些�
 
 1. **分应用策略路由**：
    - 为每个应用独立指定网络通道（主 Wi-Fi、副 Wi-Fi、移动蜂窝或以太网），支持应用分身（如双开微信）独立走不同通道。
+   - 双卡设备可在「网络通道」页启用或停用非默认数据卡通道，并将应用或场景指派到可识别的 SIM。
    - 基于 Linux 内核策略路由（`ip rule`），不使用用户态 VPN 转发；支持 IPv4 UDP/TCP 53 端口 DNS 改写、局域网直连网段放行与链路不可用时的回退。
 
 2. **双 Wi-Fi 激活与管理**：
@@ -106,6 +107,7 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 ## 主要特性
 
 - **分应用通道指派**：为任意应用指定通道，其流量从该链路出口，其他应用不受影响。
+- **副卡蜂窝通道与 SIM 分流**：可在网络通道页启用或停用非默认数据卡通道，并将应用或场景指派到可识别的 SIM。网络重建后会重新解析该 SIM 对应的当前通道；导入到其他设备时，无法匹配的 SIM 需要重新选择。
 - **分身独立配置**：应用分身空间（如小米 XSpace，用户 999）与工作资料会作为**独立条目**列出
   （`微信 (999)`），因此分身与主安装可以走**不同**通道。
 - **分应用 DNS 改写**：被指派应用的 IPv4 传统 DNS（UDP/TCP 53 端口）会改写到所选通道的解析器。Private DNS（DoT）与 DNS-over-HTTPS（DoH）不改写；VPN 下的行为取决于其模式（见「已知限制」）。
@@ -123,7 +125,7 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 - **内置双 Wi-Fi 助手**：提供多种副 WLAN 连接方案、同名 SSID 跨频段处理与临时网络限制重置。在受支持的 Xiaomi ROM 上会启用尝试维持副网的 hook；效果取决于设备与 ROM。
 - **通道详情**：接口、地址、网关、DNS、MTU、计费状态、SSID，以及 **Wi-Fi 频段与信道**；并可做按通道的公网出口探测（内置预设 + 自定义地址）。
 - **外观与语言**：主题（跟随系统 / 浅色 / 深色，带渐变过渡）、动态取色，以及按应用语言（跟随系统 / 简体中文 / English）。
-- **配置备份与恢复**：v2 JSON 包含分流、完整场景选择、网络策略、热点出口偏好、双 Wi-Fi 非敏感信息、外观与测速节点；导入可预览和按类别恢复，兼容 v1 文件。文件包含 Wi-Fi 网络名称和测速地址，不含 Wi-Fi 密码、UID 缓存或运行日志；导入不会自动开启热点或连接副 Wi-Fi，跨设备连接方案会检查厂商兼容性。
+- **配置备份与恢复**：v3 JSON 包含应用分流（含 SIM 目标）、场景选择、网络策略、热点出口偏好、双 Wi-Fi 非敏感信息、外观与测速节点；可预览并按类别恢复，兼容 v1/v2 文件。SIM 目标使用设备内不透明标识，不导出原始 ICCID 或电话号码；跨设备导入时，无法匹配的 SIM 需要重新选择。文件包含 Wi-Fi 网络名称和测速地址，不含 Wi-Fi 密码、UID 缓存或运行日志；导入不会自动开启热点或连接副 Wi-Fi，双 Wi-Fi 方案会检查目标设备的厂商兼容性。
 - **模块状态自检**：明确区分「hook 已就绪」「`system_server` 仍在跑旧版本」「状态记录已过期」等具体状态。
 - **系统运行诊断**：诊断日志弹窗支持复制、SAF 文件导出与系统分享；涵盖双 Wi-Fi 状态、路由表与网关、上游 DNS 与 Private DNS (DoT)、规则生效状态及过滤后的 logcat。
 - **不使用 VPN**：在内核层分流，没有用户态 TCP/IP 栈开销。

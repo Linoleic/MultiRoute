@@ -12,6 +12,10 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.multiroute.cellular.CellularSubscription
+import com.multiroute.cellular.CellularSubscriptions
+import com.multiroute.cellular.DualSimController
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.multiroute.data.RouteConfigProvider
@@ -36,6 +40,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+data class CellularControlUiState(
+    val mode: Int = 0,
+    val subscriptions: List<CellularSubscription> = emptyList(),
+    val isBusy: Boolean = false,
+    val hasFailed: Boolean = false,
+    val detailsExpanded: Boolean = false,
+    val preferredMode: Int = 2,
+    val isLoaded: Boolean = false
+)
 
 data class MainUiState(
     val selectedTab: Int = 0, // 0: 应用分流, 1: 网络通道, 2: 模块与设置
@@ -107,6 +121,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+    private val _cellularControlState = MutableStateFlow(CellularControlUiState())
+    val cellularControlState: StateFlow<CellularControlUiState> = _cellularControlState.asStateFlow()
 
     private var allApps: List<AppItem> = emptyList()
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -200,6 +216,68 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (_: Exception) {}
+    }
+
+    suspend fun refreshCellularControlState() {
+        if (_cellularControlState.value.isBusy) return
+        try {
+            val mode = DualSimController.status()
+            val subscriptions = CellularSubscriptions.read(getApplication<Application>())
+            val current = _cellularControlState.value
+            if (current.isBusy) return
+            _cellularControlState.value = current.copy(
+                mode = mode,
+                subscriptions = subscriptions,
+                preferredMode = if (mode != 0) mode else current.preferredMode,
+                isLoaded = true
+            )
+            if (subscriptions != current.subscriptions) refreshEnvironment()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            val current = _cellularControlState.value
+            if (!current.isLoaded) _cellularControlState.value = current.copy(isLoaded = true)
+        }
+    }
+
+    fun setCellularDetailsExpanded(expanded: Boolean) {
+        _cellularControlState.value = _cellularControlState.value.copy(detailsExpanded = expanded)
+    }
+
+    fun setCellularPreferredMode(mode: Int) {
+        if (mode !in 1..2) return
+        val current = _cellularControlState.value
+        if (current.mode != 0 || current.isBusy) return
+        _cellularControlState.value = current.copy(preferredMode = mode)
+    }
+
+    fun selectCellularMode(mode: Int) {
+        val current = _cellularControlState.value
+        if (mode !in 0..2 || current.isBusy) return
+        if (mode != 0 && (current.subscriptions.size != 2 ||
+                    current.subscriptions.singleOrNull { !it.isDefault } == null)) return
+
+        _cellularControlState.value = current.copy(isBusy = true, hasFailed = false)
+        viewModelScope.launch {
+            try {
+                val succeeded = DualSimController.select(getApplication<Application>(), mode)
+                val actualMode = DualSimController.status()
+                val latest = _cellularControlState.value
+                _cellularControlState.value = latest.copy(
+                    mode = actualMode,
+                    preferredMode = if (actualMode != 0) actualMode else latest.preferredMode,
+                    hasFailed = !succeeded,
+                    isLoaded = true
+                )
+                refreshEnvironment()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _cellularControlState.value = _cellularControlState.value.copy(hasFailed = true)
+            } finally {
+                _cellularControlState.value = _cellularControlState.value.copy(isBusy = false)
+            }
+        }
     }
 
     private fun loadTestServerConfig() {
