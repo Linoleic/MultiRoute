@@ -434,7 +434,7 @@ object SuHelper {
             observation = observation.copy(wifiSsids = fromRoot.filter { it.isNotBlank() }.distinct())
         }
 
-        val knownChannels = channels.map { it.interfaceName }.toSet()
+        val knownChannels = channels.flatMap { listOf(it.id, it.interfaceName) }.toSet()
         // Clone-space / work-profile overrides need the root package listing; fetch it once, only if a
         // profile that is actually applied contains one.
         var secondaryInstalls: List<RouteRuleBuilder.SecondaryUserInstalls>? = null
@@ -467,7 +467,7 @@ object SuHelper {
             },
             // When nothing is connected yet (for example while the device is still booting) an empty list
             // must not invalidate every override - the offline check below the sync decides what is usable.
-            hasChannel = { knownChannels.isEmpty() || it in knownChannels }
+            hasChannel = { com.multiroute.cellular.CellularTargets.isSim(it) || knownChannels.isEmpty() || it in knownChannels }
         )
 
         if (resolution.activeId != null) {
@@ -483,6 +483,8 @@ object SuHelper {
     }
 
     private suspend fun syncAllRouteRulesInternal(context: Context): Boolean {
+        // A reconnect may arrive within the display cache TTL. Resolve SIM targets from fresh topology.
+        com.multiroute.cellular.CellularSubscriptions.invalidate()
         // Keep the persistent keep-alive flag aligned with the stored preference on every sync, so the
         // module can honour it from the very first moment of a boot (its other two sources - the
         // transient `sys.*` property and RemotePreferences - are unavailable at that point).
@@ -500,7 +502,12 @@ object SuHelper {
         // so boot recovery, the rule cache, offline skipping, the cellular bookkeeping and the DNS
         // redirect keep working exactly as before.
         val scenario = resolveScenarioProfile(context, baseUidRules)
-        val uidRules = scenario.effectiveRules
+        val runtimeChannels = NetworkUtils.getActiveChannels(context)
+        val simInterfaces = runtimeChannels.filter { com.multiroute.cellular.CellularTargets.isSim(it.id) }
+            .groupBy({ it.id }, { it.interfaceName })
+        val uidRules = scenario.effectiveRules.mapNotNull { (uid, target) ->
+            com.multiroute.cellular.CellularTargets.resolve(target, simInterfaces)?.let { uid to it }
+        }.toMap()
         // Diagnostic for "a plan did not reach the kernel": shows exactly what the sync is about to apply.
         Log.i(
             TAG,
@@ -513,7 +520,8 @@ object SuHelper {
         // so it is the component that can notice a link change while this app has been killed; it reads
         // this marker, wakes us with the restore broadcast, and the plan is re-evaluated here. Written on
         // every sync, so it also disappears again when the last plan is deleted.
-        val scenarioPlanCount = com.multiroute.data.ScenarioStore.load(context).size
+        val scenarioPlanCount = com.multiroute.data.ScenarioStore.load(context).size +
+            baseUidRules.values.count { com.multiroute.cellular.CellularTargets.isSim(it) }
         executeCommand(
             if (scenarioPlanCount > 0) {
                 "sh -c 'echo $scenarioPlanCount > ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}'"
@@ -556,7 +564,7 @@ object SuHelper {
         if (candidateChannels.isEmpty()) {
             val success = executeCommand(RouteRuleBuilder.buildFullSyncScript(emptyMap()),
                 timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
-            if (!success || !updateRuleCache(emptyMap())) return false
+            if (!success || !updateRuleCache(context, emptyMap())) return false
             syncCellularPreferredUids(context, emptySet())
             val removed = executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
             notifyRouteRulesChanged(context)
@@ -630,17 +638,21 @@ object SuHelper {
             // Even when every target is offline, replace the previous script with current intent.
             // Otherwise changing wlan0 -> an offline channel leaves wlan0 in the next boot's script.
             // Keep the established partial-online behavior: restore the usable subset at boot.
-            val bootChannels = activeChannelMap.ifEmpty { channelToUidsMap }
+            val dynamicUids = scenario.effectiveRules.filterValues { com.multiroute.cellular.CellularTargets.isSim(it) }.keys
+            val bootChannels = activeChannelMap.ifEmpty { channelToUidsMap }.mapValues { (_, uids) ->
+                uids.filterNot { it in dynamicUids }
+            }.filterValues { it.isNotEmpty() }
             val bootScript = RouteRuleBuilder.buildFullSyncScript(bootChannels, connectedPrefixes)
-            val bootSaved = updateBootRestoreScript(bootScript, bootChannels.keys)
+            val bootSaved = if (bootChannels.isEmpty()) executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
+                else updateBootRestoreScript(bootScript, bootChannels.keys)
             if (activeChannelMap.isEmpty()) {
-                if (!updateRuleCache(emptyMap())) return false
+                if (!updateRuleCache(context, emptyMap())) return false
                 Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script updated with current targets")
             } else {
                 // The boot script deliberately carries no DNS resolvers: they can change between boots
                 // (different network), and a stale one would break resolution. It flushes the NAT chain
                 // instead, and the app re-applies the redirect with fresh resolvers once it runs.
-                if (!updateRuleCache(activeChannelMap)) return false
+                if (!updateRuleCache(context, activeChannelMap, dynamicUids)) return false
             }
             val cellularUids = activeChannelMap.filterKeys {
                 com.multiroute.hook.CellularDefaultNetworkPolicy.isCellular(it)
@@ -683,9 +695,10 @@ object SuHelper {
     }
 
     /** Publish only successfully applied, online assignments; an empty file is authoritative. */
-    private fun updateRuleCache(channelToUidsMap: Map<String, List<Int>>): Boolean {
+    private fun updateRuleCache(context: Context, channelToUidsMap: Map<String, List<Int>>, dynamicUids: Set<Int> = emptySet()): Boolean {
         val routes = channelToUidsMap.flatMap { (iface, uids) -> uids.map { it to iface } }.toMap()
-        val text = RouteRuleBuilder.buildRuleCacheText(routes)
+        val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val text = "#boot:$boot\n#dynamic:${dynamicUids.sorted().joinToString(",")}\n" + RouteRuleBuilder.buildRuleCacheText(routes)
         val path = RouteRuleBuilder.RULE_CACHE_PATH
         // Root writes a sibling and renames it, so system_server cannot observe a partial snapshot.
         val command = "(cat > $path.tmp << 'MCROUTE_CACHE_EOF'\n" + text +

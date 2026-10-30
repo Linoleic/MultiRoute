@@ -246,6 +246,7 @@ object NetworkUtils {
     suspend fun getActiveChannels(context: Context): List<NetworkChannel> = withContext(Dispatchers.IO) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val activeDefault = cm.activeNetwork
+        val subscriptions = com.multiroute.cellular.CellularSubscriptions.read(context)
         val result = mutableListOf<NetworkChannel>()
         val wifiSsids = getConnectedWifiSsids()
         val hotspotInfo = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context) }.getOrNull()
@@ -318,6 +319,11 @@ object NetworkUtils {
                 }
             }
 
+            val subscription = subscriptions.firstOrNull { it.networks[network.toString()] == iface }
+            val simLabel = subscription?.let {
+                context.getString(com.multiroute.R.string.cellular_sim_label, it.slot, it.carrier) +
+                    if (it.isDefault) context.getString(com.multiroute.R.string.cellular_default_suffix) else ""
+            }
             val allAddrs = link.linkAddresses.map { it.toString() }
             val primaryIp = link.linkAddresses
                 .firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
@@ -336,6 +342,9 @@ object NetworkUtils {
                 NetworkChannel(
                     id = iface,
                     interfaceName = iface,
+                    cellularLabel = simLabel,
+                    subscriptionKey = subscription?.key,
+                    cellularRestricted = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED),
                     transportType = transportType,
                     shortName = shortName,
                     ssid = wifiSsid,
@@ -357,6 +366,13 @@ object NetworkUtils {
                     underlyingIface = directUnderlyingIface
                 )
             )
+        }
+
+        for ((key, links) in result.filter { it.subscriptionKey != null }.groupBy { it.subscriptionKey!! }) {
+            val chosen = links.sortedWith(compareByDescending<NetworkChannel> { it.isValidated }
+                .thenBy { it.cellularRestricted }.thenBy { it.interfaceName }).first()
+            val index = result.indexOf(chosen)
+            result[index] = chosen.copy(id = key)
         }
 
         // Fill missing Wi-Fi frequencies from the shell dump, but only when needed: `dumpsys` costs a
@@ -632,6 +648,13 @@ object NetworkUtils {
      * The transport values above are a contract with the code that compares them (icons, sorting), so
      * they stay language-neutral and the label is built here instead, following the app language.
      */
+    fun channelLabel(context: Context, channel: NetworkChannel): String = channel.cellularLabel
+        ?: channelLabel(context, channel.transportType, channel.interfaceName, channel.ssid)
+
+    fun savedTargetLabel(context: Context, target: String): String =
+        if (com.multiroute.cellular.CellularTargets.isSim(target)) context.getString(com.multiroute.R.string.cellular_saved_unavailable)
+        else target
+
     fun channelLabel(
         context: Context,
         transportType: String,

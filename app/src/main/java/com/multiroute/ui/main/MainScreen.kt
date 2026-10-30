@@ -250,7 +250,7 @@ fun MainScreen(
             if (uiState.selectedChannelForDetail != null) {
                 val channel = uiState.selectedChannelForDetail!!
                 val routedApps = remember(channel.id, uiState.apps) {
-                    uiState.apps.filter { it.targetChannelId == channel.id }
+                    uiState.apps.filter { (it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName) }
                 }
                 ChannelDetailBottomSheet(
                     channel = channel,
@@ -691,6 +691,7 @@ fun ChannelsTab(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item { CellularControlCard(uiState, viewModel) }
             item {
                 Spacer(modifier = Modifier.height(4.dp))
                 ElevatedCard(
@@ -1697,7 +1698,7 @@ fun AppItemRow(
     onLongClick: () -> Unit = {}
 ) {
     val isCustom = app.targetChannelId != CHANNEL_DEFAULT
-    val currentChannel = channels.firstOrNull { it.id == app.targetChannelId }
+    val currentChannel = channels.firstOrNull { (it.id == app.targetChannelId || it.interfaceName == app.targetChannelId) }
 
     Card(
         modifier = Modifier
@@ -1726,7 +1727,7 @@ fun AppItemRow(
             } else if (isCustom) {
                 when {
                     app.targetChannelId.startsWith("wlan") -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                    app.targetChannelId.startsWith("rmnet") -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
+                    (app.targetChannelId.startsWith("rmnet") || com.multiroute.cellular.CellularTargets.isSim(app.targetChannelId)) -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
                     else -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
                 }
             } else {
@@ -1775,7 +1776,7 @@ fun AppItemRow(
                 color = if (isCustom) {
                     when {
                         app.targetChannelId.startsWith("wlan") -> MaterialTheme.colorScheme.primaryContainer
-                        app.targetChannelId.startsWith("rmnet") -> MaterialTheme.colorScheme.tertiaryContainer
+                        (app.targetChannelId.startsWith("rmnet") || com.multiroute.cellular.CellularTargets.isSim(app.targetChannelId)) -> MaterialTheme.colorScheme.tertiaryContainer
                         else -> MaterialTheme.colorScheme.secondaryContainer
                     }
                 } else {
@@ -1802,8 +1803,8 @@ fun AppItemRow(
                     Text(
                         text = when {
                             app.targetChannelId == CHANNEL_DEFAULT -> stringResource(com.multiroute.R.string.vm_system_default)
-                            currentChannel != null -> currentChannel.shortName
-                            else -> stringResource(com.multiroute.R.string.ui_channel_offline_short, app.targetChannelId)
+                            currentChannel != null -> NetworkUtils.channelLabel(LocalContext.current, currentChannel)
+                            else -> stringResource(com.multiroute.R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(LocalContext.current, app.targetChannelId))
                         },
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
@@ -1891,19 +1892,19 @@ fun ChannelSelectBottomSheet(
                     stringResource(com.multiroute.R.string.channel_subtitle, channel.interfaceName, wifiBadge, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_ip)) + if (channel.isDefault) stringResource(com.multiroute.R.string.channel_current_default) else ""
                 }
                 SelectableChannelOption(
-                    title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
+                    title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel),
                     subtitle = subtitle,
                     icon = getTransportIcon(channel.transportType),
-                    isSelected = app.targetChannelId == channel.id,
+                    isSelected = (app.targetChannelId == channel.id || app.targetChannelId == channel.interfaceName),
                     enabled = !isForbidden,
                     onClick = { if (!isForbidden) onSelectChannel(channel.id) }
                 )
             }
 
             // 3. 如果当前应用绑定的通道目前处于离线状态
-            if (app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.id == app.targetChannelId }) {
+            if (app.targetChannelId != CHANNEL_DEFAULT && channels.none { (it.id == app.targetChannelId || it.interfaceName == app.targetChannelId) }) {
                 SelectableChannelOption(
-                    title = stringResource(com.multiroute.R.string.ui_channel_offline, app.targetChannelId),
+                    title = stringResource(com.multiroute.R.string.ui_channel_offline, NetworkUtils.savedTargetLabel(LocalContext.current, app.targetChannelId)),
                     subtitle = stringResource(com.multiroute.R.string.ui_iface_offline_note),
                     icon = Icons.Default.CloudOff,
                     isSelected = true,
@@ -1919,6 +1920,7 @@ fun ChannelSelectBottomSheet(
  */
 @Composable
 fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
+    val context = LocalContext.current
     val pathState = remember {
         androidx.compose.runtime.mutableStateOf(
             uiState.configPath.ifBlank {
@@ -1999,7 +2001,7 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
                         }
                         if (preview.document.ignored > 0) Text(stringResource(com.multiroute.R.string.config_ignored_entries, preview.document.ignored))
                         if (preview.missingApps.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_missing_apps, preview.missingApps.joinToString()))
-                        if (preview.unavailableChannels.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_offline_channels, preview.unavailableChannels.joinToString()))
+                        if (preview.unavailableChannels.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_offline_channels, preview.unavailableChannels.map { NetworkUtils.savedTargetLabel(context, it) }.joinToString()))
                         if (preview.incompatibleScheme) Text(stringResource(com.multiroute.R.string.config_scheme_fallback))
                     }
                 }
@@ -2374,7 +2376,7 @@ fun BatchChannelSelectBottomSheet(
             for (channel in channels) {
                 val wifiBadge = if (channel.ssid != null) " [${channel.ssid}]" else ""
                 SelectableChannelOption(
-                    title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
+                    title = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel),
                     subtitle = stringResource(com.multiroute.R.string.channel_subtitle, channel.interfaceName, wifiBadge, channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_no_ip)) + if (channel.isDefault) stringResource(com.multiroute.R.string.channel_current_default) else "",
                     icon = getTransportIcon(channel.transportType),
                     isSelected = false,
@@ -2494,16 +2496,16 @@ fun ChannelDetailCard(
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
-                            text = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
+                            text = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel),
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = if (channel.isVpn && channel.underlyingIface != null) {
-                                stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid)) + " · " + stringResource(com.multiroute.R.string.channel_vpn_underlying, channel.underlyingIface)
+                                stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel)) + " · " + stringResource(com.multiroute.R.string.channel_vpn_underlying, channel.underlyingIface)
                             } else {
-                                stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid)) + if (channel.ssid != null) " · SSID: ${channel.ssid}" else ""
+                                stringResource(com.multiroute.R.string.channel_iface_type, channel.interfaceName, NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel)) + if (channel.ssid != null) " · SSID: ${channel.ssid}" else ""
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline,
@@ -2700,7 +2702,7 @@ fun ChannelDetailBottomSheet(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid),
+                        text = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
@@ -2787,7 +2789,7 @@ fun ChannelDetailBottomSheet(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel.transportType, channel.interfaceName, channel.ssid))
+                    DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel))
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_kernel_iface), value = channel.interfaceName)
                     if (channel.isVpn) {
                         if (channel.underlyingIface != null) {

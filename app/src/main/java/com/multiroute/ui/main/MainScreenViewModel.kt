@@ -335,7 +335,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
         val channelName = when {
             channelId == CHANNEL_DEFAULT -> getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_system_default)
-            else -> _uiState.value.channels.firstOrNull { it.id == channelId }?.let { NetworkUtils.channelLabel(getApplication(), it.transportType, it.interfaceName, it.ssid) } ?: channelId
+            else -> _uiState.value.channels.firstOrNull { it.id == channelId }?.let { NetworkUtils.channelLabel(getApplication(), it) } ?: channelId
         }
 
         val count = targets.size
@@ -1217,7 +1217,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val matchesChannel = when (filterChannel) {
                 null -> true
                 "configured" -> app.targetChannelId != CHANNEL_DEFAULT
-                else -> app.targetChannelId == filterChannel
+                else -> app.targetChannelId == filterChannel || _uiState.value.channels.any {
+                    it.id == filterChannel && it.interfaceName == app.targetChannelId
+                }
             }
             matchesQuery && matchesSys && matchesChannel
         }

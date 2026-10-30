@@ -1,0 +1,19 @@
+<resources>
+    <string name="cellular_saved_unavailable">已保存的 SIM（当前无法匹配，请重新选择）</string>
+    <string name="cellular_sim_label">SIM %1$d · %2$s</string>
+    <string name="cellular_default_suffix">（默认数据卡）</string>
+    <string name="cellular_control_title">副卡数据通道</string>
+    <string name="cellular_changing">正在处理…</string>
+    <string name="cellular_failed">操作未完成，请检查 Root 权限和网络状态后重试。</string>
+    <string name="cellular_stopped">激活进程未运行</string>
+    <string name="cellular_connected">副卡互联网通道已通过系统验证</string>
+    <string name="cellular_waiting">激活进程运行中，尚未检测到通过验证的副卡互联网通道。</string>
+    <string name="cellular_control_note">申请并保持非默认数据卡的网络，不更改默认数据卡。并发能力取决于设备、系统与运营商，可能增加耗电和数据费用。停用只释放本模块的激活请求，应用分流仍可能保持通道。</string>
+    <string name="cellular_two_required">需要识别到两张活动 SIM；读取失败或不支持时无法启用。</string>
+    <string name="cellular_enable">启用</string>
+    <string name="cellular_disable">停用</string>
+    <string name="cellular_advanced">激活方式</string>
+    <string name="cellular_method_note">请求方式不修改双卡属性。兼容方式会临时修改系统属性，并在正常停用时恢复。不自动开机启动。</string>
+    <string name="cellular_request_method">请求方式</string>
+    <string name="cellular_property_method">兼容方式</string>
+</resources>

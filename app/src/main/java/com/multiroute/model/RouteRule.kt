@@ -5,7 +5,7 @@ import android.graphics.drawable.Drawable
 const val CHANNEL_DEFAULT = "default"
 
 data class NetworkChannel(
-    val id: String,                // Unique ID, matching interfaceName (e.g. "wlan0", "wlan1", "rmnet_data3", "eth0")
+    val id: String,                // Persistent target: device-scoped SIM key when available, otherwise interfaceName
     val interfaceName: String,     // Kernel interface name (e.g. "wlan0")
     val transportType: String,
     val shortName: String,         // Short label: "wlan0" or "wlan0 (SSID)"
@@ -25,7 +25,10 @@ data class NetworkChannel(
     val isHotspot: Boolean = false,
     val isVpn: Boolean = false,
     val vpnOwnerUid: Int = -1,
-    val underlyingIface: String? = null
+    val underlyingIface: String? = null,
+    val cellularLabel: String? = null,
+    val subscriptionKey: String? = null,
+    val cellularRestricted: Boolean = false
 )
 
 data class AppItem(

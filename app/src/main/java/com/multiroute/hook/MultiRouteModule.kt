@@ -400,7 +400,7 @@ class MultiRouteModule : XposedModule() {
                 connectivityService = chain.thisObject
                 reloadPreferencesCacheIfNeeded()
                 @Suppress("UNCHECKED_CAST")
-                val allUids = chain.getArg(0) as Set<Int>
+                val allUids = (chain.getArg(0) as Set<Int>) - suspendedSimUids
                 val pinned = mutableSetOf<Int>()
                 val result = android.util.ArraySet<Any>()
                 try {
@@ -660,6 +660,7 @@ class MultiRouteModule : XposedModule() {
     @Volatile private var lastPrefCacheTime: Long = 0L
     @Volatile private var cachedUidRoutes: Map<Int, String> = emptyMap()
     @Volatile private var cachedCellularUids: Set<Int> = emptySet()
+    @Volatile private var suspendedSimUids: Set<Int> = emptySet()
     private val PREF_CACHE_TTL_MS = 1500L
 
     private fun reloadPreferencesCacheIfNeeded() {
@@ -679,8 +680,12 @@ class MultiRouteModule : XposedModule() {
                         if (uid != null && iface != null) uid to iface else null
                     }.toMap()
                 } else emptyMap()
-                val routes = EffectiveRouteSnapshot.resolve(published, preferences)
+                val bootCount = systemContext()?.let {
+                    android.provider.Settings.Global.getInt(it.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
+                } ?: -1
+                val routes = EffectiveRouteSnapshot.resolve(published, preferences, bootCount)
                 cachedUidRoutes = routes
+                suspendedSimUids = EffectiveRouteSnapshot.suspendedSimUids(published, bootCount)
                 cachedCellularUids = routes.filterValues { isCellularChannel(it) }.keys.toSet()
                 lastPrefCacheTime = now
             } catch (t: Throwable) {
@@ -1271,7 +1276,8 @@ class MultiRouteModule : XposedModule() {
                     linkProperties: android.net.LinkProperties
                 ) = onLinkChanged()
             }
-            cm.registerNetworkCallback(android.net.NetworkRequest.Builder().build(), callback)
+            cm.registerNetworkCallback(android.net.NetworkRequest.Builder()
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED).build(), callback)
             linkCallbackRegistered = true
             log(Log.INFO, TAG, "[Scenario] Watching link changes in system_server to wake the app")
         } catch (t: Throwable) {

@@ -20,7 +20,7 @@ import java.net.URI
 /** Portable user settings. Passwords, UID caches and runtime system state are never serialized. */
 object ConfigTransfer {
     const val FORMAT = "multiroute-config"
-    const val VERSION = 2
+    const val VERSION = 3
     const val EXPORT_DIR = "/sdcard/Download"
     private const val HOTSPOT_KEY = "multiroute_hotspot_upstream"
 
@@ -52,7 +52,7 @@ object ConfigTransfer {
     fun exportFileName(epochMillis: Long): String = "MultiRoute-config-${timestamp(epochMillis)}.json"
     fun exportPath(epochMillis: Long): String = "$EXPORT_DIR/${exportFileName(epochMillis)}"
     fun normalizeAssignments(raw: Map<String, String>): Map<String, String> = raw.filter { (key, channel) ->
-        RouteConfigProvider.isValidRuleKey(key) && channel != CHANNEL_DEFAULT && RouteRuleBuilder.isValidInterfaceName(channel)
+        RouteConfigProvider.isValidRuleKey(key) && channel != CHANNEL_DEFAULT && RouteConfigProvider.isValidChannelId(channel)
     }
     private val networkBooleans = mapOf(
         "dnsFollowsChannel" to RouteConfigProvider.KEY_DNS_FOLLOWS_CHANNEL,
@@ -124,7 +124,7 @@ object ConfigTransfer {
                 ?: error("profiles must be an array")
             validateProfiles(array); profiles = ScenarioStore.parseProfiles(array)
             require(profiles.size == array.length() && profiles.map { it.id }.distinct().size == profiles.size)
-            if (version == 2) {
+            if (version >= 2) {
                 val s = root.obj("scenarios")
                 mode = s.string("mode").also { require(it in setOf("auto", "manual")) }
                 manualIds = s.stringArray("manualIds").toSet()
@@ -150,7 +150,7 @@ object ConfigTransfer {
         var wifiNetwork: Map<String, Any>? = null
         var hotspot: String? = null
         var server = emptyMap<String, Any>()
-        if (version == 2) {
+        if (version >= 2) {
             if (root.has("appearance")) {
                 val a = root.obj("appearance")
                 ruleSettings[Section.APPEARANCE] = mapOf(
@@ -199,7 +199,7 @@ object ConfigTransfer {
         val secondary = if (keys.any { '@' in it }) SuHelper.listSecondaryUserInstalls() else emptyList()
         val targets = keys.associateWith { SuHelper.resolveUidForRuleKey(context, it, secondary) }
         val active = NetworkUtils.getActiveChannels(context)
-        val channels = active.map { it.interfaceName }.toSet()
+        val channels = active.flatMap { listOf(it.id, it.interfaceName) }.toSet()
         val wanted = doc.assignments.values + doc.profiles.flatMap { it.overrides.values } + listOfNotNull(doc.hotspot)
         return Preview(doc, targets, targets.filterValues { it < 10000 }.keys.sorted(),
             wanted.filter { target ->
@@ -322,7 +322,7 @@ object ConfigTransfer {
             }
             p.obj("overrides").strings().forEach { (key, channel) ->
                 require(RouteConfigProvider.isValidRuleKey(key))
-                require(channel == "default" || RouteRuleBuilder.isValidInterfaceName(channel) ||
+                require(channel == "default" || RouteConfigProvider.isValidChannelId(channel) ||
                     ScenarioEngine.symbolicSsidOf(channel)?.let { it.isNotBlank() && it.length <= 32 } == true)
             }
         }

@@ -1,0 +1,19 @@
+<resources>
+    <string name="cellular_saved_unavailable">Saved SIM unavailable (select a SIM on this device)</string>
+    <string name="cellular_sim_label">SIM %1$d · %2$s</string>
+    <string name="cellular_default_suffix"> (default data SIM)</string>
+    <string name="cellular_control_title">Secondary cellular channel</string>
+    <string name="cellular_changing">Applying…</string>
+    <string name="cellular_failed">Operation incomplete. Check root access and network status, then retry.</string>
+    <string name="cellular_stopped">Activation process is not running</string>
+    <string name="cellular_connected">Secondary Internet channel validated by Android</string>
+    <string name="cellular_waiting">Activation process is running; no validated secondary Internet channel detected yet.</string>
+    <string name="cellular_control_note">Request and hold the non-default SIM network without changing the default data SIM. Concurrency depends on the device, system and carrier, and may increase battery and data usage. Stopping releases this activation request; app routing may still keep the channel alive.</string>
+    <string name="cellular_two_required">Two active SIMs must be identified. Activation is unavailable if discovery fails or is unsupported.</string>
+    <string name="cellular_enable">Enable</string>
+    <string name="cellular_disable">Stop</string>
+    <string name="cellular_advanced">Activation method</string>
+    <string name="cellular_method_note">Request mode leaves dual-SIM properties unchanged. Compatibility mode temporarily changes a system property and restores it on normal stop. No automatic start at boot.</string>
+    <string name="cellular_request_method">Request</string>
+    <string name="cellular_property_method">Compatibility</string>
+</resources>

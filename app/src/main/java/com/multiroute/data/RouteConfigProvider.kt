@@ -213,7 +213,7 @@ class RouteConfigProvider : ContentProvider() {
         }
 
         fun isValidChannelId(channelId: String): Boolean {
-            return channelId == CHANNEL_DEFAULT || SAFE_CHANNEL_REGEX.matches(channelId)
+            return channelId == CHANNEL_DEFAULT || com.multiroute.cellular.CellularTargets.isSim(channelId) || SAFE_CHANNEL_REGEX.matches(channelId)
         }
 
         fun isKeepSlaveWifiScreenOff(context: Context): Boolean {
