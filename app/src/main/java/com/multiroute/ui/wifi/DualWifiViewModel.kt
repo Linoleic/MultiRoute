@@ -102,6 +102,7 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
                 if (e is CancellationException) throw e
                 DualWifiDeactivationResult.FAILED
             }
+            DualWifiManager.scanWifiNetworks(getApplication())
             val messageId = when (result) {
                 DualWifiDeactivationResult.STOPPED -> com.multiroute.R.string.dual_wifi_disable_success
                 DualWifiDeactivationResult.HOTSPOT_USES_SECONDARY -> com.multiroute.R.string.dual_wifi_disable_hotspot_blocked
