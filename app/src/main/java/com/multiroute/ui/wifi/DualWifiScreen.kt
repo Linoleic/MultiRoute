@@ -45,7 +45,6 @@ fun DualWifiScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val status = uiState.status
-    val capability = status.capability
 
     var passwordInput by remember(uiState.pendingPasswordItem) { mutableStateOf("") }
     var selectedDetailItem by remember { mutableStateOf<WifiScanItem?>(null) }
@@ -109,19 +108,12 @@ fun DualWifiScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // 1. 双 Wi-Fi 适配方案选择器 (智能分层适配)
+            // 1. 连接方案选择与软硬件支持状态
             item {
-                SchemeSelectorCard(
-                    capability = capability,
-                    selectedScheme = uiState.selectedScheme,
-                    onSelectScheme = { viewModel.onSelectScheme(it) }
-                )
-            }
-
-            // 2. 软硬件支持状态与参数依据诊断 (合并卡片)
-            item {
-                HardwareCapabilityCard(
+                ConnectionSchemeAndSupportCard(
                     status = status,
+                    selectedScheme = uiState.selectedScheme,
+                    onSelectScheme = { viewModel.onSelectScheme(it) },
                     isActivating = uiState.isActivating,
                     isDeactivating = uiState.isDeactivating,
                     onActivateClick = { viewModel.activateDualWifi() },
@@ -432,8 +424,10 @@ fun DualWifiScreen(
 }
 
 @Composable
-private fun HardwareCapabilityCard(
+private fun ConnectionSchemeAndSupportCard(
     status: DualWifiStatus,
+    selectedScheme: com.multiroute.wifi.DualWifiScheme,
+    onSelectScheme: (com.multiroute.wifi.DualWifiScheme) -> Unit,
     isActivating: Boolean,
     isDeactivating: Boolean,
     onActivateClick: () -> Unit,
@@ -456,6 +450,14 @@ private fun HardwareCapabilityCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            SchemeSelectorContent(
+                capability = capability,
+                selectedScheme = selectedScheme,
+                onSelectScheme = onSelectScheme
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
             // Keep the default card compact: hardware support is the only diagnostic shown until expanded.
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -678,7 +680,27 @@ private fun DiagnosticItemRow(
                 )
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 26.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                details.forEach { line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 26.dp),
+                horizontalArrangement = Arrangement.Start
+            ) {
                 Surface(
                     modifier = Modifier.widthIn(max = 240.dp),
                     shape = RoundedCornerShape(6.dp),
@@ -706,21 +728,6 @@ private fun DiagnosticItemRow(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 26.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                details.forEach { line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }
@@ -1275,127 +1282,117 @@ private fun romLabel(type: com.multiroute.wifi.RomType): String = stringResource
 })
 
 @Composable
-private fun SchemeSelectorCard(
+private fun SchemeSelectorContent(
     capability: DualWifiCapability,
     selectedScheme: com.multiroute.wifi.DualWifiScheme,
     onSelectScheme: (com.multiroute.wifi.DualWifiScheme) -> Unit
 ) {
-    ElevatedCard(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.weight(1f).padding(end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = stringResource(R.string.dual_wifi_scheme_title),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                ) {
-                    Text(
-                        text = schemeBadge(capability.effectiveScheme),
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = stringResource(R.string.dual_wifi_scheme_title),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
             }
 
-            Text(
-                text = stringResource(R.string.dual_wifi_scheme_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            val schemes = listOf(
-                Triple(
-                    com.multiroute.wifi.DualWifiScheme.AUTO,
-                    stringResource(R.string.dual_wifi_scheme_auto_title),
-                    stringResource(R.string.dual_wifi_scheme_auto_desc)
-                ),
-                Triple(
-                    com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY,
-                    stringResource(R.string.dual_wifi_scheme_aosp_title),
-                    stringResource(R.string.dual_wifi_scheme_aosp_desc)
-                ),
-                Triple(
-                    com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE,
-                    stringResource(R.string.dual_wifi_scheme_xiaomi_title),
-                    stringResource(R.string.dual_wifi_scheme_xiaomi_desc)
-                ),
-                Triple(
-                    com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT,
-                    stringResource(R.string.dual_wifi_scheme_root_title),
-                    stringResource(R.string.dual_wifi_scheme_root_desc)
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+            ) {
+                Text(
+                    text = schemeBadge(capability.effectiveScheme),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
-            )
+            }
+        }
 
-            schemes.forEach { (scheme, title, desc) ->
-                val isSelected = selectedScheme == scheme
-                Surface(
-                    onClick = { onSelectScheme(scheme) },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected)
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                    else
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                    border = if (isSelected)
-                        androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                    else null,
-                    modifier = Modifier.fillMaxWidth()
+        Text(
+            text = stringResource(R.string.dual_wifi_scheme_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+        val schemes = listOf(
+            Triple(
+                com.multiroute.wifi.DualWifiScheme.AUTO,
+                stringResource(R.string.dual_wifi_scheme_auto_title),
+                stringResource(R.string.dual_wifi_scheme_auto_desc)
+            ),
+            Triple(
+                com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY,
+                stringResource(R.string.dual_wifi_scheme_aosp_title),
+                stringResource(R.string.dual_wifi_scheme_aosp_desc)
+            ),
+            Triple(
+                com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE,
+                stringResource(R.string.dual_wifi_scheme_xiaomi_title),
+                stringResource(R.string.dual_wifi_scheme_xiaomi_desc)
+            ),
+            Triple(
+                com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT,
+                stringResource(R.string.dual_wifi_scheme_root_title),
+                stringResource(R.string.dual_wifi_scheme_root_desc)
+            )
+        )
+
+        schemes.forEach { (scheme, title, desc) ->
+            val isSelected = selectedScheme == scheme
+            Surface(
+                onClick = { onSelectScheme(scheme) },
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSelected)
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                else
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                border = if (isSelected)
+                    androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                else null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = { onSelectScheme(scheme) }
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = { onSelectScheme(scheme) }
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = desc,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
