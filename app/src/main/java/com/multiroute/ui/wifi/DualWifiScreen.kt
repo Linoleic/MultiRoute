@@ -454,45 +454,20 @@ private fun HardwareCapabilityCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (capability.isFullyReady) Icons.Default.CheckCircle else Icons.Default.Tune,
-                        contentDescription = null,
-                        tint = if (capability.isFullyReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                    )
-                    Text(
-                        text = stringResource(R.string.wifi_i18n_support_details),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (capability.isFullyReady)
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    else if (capability.hardwareSupported)
-                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-                    else
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                ) {
-                    Text(
-                        text = stringResource(when {
-                            capability.isFullyReady -> R.string.wifi_i18n_ready
-                            capability.hardwareSupported -> R.string.wifi_i18n_needs_activation
-                            else -> R.string.wifi_i18n_hardware_unsupported
-                        }),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (capability.isFullyReady) MaterialTheme.colorScheme.primary
-                        else if (capability.hardwareSupported) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
+                Icon(
+                    imageVector = if (capability.isFullyReady) Icons.Default.CheckCircle else Icons.Default.Tune,
+                    contentDescription = null,
+                    tint = if (capability.isFullyReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                )
+                Text(
+                    text = stringResource(R.string.wifi_i18n_support_details),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -630,6 +605,33 @@ private fun HardwareCapabilityCard(
                         text = stringResource(R.string.dual_wifi_clear_blocklist_desc),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (capability.isFullyReady)
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else if (capability.hardwareSupported)
+                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                    else
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = stringResource(when {
+                            capability.isFullyReady -> R.string.wifi_i18n_ready
+                            capability.hardwareSupported -> R.string.wifi_i18n_needs_activation
+                            else -> R.string.wifi_i18n_hardware_unsupported
+                        }),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (capability.isFullyReady) MaterialTheme.colorScheme.primary
+                        else if (capability.hardwareSupported) MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1028,6 +1030,7 @@ private fun ActiveChannelsCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WifiScanRow(
     item: WifiScanItem,
@@ -1083,6 +1086,7 @@ private fun WifiScanRow(
                 ) {
                     Text(
                         text = item.ssid,
+                        modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1097,14 +1101,15 @@ private fun WifiScanRow(
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    maxItemsInEachRow = 2
                 ) {
                     // Band Tag
                     SuggestionChip(
                         onClick = onCardClick,
-                        label = { Text(scanBandLabel(item.frequencyMhz), fontSize = 10.sp) },
+                        label = { Text(scanBandLabel(item.frequencyMhz), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         modifier = Modifier.height(22.dp)
                     )
 
@@ -1131,7 +1136,9 @@ private fun WifiScanRow(
                                 Text(
                                     stringResource(R.string.dual_wifi_hotspot_conflict_badge),
                                     fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.error
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             },
                             colors = SuggestionChipDefaults.suggestionChipColors(
@@ -1142,7 +1149,7 @@ private fun WifiScanRow(
                     } else if (isSameBandConflict) {
                         SuggestionChip(
                             onClick = onCardClick,
-                            label = { Text(stringResource(R.string.dual_wifi_band_conflict), fontSize = 10.sp, color = MaterialTheme.colorScheme.error) },
+                            label = { Text(stringResource(R.string.dual_wifi_band_conflict), fontSize = 10.sp, color = MaterialTheme.colorScheme.error, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
                             ),
@@ -1151,7 +1158,7 @@ private fun WifiScanRow(
                     } else if (primaryFreq > 0 && !item.isPrimary && !item.isSecondary) {
                         SuggestionChip(
                             onClick = onCardClick,
-                            label = { Text(stringResource(R.string.dual_wifi_band_recommended), fontSize = 10.sp, color = MaterialTheme.colorScheme.tertiary) },
+                            label = { Text(stringResource(R.string.dual_wifi_band_recommended), fontSize = 10.sp, color = MaterialTheme.colorScheme.tertiary, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
                             ),
@@ -1163,7 +1170,7 @@ private fun WifiScanRow(
                     if (item.isSaved) {
                         SuggestionChip(
                             onClick = onCardClick,
-                            label = { Text(stringResource(R.string.dual_wifi_saved_badge), fontSize = 10.sp) },
+                            label = { Text(stringResource(R.string.dual_wifi_saved_badge), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
                             ),
@@ -1199,6 +1206,7 @@ private fun WifiScanRow(
                 else -> {
                     Button(
                         onClick = onConnectClick,
+                        modifier = Modifier.widthIn(max = 132.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(8.dp),
                         colors = if (isHotspotEnabled) {
@@ -1212,7 +1220,9 @@ private fun WifiScanRow(
                             text = if (isHotspotEnabled) stringResource(R.string.dual_wifi_hotspot_conflict_badge)
                             else if (item.isSaved) stringResource(R.string.dual_wifi_quick_connect)
                             else stringResource(R.string.dual_wifi_connect_btn),
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
