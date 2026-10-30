@@ -514,7 +514,7 @@ private fun HardwareCapabilityCard(
             DiagnosticItemRow(
                 icon = Icons.Default.PhoneAndroid,
                 title = stringResource(R.string.wifi_i18n_system_scheme),
-                statusText = stringResource(R.string.wifi_i18n_matched_scheme, schemeLabel(capability.effectiveScheme)),
+                statusText = schemeBadge(capability.effectiveScheme),
                 isOk = true,
                 details = buildList {
                     add(stringResource(R.string.wifi_i18n_system_environment, romLabel(capability.romInfo.romType), capability.romInfo.model, capability.romInfo.androidVersion))
@@ -659,27 +659,27 @@ private fun DiagnosticItemRow(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = title,
                     modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = if (isOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Surface(
+                    modifier = Modifier.widthIn(max = 240.dp),
                     shape = RoundedCornerShape(6.dp),
                     color = if (isOk)
                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
@@ -700,7 +700,9 @@ private fun DiagnosticItemRow(
                         Text(
                             text = statusText,
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
-                            color = if (isOk) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                            color = if (isOk) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
