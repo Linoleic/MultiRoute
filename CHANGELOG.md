@@ -7,6 +7,8 @@ bilingual, Chinese first: the release page is what most users read.
 
 ## Unreleased
 
+## v1.6.0 - 2026-10-31
+
 **中文**
 
 ### 新增
