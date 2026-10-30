@@ -47,6 +47,7 @@
 -keep class com.multiroute.MainActivity { *; }
 -keep class com.multiroute.ui.main.MainScreenViewModel { *; }
 -keep class com.multiroute.wifi.SlaveWifiBridge { *; }
+-keep class com.multiroute.cellular.DualSimDaemon { public static void main(java.lang.String[]); }
 
 # -------------------------------------------------------------
 # 6. Jetpack Compose

@@ -5,6 +5,24 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## Unreleased
+
+**中文**
+
+### 修复
+
+- **多蜂窝网络分流**：系统默认网络与 DNS 使用当前生效的场景及在线通道配置；切换目标通道或同一接口的网络重建后刷新对应应用的网络选择。
+- **蜂窝 IPv6 回退**：目标通道丢失 IPv6 路由时阻止流量静默转入另一张 SIM，恢复路由后可继续使用原通道。
+- **副卡通道停用**：正常停用时先释放网络请求并恢复修改前的双卡状态，再退出后台进程。
+
+**English**
+
+### Fixed
+
+- **Multiple cellular networks:** Use effective scenario and online-channel assignments for per-app default networks and DNS. Refresh selection when the target changes or its Network instance is replaced on the same interface.
+- **Cellular IPv6 fallback:** Prevent traffic from silently using another SIM when the selected channel loses its IPv6 route. Resume using the selected channel when its route returns.
+- **Secondary cellular shutdown:** Release network requests and restore the previous dual-SIM state before the background process exits during normal shutdown.
+
 ## v1.5.0 - 2026-10-27
 
 **中文**

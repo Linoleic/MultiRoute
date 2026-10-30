@@ -14,13 +14,8 @@ object RouteRuleBuilder {
     const val BOOT_LOG_PATH = "/data/adb/multiroute/last_boot_sync.log"
 
     /**
-     * uid→interface cache read by the hook when LSPosed's RemotePreferences cannot be read yet.
-     *
-     * Observed on device: while the module app has not been started in the current boot,
-     * `getRemotePreferences()` returns an *empty* (not failing) map, so the ConnectivityService hooks
-     * had no idea about the configured rules for the first ~90 seconds of every boot. The app writes
-     * this file on every sync (via root) and the module also refreshes it whenever it manages to read
-     * the preferences, so the hook can always fall back to a known-good rule map.
+     * Effective uid→interface snapshot, published atomically by the app after kernel synchronization.
+     * Hooks prefer it over base preferences, including an empty snapshot. Only the app writes it.
      */
     const val RULE_CACHE_PATH = "/data/system/multiroute_rules_cache"
 
@@ -142,6 +137,11 @@ object RouteRuleBuilder {
             for (uid in uids) {
                 commands.add("$IP_BIN rule add uidrange $uid-$uid lookup $iface pref $pref;")
                 commands.add("$IP_BIN -6 rule add uidrange $uid-$uid lookup $iface pref $pref;")
+                if (iface.startsWith("rmnet") || iface.startsWith("ccmni") || iface == "cellular") {
+                    // Keep the guard even while IPv6 works: a later route withdrawal must not let
+                    // this UID fall through to another SIM. A successful lookup above wins first.
+                    commands.add("$IP_BIN -6 rule add unreachable uidrange $uid-$uid pref $pref;")
+                }
             }
         }
         return commands
