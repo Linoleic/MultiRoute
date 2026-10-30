@@ -17,6 +17,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 修复
 
+- **双 Wi-Fi 界面排版**：激活状态移至硬件支持卡片右下角；附近网络的频段、推荐/冲突和已保存标签可自适应换行，长 SSID 与连接按钮不再挤压标签。
 - **双 Wi-Fi 英文显示**：补齐连接、诊断、状态、冲突、频段和信号等界面与运行时提示的英文文案。
 - **多蜂窝网络分流**：系统默认网络与 DNS 使用当前生效的场景及在线通道配置；切换目标通道或同一接口的网络重建后刷新对应应用的网络选择。
 - **蜂窝 IPv6 回退**：目标通道丢失 IPv6 路由时阻止流量静默转入另一张 SIM，恢复路由后可继续使用原通道。
@@ -32,6 +33,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### Fixed
 
+- **Dual Wi-Fi layout:** Move readiness status to the bottom-right of the capability card. Let nearby-network band, recommendation/conflict and saved labels wrap; constrain long SSIDs and action labels so they do not crowd the tags.
 - **Dual Wi-Fi English:** Complete English text for connection, diagnostics, status, conflicts, bands, signal and runtime messages.
 - **Multiple cellular networks:** Use effective scenario and online-channel assignments for per-app default networks and DNS. Refresh selection when the target changes or its Network instance is replaced on the same interface.
 - **Cellular IPv6 fallback:** Prevent traffic from silently using another SIM when the selected channel loses its IPv6 route. Resume using the selected channel when its route returns.
