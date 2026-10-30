@@ -9,16 +9,30 @@ bilingual, Chinese first: the release page is what most users read.
 
 **中文**
 
+### 新增
+
+- **副卡数据通道入口**：在网络通道页启用、停用非默认数据卡通道，区分激活进程和网络实际状态，并提供请求与兼容两种方式。
+- **按 SIM 保存分流目标**：可识别的 SIM 使用设备内稳定标识，网络重建后重新解析到当前接口；身份无法匹配时提示重新选择，保留旧接口规则兼容。
+- **配置备份 v3**：保存 SIM 分流与场景目标，继续读取 v1/v2 备份；跨设备导入时提示无法匹配的 SIM。
+
 ### 修复
 
+- **双 Wi-Fi 英文显示**：补齐连接、诊断、状态、冲突、频段和信号等界面与运行时提示的英文文案。
 - **多蜂窝网络分流**：系统默认网络与 DNS 使用当前生效的场景及在线通道配置；切换目标通道或同一接口的网络重建后刷新对应应用的网络选择。
 - **蜂窝 IPv6 回退**：目标通道丢失 IPv6 路由时阻止流量静默转入另一张 SIM，恢复路由后可继续使用原通道。
 - **副卡通道停用**：正常停用时先释放网络请求并恢复修改前的双卡状态，再退出后台进程。
 
 **English**
 
+### Added
+
+- **Secondary cellular controls:** Enable or stop the non-default data SIM channel from the channels tab, distinguish process state from network availability, and choose request or compatibility mode.
+- **SIM routing targets:** Use device-scoped identities for identifiable SIMs and resolve the current interface after network recreation. Prompt for reselection when identity cannot be matched; retain legacy interface assignments.
+- **Configuration backup v3:** Preserve SIM assignments and scenario targets while reading v1/v2 backups. Report unmatched SIMs when importing on another device.
+
 ### Fixed
 
+- **Dual Wi-Fi English:** Complete English text for connection, diagnostics, status, conflicts, bands, signal and runtime messages.
 - **Multiple cellular networks:** Use effective scenario and online-channel assignments for per-app default networks and DNS. Refresh selection when the target changes or its Network instance is replaced on the same interface.
 - **Cellular IPv6 fallback:** Prevent traffic from silently using another SIM when the selected channel loses its IPv6 route. Resume using the selected channel when its route returns.
 - **Secondary cellular shutdown:** Release network requests and restore the previous dual-SIM state before the background process exits during normal shutdown.
