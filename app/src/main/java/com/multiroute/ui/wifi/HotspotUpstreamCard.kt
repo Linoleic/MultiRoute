@@ -116,7 +116,10 @@ fun HotspotUpstreamCard(
                     Text(
                         text = if (status.isHotspotEnabled) {
                             status.hotspotBand
-                                ?: if (status.hotspotFreq > 0) "${if (status.hotspotFreq > 4900) "5G" else "2.4G"} 已开启"
+                                ?: if (status.hotspotFreq > 0) stringResource(
+                                    R.string.wifi_i18n_hotspot_band_enabled,
+                                    if (status.hotspotFreq > 4900) "5G" else "2.4G"
+                                )
                                 else stringResource(R.string.hotspot_status_active)
                         } else {
                             stringResource(R.string.hotspot_status_inactive)
@@ -160,9 +163,9 @@ fun HotspotUpstreamCard(
                                 text = stringResource(
                                     R.string.dual_wifi_hotspot_upstream_active,
                                     when {
-                                        status.hotspotUpstreamActive.startsWith("rmnet") -> "蜂窝 (${status.hotspotUpstreamActive})"
-                                        status.hotspotUpstreamActive == "wlan1" -> "副 Wi-Fi (wlan1)"
-                                        status.hotspotUpstreamActive == "wlan0" -> "主 Wi-Fi (wlan0)"
+                                        status.hotspotUpstreamActive.startsWith("rmnet") -> stringResource(R.string.wifi_i18n_cellular_upstream, status.hotspotUpstreamActive)
+                                        status.hotspotUpstreamActive == "wlan1" -> stringResource(R.string.wifi_i18n_secondary_upstream)
+                                        status.hotspotUpstreamActive == "wlan0" -> stringResource(R.string.wifi_i18n_primary_upstream)
                                         else -> status.hotspotUpstreamActive
                                     }
                                 ),

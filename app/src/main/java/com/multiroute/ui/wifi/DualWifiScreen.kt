@@ -333,6 +333,8 @@ fun DualWifiScreen(
 
     // 密码输入对话框
     uiState.pendingPasswordItem?.let { item ->
+        val sameBandWarning24 = stringResource(R.string.wifi_i18n_same_band_warning_24)
+        val sameBandWarning5 = stringResource(R.string.wifi_i18n_same_band_warning_5)
         val conflictNotice = remember(item.frequencyMhz, status.primaryFreq) {
             if (status.primaryFreq <= 0) null
             else {
@@ -343,7 +345,7 @@ fun DualWifiScreen(
                 val prim24 = status.primaryFreq in 2400..2500
                 val target24 = item.frequencyMhz in 2400..2500
                 if ((primLow5G && targetLow5G) || (primHigh5G && targetHigh5G) || (prim24 && target24)) {
-                    "提示：此热点与主 Wi-Fi 处于相同硬件频段（${if (prim24) "均为 2.4GHz" else "均为 5GHz 同子频段/信道"}）。手机 DBS 射频通常要求一主一副分别工作在 2.4G 与 5G（或高低 5G 分离），同时连接同频可能失败。"
+                    if (prim24) sameBandWarning24 else sameBandWarning5
                 } else null
             }
         }
@@ -362,7 +364,7 @@ fun DualWifiScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "${item.bandLabel} • RSSI: ${item.rssi} dBm",
+                        text = "${scanBandLabel(item.frequencyMhz)} • RSSI: ${item.rssi} dBm",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -464,7 +466,7 @@ private fun HardwareCapabilityCard(
                         tint = if (capability.isFullyReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                     )
                     Text(
-                        text = "双 Wi-Fi 软硬件支持",
+                        text = stringResource(R.string.wifi_i18n_support_details),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
@@ -479,9 +481,11 @@ private fun HardwareCapabilityCard(
                         MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = if (capability.isFullyReady) "完全就绪"
-                        else if (capability.hardwareSupported) "需要激活"
-                        else "硬件不支持",
+                        text = stringResource(when {
+                            capability.isFullyReady -> R.string.wifi_i18n_ready
+                            capability.hardwareSupported -> R.string.wifi_i18n_needs_activation
+                            else -> R.string.wifi_i18n_hardware_unsupported
+                        }),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = if (capability.isFullyReady) MaterialTheme.colorScheme.primary
                         else if (capability.hardwareSupported) MaterialTheme.colorScheme.tertiary
@@ -496,29 +500,29 @@ private fun HardwareCapabilityCard(
             // 1. 硬件并发能力 (STA + STA 并发)
             DiagnosticItemRow(
                 icon = Icons.Default.Memory,
-                title = "硬件并发能力 (STA + STA 并发)",
-                statusText = if (capability.hardwareSupported) "硬件支持" else "硬件不支持",
+                title = stringResource(R.string.wifi_i18n_hardware_concurrency),
+                statusText = stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_hardware_supported else R.string.wifi_i18n_hardware_unsupported),
                 isOk = capability.hardwareSupported,
                 details = buildList {
-                    add("射频芯片: ${capability.wifiChipset}${if (capability.romInfo.socModel.isNotEmpty()) " [SoC: ${capability.romInfo.socModel}]" else ""}")
-                    add("网卡接口: 主 ${capability.primaryIface ?: "wlan0"} • 副 ${capability.secondaryIface ?: "wlan1"}")
-                    add(if (capability.hardwareSupported) "物理架构: 支持双物理射频独立并发 (DBS)" else "物理架构: 仅单网卡或不支持双 STA")
+                    add(stringResource(R.string.wifi_i18n_chipset, capability.wifiChipset, if (capability.romInfo.socModel.isNotEmpty()) stringResource(R.string.wifi_i18n_soc_suffix, capability.romInfo.socModel) else ""))
+                    add(stringResource(R.string.wifi_i18n_interfaces, capability.primaryIface ?: "wlan0", capability.secondaryIface ?: "wlan1"))
+                    add(stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_arch_supported else R.string.wifi_i18n_arch_unsupported))
                 }
             )
 
             // 2. 系统定制环境与方案
             DiagnosticItemRow(
                 icon = Icons.Default.PhoneAndroid,
-                title = "系统定制环境与方案",
-                statusText = "已匹配: ${capability.effectiveScheme.label}",
+                title = stringResource(R.string.wifi_i18n_system_scheme),
+                statusText = stringResource(R.string.wifi_i18n_matched_scheme, schemeLabel(capability.effectiveScheme)),
                 isOk = true,
                 details = buildList {
-                    add("系统环境: ${capability.romInfo.romType.label} • ${capability.romInfo.model} (Android ${capability.romInfo.androidVersion})")
+                    add(stringResource(R.string.wifi_i18n_system_environment, romLabel(capability.romInfo.romType), capability.romInfo.model, capability.romInfo.androidVersion))
                     add(when (capability.effectiveScheme) {
-                        com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> "适配机制: 小米双 WLAN / SlaveWifi 驱动协同"
-                        com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> "适配机制: AOSP 原生 Multi-Internet 与 RRO Overlay"
-                        com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> "适配机制: Linux 底层特权通道直连"
-                        com.multiroute.wifi.DualWifiScheme.AUTO -> "适配机制: 智能自适应推荐"
+                        com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> stringResource(R.string.wifi_i18n_mechanism_xiaomi)
+                        com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> stringResource(R.string.wifi_i18n_mechanism_aosp)
+                        com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> stringResource(R.string.wifi_i18n_mechanism_root)
+                        com.multiroute.wifi.DualWifiScheme.AUTO -> stringResource(R.string.wifi_i18n_mechanism_auto)
                     })
                 }
             )
@@ -528,21 +532,21 @@ private fun HardwareCapabilityCard(
             val isRootDirect = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT
             DiagnosticItemRow(
                 icon = Icons.Default.Layers,
-                title = "系统多网络配置 Overlay",
+                title = stringResource(R.string.wifi_i18n_overlay_title),
                 statusText = when {
-                    isXiaomi -> "原厂内建"
-                    isRootDirect -> "无需 Overlay (Root 直通)"
-                    capability.configEnabled -> "已开启"
-                    else -> "未开启"
+                    isXiaomi -> stringResource(R.string.wifi_i18n_oem_builtin)
+                    isRootDirect -> stringResource(R.string.wifi_i18n_no_overlay_root)
+                    capability.configEnabled -> stringResource(R.string.wifi_i18n_enabled)
+                    else -> stringResource(R.string.wifi_i18n_disabled)
                 },
                 isOk = isXiaomi || isRootDirect || capability.configEnabled,
                 details = buildList {
                     if (isRootDirect) {
-                        add("直连通道: 借助 SYSTEM_UID 特权绕过 Framework Overlay 限制")
-                        add("当前状态: 特权直通就绪 (支持通用 Root 并发)")
+                        add(stringResource(R.string.wifi_i18n_direct_channel))
+                        add(stringResource(R.string.wifi_i18n_direct_ready))
                     } else {
-                        add("配置开关: MultiStaConcurrency = ${capability.configEnabled}")
-                        add("当前状态: ${capability.overlayStatus}")
+                        add(stringResource(R.string.wifi_i18n_config_switch, capability.configEnabled))
+                        add(stringResource(R.string.wifi_i18n_current_state, capability.overlayStatus))
                     }
                 }
             )
@@ -550,12 +554,12 @@ private fun HardwareCapabilityCard(
             // 4. 并发运行工作模式 (Multi-AP 并发)
             DiagnosticItemRow(
                 icon = Icons.Default.Hub,
-                title = "并发运行工作模式 (Multi-AP 并发)",
-                statusText = if (capability.modeActive) "模式已激活" else "未激活",
+                title = stringResource(R.string.wifi_i18n_concurrency_mode),
+                statusText = stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_active else R.string.wifi_i18n_inactive),
                 isOk = capability.modeActive,
                 details = buildList {
-                    add("运行模式: mStaConcurrencyMultiInternetMode")
-                    add(if (capability.modeActive) "当前状态: 模式 2 运行中 (双 Wi-Fi 独立互联)" else "当前状态: 单互联网模式 (未处于 Multi-AP 并发)")
+                    add(stringResource(R.string.wifi_i18n_running_mode))
+                    add(stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_2_status else R.string.wifi_i18n_single_internet_status))
                 }
             )
 
@@ -563,17 +567,17 @@ private fun HardwareCapabilityCard(
             val secLinked = status.secondaryConnected
             DiagnosticItemRow(
                 icon = Icons.Default.WifiTethering,
-                title = "副 Wi-Fi (${status.secondaryIface ?: capability.secondaryIface ?: "wlan1"}) 物理链路",
-                statusText = if (secLinked) "物理链路活跃" else "通道就绪 (待连接)",
+                title = stringResource(R.string.wifi_i18n_secondary_physical_link, status.secondaryIface ?: capability.secondaryIface ?: "wlan1"),
+                statusText = stringResource(if (secLinked) R.string.wifi_i18n_link_active else R.string.wifi_i18n_link_ready),
                 isOk = secLinked,
                 details = buildList {
                     if (secLinked) {
-                        status.secondarySsid?.let { add("网络: $it") }
+                        status.secondarySsid?.let { add(stringResource(R.string.wifi_i18n_network_label, it)) }
                         status.secondaryIp?.let { add("IP: $it") }
-                        if (status.secondaryFreq > 0) add("频率: ${status.secondaryFreq}MHz")
-                        if (status.secondaryRssi < 0) add("信号: ${status.secondaryRssi} dBm")
+                        if (status.secondaryFreq > 0) add(stringResource(R.string.wifi_i18n_frequency_label, status.secondaryFreq))
+                        if (status.secondaryRssi < 0) add(stringResource(R.string.wifi_i18n_signal_label, status.secondaryRssi))
                     } else {
-                        add("链路参数: 接口空闲，可随时发起连接")
+                        add(stringResource(R.string.wifi_i18n_idle_interface))
                     }
                 }
             )
@@ -1098,7 +1102,7 @@ private fun WifiScanRow(
                     // Band Tag
                     SuggestionChip(
                         onClick = onCardClick,
-                        label = { Text(item.bandLabel, fontSize = 10.sp) },
+                        label = { Text(scanBandLabel(item.frequencyMhz), fontSize = 10.sp) },
                         modifier = Modifier.height(22.dp)
                     )
 
@@ -1172,7 +1176,7 @@ private fun WifiScanRow(
                 item.isPrimary -> {
                     Badge(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
                         Text(
-                            text = "主 Wi-Fi",
+                            text = stringResource(R.string.wifi_i18n_primary_wifi_short),
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
@@ -1181,7 +1185,7 @@ private fun WifiScanRow(
                 item.isSecondary -> {
                     Badge(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)) {
                         Text(
-                            text = "副 Wi-Fi",
+                            text = stringResource(R.string.wifi_i18n_secondary_wifi_short),
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
@@ -1216,6 +1220,50 @@ private fun WifiScanRow(
 }
 
 @Composable
+private fun scanBandLabel(frequencyMhz: Int): String = when {
+    frequencyMhz in 2400..2500 -> "2.4 GHz"
+    frequencyMhz in 4900..5320 -> stringResource(R.string.wifi_i18n_band_5_low)
+    frequencyMhz in 5321..5900 -> stringResource(R.string.wifi_i18n_band_5_high)
+    frequencyMhz in 5925..7125 -> "6 GHz"
+    else -> if (frequencyMhz > 0) stringResource(R.string.wifi_i18n_frequency_mhz, frequencyMhz) else "5 GHz"
+}
+
+@Composable
+private fun signalQualityLabel(level: Int): String = stringResource(when (level) {
+    4 -> R.string.wifi_i18n_signal_excellent
+    3 -> R.string.wifi_i18n_signal_good
+    2 -> R.string.wifi_i18n_signal_fair
+    1 -> R.string.wifi_i18n_signal_weak
+    else -> R.string.wifi_i18n_signal_very_weak
+})
+
+@Composable
+private fun schemeLabel(scheme: com.multiroute.wifi.DualWifiScheme): String = stringResource(when (scheme) {
+    com.multiroute.wifi.DualWifiScheme.AUTO -> R.string.wifi_i18n_auto
+    com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> R.string.dual_wifi_scheme_aosp_title
+    com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> R.string.dual_wifi_scheme_xiaomi_title
+    com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> R.string.dual_wifi_scheme_root_title
+})
+
+@Composable
+private fun schemeBadge(scheme: com.multiroute.wifi.DualWifiScheme): String = stringResource(when (scheme) {
+    com.multiroute.wifi.DualWifiScheme.AUTO -> R.string.wifi_i18n_auto
+    com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> R.string.wifi_i18n_matched_aosp
+    com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> R.string.wifi_i18n_matched_xiaomi
+    com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> R.string.wifi_i18n_matched_root
+})
+
+@Composable
+private fun romLabel(type: com.multiroute.wifi.RomType): String = stringResource(when (type) {
+    com.multiroute.wifi.RomType.AOSP_PIXEL -> R.string.wifi_i18n_rom_aosp
+    com.multiroute.wifi.RomType.XIAOMI_HYPEROS -> R.string.wifi_i18n_rom_xiaomi
+    com.multiroute.wifi.RomType.COLOROS_OPPO -> R.string.wifi_i18n_rom_coloros
+    com.multiroute.wifi.RomType.ORIGINOS_VIVO -> R.string.wifi_i18n_rom_originos
+    com.multiroute.wifi.RomType.SAMSUNG_ONEUI -> R.string.wifi_i18n_rom_oneui
+    com.multiroute.wifi.RomType.GENERIC_OEM -> R.string.wifi_i18n_rom_generic
+})
+
+@Composable
 private fun SchemeSelectorCard(
     capability: DualWifiCapability,
     selectedScheme: com.multiroute.wifi.DualWifiScheme,
@@ -1240,6 +1288,7 @@ private fun SchemeSelectorCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1259,12 +1308,9 @@ private fun SchemeSelectorCard(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
                 ) {
                     Text(
-                        text = when (capability.effectiveScheme) {
-                            com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> "已匹配: 小米原厂"
-                            com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> "已匹配: AOSP 标准"
-                            com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> "已匹配: 通用 Root"
-                            com.multiroute.wifi.DualWifiScheme.AUTO -> "自动"
-                        },
+                        text = schemeBadge(capability.effectiveScheme),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1416,10 +1462,10 @@ private fun WifiDetailBottomSheet(
                     }
                     Text(
                         text = when {
-                            item.isPrimary -> "主 Wi-Fi 通道 (系统默认)"
-                            item.isSecondary -> "副 Wi-Fi 通道 (并发活跃)"
-                            item.isSaved -> "已保存系统网络"
-                            else -> "附近可用热点"
+                            item.isPrimary -> stringResource(R.string.wifi_i18n_primary_channel_default)
+                            item.isSecondary -> stringResource(R.string.wifi_i18n_secondary_channel_active)
+                            item.isSaved -> stringResource(R.string.wifi_i18n_saved_system_network)
+                            else -> stringResource(R.string.wifi_i18n_nearby_hotspot)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (item.isPrimary || item.isSecondary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1440,13 +1486,13 @@ private fun WifiDetailBottomSheet(
                 DetailInfoRow(
                     icon = Icons.Default.WifiTethering,
                     label = stringResource(R.string.dual_wifi_detail_freq),
-                    value = "${item.bandLabel} • ${item.frequencyMhz} MHz • 信道 ${if (item.channel > 0) item.channel.toString() else "未知"}"
+                    value = "${scanBandLabel(item.frequencyMhz)} • ${item.frequencyMhz} MHz • ${stringResource(R.string.dual_wifi_param_channel)} ${if (item.channel > 0) item.channel.toString() else stringResource(R.string.wifi_i18n_channel_unknown)}"
                 )
 
                 DetailInfoRow(
                     icon = Icons.Default.Speed,
                     label = stringResource(R.string.dual_wifi_detail_rssi),
-                    value = "${item.rssi} dBm · ${item.signalQualityText}"
+                    value = "${item.rssi} dBm · ${signalQualityLabel(item.level)}"
                 )
 
                 DetailInfoRow(
@@ -1467,7 +1513,7 @@ private fun WifiDetailBottomSheet(
                         label = stringResource(R.string.dual_wifi_hotspot_active_title),
                         value = stringResource(
                             R.string.dual_wifi_hotspot_conflict_desc,
-                            hotspotBand ?: "未知频段"
+                            hotspotBand ?: stringResource(R.string.wifi_i18n_unknown_band)
                         ),
                         isWarning = true
                     )
@@ -1492,12 +1538,12 @@ private fun WifiDetailBottomSheet(
                     icon = Icons.Default.Hub,
                     label = stringResource(R.string.dual_wifi_detail_concurrency),
                     value = when {
-                        item.isPrimary -> "当前网络为主 Wi-Fi (wlan0)，作为系统默认互联网出口"
-                        item.isSecondary -> "当前已作为副 Wi-Fi (wlan1) 建立并发物理链路"
-                        isHotspotEnabled -> "⚠️ 个人热点正在占用物理射频链，硬件射频无法同时建立副 Wi-Fi 链路"
-                        isSameBandConflict -> "⚠️ 与主 Wi-Fi (${primarySsid ?: "主网络"}, ${primaryFreq}MHz) 处于相同物理射频频段，DBS 芯片不支持同时并发连接"
-                        primaryFreq > 0 -> "✅ 射频互补：与主 Wi-Fi (${primarySsid ?: "主网络"}, ${primaryFreq}MHz) 物理频段独立，完全支持双 Wi-Fi 硬件并发"
-                        else -> "未连接主 Wi-Fi，无法评估频段并发互补性"
+                        item.isPrimary -> stringResource(R.string.wifi_i18n_primary_network_default_egress)
+                        item.isSecondary -> stringResource(R.string.wifi_i18n_secondary_link_active)
+                        isHotspotEnabled -> stringResource(R.string.wifi_i18n_hotspot_radio_conflict)
+                        isSameBandConflict -> stringResource(R.string.wifi_i18n_same_band_conflict, primarySsid ?: stringResource(R.string.wifi_i18n_primary_network_fallback), primaryFreq)
+                        primaryFreq > 0 -> stringResource(R.string.wifi_i18n_complementary_bands, primarySsid ?: stringResource(R.string.wifi_i18n_primary_network_fallback), primaryFreq)
+                        else -> stringResource(R.string.wifi_i18n_unconnected_cannot_assess)
                     },
                     isHighlight = !item.isPrimary && !item.isSecondary && !isSameBandConflict && primaryFreq > 0 && !isHotspotEnabled,
                     isWarning = isSameBandConflict || isHotspotEnabled
@@ -1561,9 +1607,9 @@ private fun WifiDetailBottomSheet(
                             Icon(Icons.Default.WifiFind, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                if (isHotspotEnabled) "热点运行中 (关闭热点后可连)"
-                                else if (item.isSaved) "一键连接为副 Wi-Fi"
-                                else "连接为副 Wi-Fi"
+                                if (isHotspotEnabled) stringResource(R.string.wifi_i18n_hotspot_running_connect_later)
+                                else if (item.isSaved) stringResource(R.string.wifi_i18n_connect_one_tap_secondary)
+                                else stringResource(R.string.wifi_i18n_connect_as_secondary)
                             )
                         }
                     }

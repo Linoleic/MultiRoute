@@ -71,7 +71,10 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
             _uiState.update {
                 it.copy(
                     isActivating = false,
-                    activationResult = if (ok) "激活成功！" else "激活失败，请检查 Root 授权"
+                    activationResult = getApplication<Application>().getString(
+                        if (ok) com.multiroute.R.string.wifi_i18n_activation_success
+                        else com.multiroute.R.string.wifi_i18n_activation_failed
+                    )
                 )
             }
         }
@@ -80,7 +83,7 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
     fun clearBlocklist() {
         viewModelScope.launch {
             DualWifiManager.clearNetworkBlocklist()
-            _uiState.update { it.copy(infoMessage = "已清除 Wi-Fi 临时限制，可重新尝试连接") }
+            _uiState.update { it.copy(infoMessage = getApplication<Application>().getString(com.multiroute.R.string.wifi_i18n_blocklist_cleared)) }
             DualWifiManager.checkCapability(getApplication())
         }
     }

@@ -301,6 +301,19 @@ object DualWifiManager {
         }
     }
 
+    fun detectWifiChipset(context: Context, lsmodOutput: String? = null): String {
+        val lsmodStr = lsmodOutput ?: runCatching {
+            SuHelper.executeShellWithOutput("lsmod 2>/dev/null", timeoutSeconds = 3).joinToString(" ")
+        }.getOrDefault("")
+        return context.getString(when {
+            lsmodStr.contains("bcmdhd4389", ignoreCase = true) -> com.multiroute.R.string.wifi_i18n_chip_broadcom_4389
+            lsmodStr.contains("bcmdhd", ignoreCase = true) -> com.multiroute.R.string.wifi_i18n_chip_broadcom
+            lsmodStr.contains("qca", ignoreCase = true) || lsmodStr.contains("wlan", ignoreCase = true) -> com.multiroute.R.string.wifi_i18n_chip_qualcomm
+            lsmodStr.contains("wmt_drv", ignoreCase = true) || lsmodStr.contains("wlan_mt", ignoreCase = true) -> com.multiroute.R.string.wifi_i18n_chip_mediatek
+            else -> com.multiroute.R.string.wifi_i18n_chip_generic
+        })
+    }
+
     @Volatile
     private var isHotspotReceiverRegistered = false
 
@@ -380,7 +393,7 @@ object DualWifiManager {
         val romInfo = detectRomType()
         val configuredScheme = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
         val effectiveScheme = getEffectiveScheme(configuredScheme, romInfo)
-        val wifiChipset = detectWifiChipset()
+        val wifiChipset = detectWifiChipset(context)
 
         // Determine primary and secondary interfaces
         val activeDefaultIface = runCatching {
@@ -395,7 +408,7 @@ object DualWifiManager {
 
         // Extract physical link details for active Wi-Fi interfaces
         val statusOutput = SuHelper.executeShellWithOutput("cmd wifi status 2>/dev/null", timeoutSeconds = 3)
-        val ifaceDetails = parseWifiStatus(statusOutput)
+        val ifaceDetails = parseWifiStatus(context, statusOutput)
         val primDet = ifaceDetails[primary] ?: ""
         val secDet = ifaceDetails[secondary] ?: ""
 
@@ -409,16 +422,16 @@ object DualWifiManager {
             configuredScheme = configuredScheme,
             effectiveScheme = effectiveScheme,
             wifiChipset = wifiChipset,
-            overlayStatus = if (configEnabled) "已开启 (DualWifi, Dual5G)" else "未开启",
+            overlayStatus = if (configEnabled) context.getString(com.multiroute.R.string.wifi_i18n_overlay_enabled_detail) else context.getString(com.multiroute.R.string.wifi_i18n_disabled),
             primaryDetails = primDet,
             secondaryDetails = secDet,
             detail = when {
-                !hwSupported -> "当前设备硬件或驱动不支持 STA + STA 并发"
-                effectiveScheme == DualWifiScheme.XIAOMI_SLAVE -> "已匹配小米/HyperOS 原厂双 WLAN 机制"
-                effectiveScheme == DualWifiScheme.ROOT_DIRECT -> "已配置通用 Root 直连，通过 Linux 底层特权通道并发"
-                !configEnabled -> "硬件支持双 Wi-Fi，系统尚未开启多互联网并发 Overlay"
-                !modeActive -> "系统 Overlay 已开启，并发工作模式尚未切换为 Multi-AP"
-                else -> "双 Wi-Fi (STA + STA 并发) 已就绪"
+                !hwSupported -> context.getString(com.multiroute.R.string.wifi_i18n_capability_unsupported)
+                effectiveScheme == DualWifiScheme.XIAOMI_SLAVE -> context.getString(com.multiroute.R.string.wifi_i18n_capability_xiaomi)
+                effectiveScheme == DualWifiScheme.ROOT_DIRECT -> context.getString(com.multiroute.R.string.wifi_i18n_capability_root)
+                !configEnabled -> context.getString(com.multiroute.R.string.wifi_i18n_capability_overlay_off)
+                !modeActive -> context.getString(com.multiroute.R.string.wifi_i18n_capability_mode_off)
+                else -> context.getString(com.multiroute.R.string.wifi_i18n_capability_ready)
             }
         )
 
@@ -435,7 +448,7 @@ object DualWifiManager {
         cap
     }
 
-    private fun parseWifiStatus(lines: List<String>): Map<String, String> {
+    private fun parseWifiStatus(context: Context, lines: List<String>): Map<String, String> {
         val result = mutableMapOf<String, String>()
         val fullText = lines.joinToString("\n")
         val blocks = fullText.split("==== ClientModeManager instance:")
@@ -443,9 +456,10 @@ object DualWifiManager {
             val ifaceMatch = Regex("""iface=(\w+)""").find(block) ?: continue
             val iface = ifaceMatch.groupValues[1]
             val ssidMatch = Regex("""SSID: "([^"]+)"""").find(block)
-            val ssid = ssidMatch?.groupValues?.get(1) ?: "未连接"
-            if (block.contains("Wifi is not connected") || ssid == "未连接" || ssid == "<unknown ssid>") {
-                result[iface] = "待机中 (未连接网络)"
+            val notConnected = context.getString(com.multiroute.R.string.wifi_i18n_ssid_not_connected)
+            val ssid = ssidMatch?.groupValues?.get(1) ?: notConnected
+            if (block.contains("Wifi is not connected") || ssid == notConnected || ssid == "<unknown ssid>") {
+                result[iface] = context.getString(com.multiroute.R.string.wifi_i18n_not_connected_status)
                 continue
             }
             val standardMatch = Regex("""Wi-Fi standard: (\w+)""").find(block)
@@ -469,8 +483,8 @@ object DualWifiManager {
             val rxSpeed = rxMatch?.groupValues?.get(1) ?: "0"
             val isValidated = block.contains("VALIDATED")
 
-            val freqText = if (freq > 0) "${freq}MHz (信道 $channel)" else ""
-            val valText = if (isValidated) "已通过系统校验" else "未校验/局域网"
+            val freqText = if (freq > 0) context.getString(com.multiroute.R.string.wifi_i18n_detail_frequency_channel, freq, channel) else ""
+            val valText = context.getString(if (isValidated) com.multiroute.R.string.wifi_i18n_detail_validated else com.multiroute.R.string.wifi_i18n_detail_unvalidated)
             result[iface] = "$standard • $freqText • Tx $txSpeed / Rx $rxSpeed Mbps • $rssi dBm • $valText"
         }
         return result
@@ -639,7 +653,7 @@ DUALWIFI_EOF
             items
         } catch (t: Throwable) {
             Log.e(TAG, "Wi-Fi scan failed", t)
-            _status.update { it.copy(isScanning = false, errorMessage = "扫描 Wi-Fi 失败: ${t.message}") }
+            _status.update { it.copy(isScanning = false, errorMessage = context.getString(com.multiroute.R.string.wifi_i18n_scan_failed, t.message ?: "")) }
             emptyList()
         }
     }
@@ -1043,18 +1057,18 @@ DUALWIFI_EOF
     /**
      * Formats frequency into user-friendly Wi-Fi band label.
      */
-    fun formatBand(freq: Int): String = when (freq) {
+    fun formatBand(freq: Int, context: Context? = null): String = when (freq) {
         in 2400..2500 -> "2.4 GHz"
-        in 4900..5320 -> "5 GHz (低频)"
-        in 5321..5900 -> "5 GHz (高频)"
+        in 4900..5320 -> context?.getString(com.multiroute.R.string.wifi_i18n_band_5_low) ?: "5 GHz (低频)"
+        in 5321..5900 -> context?.getString(com.multiroute.R.string.wifi_i18n_band_5_high) ?: "5 GHz (高频)"
         in 5925..7125 -> "6 GHz"
-        else -> if (freq > 0) "${freq}MHz" else "已开启"
+        else -> if (freq > 0) context?.getString(com.multiroute.R.string.wifi_i18n_frequency_mhz, freq) ?: "${freq}MHz" else context?.getString(com.multiroute.R.string.wifi_i18n_band_enabled) ?: "已开启"
     }
 
     /**
      * Parses kernel nl80211 interface dump from `iw dev` to detect active SoftAP interface and operating frequency.
      */
-    fun parseHotspotFromIwDev(output: List<String>): HotspotInfo {
+    fun parseHotspotFromIwDev(output: List<String>, context: Context? = null): HotspotInfo {
         var curIface: String? = null
         var isAp = false
         var freq = 0
@@ -1068,7 +1082,7 @@ DUALWIFI_EOF
                         isEnabled = true,
                         iface = curIface,
                         frequencyMhz = freq,
-                        bandLabel = formatBand(freq)
+                        bandLabel = formatBand(freq, context)
                     )
                 }
                 curIface = trimmed.substringAfter("Interface ").trim()
@@ -1085,7 +1099,7 @@ DUALWIFI_EOF
                 isEnabled = true,
                 iface = curIface,
                 frequencyMhz = freq,
-                bandLabel = formatBand(freq)
+                bandLabel = formatBand(freq, context)
             )
         }
         return HotspotInfo(isEnabled = false)
@@ -1129,7 +1143,7 @@ DUALWIFI_EOF
             SuHelper.executeShellWithOutput("iw dev 2>/dev/null", timeoutSeconds = 2)
         }.getOrDefault(emptyList())
 
-        val fromIw = parseHotspotFromIwDev(iwLines)
+        val fromIw = parseHotspotFromIwDev(iwLines, context)
         if (fromIw.isEnabled) {
             return fromIw
         }
@@ -1138,18 +1152,18 @@ DUALWIFI_EOF
         val dumpsysLines = runCatching {
             SuHelper.executeShellWithOutput("dumpsys wifi 2>/dev/null | grep -i -E 'SoftApInfo|channel_frequency|mApInterfaceName' | head -n 10", timeoutSeconds = 2)
         }.getOrDefault(emptyList())
-        val fromDumpsys = parseHotspotFromDumpsysWifi(dumpsysLines)
+        val fromDumpsys = parseHotspotFromDumpsysWifi(dumpsysLines, context)
         if (fromDumpsys.isEnabled) {
             return fromDumpsys
         }
 
-        return HotspotInfo(isEnabled = true, bandLabel = "已开启")
+        return HotspotInfo(isEnabled = true, bandLabel = context.getString(com.multiroute.R.string.wifi_i18n_band_enabled))
     }
 
     /**
      * Parses `dumpsys wifi` output as fallback when `iw` is not installed (e.g. clean AOSP/Pixel builds).
      */
-    fun parseHotspotFromDumpsysWifi(lines: List<String>): HotspotInfo {
+    fun parseHotspotFromDumpsysWifi(lines: List<String>, context: Context? = null): HotspotInfo {
         var iface: String? = null
         var freq = 0
         val freqRegex = Regex("""(?:frequency|channel_frequency)[=:\s]+(\d{4})""", RegexOption.IGNORE_CASE)
@@ -1177,7 +1191,7 @@ DUALWIFI_EOF
                 isEnabled = true,
                 iface = iface ?: "ap0",
                 frequencyMhz = freq,
-                bandLabel = formatBand(freq)
+                bandLabel = formatBand(freq, context)
             )
         } else {
             HotspotInfo(isEnabled = false)
@@ -1472,7 +1486,7 @@ DUALWIFI_EOF
                     isConnecting = false,
                     connectingSsid = null,
                     connectingBssid = null,
-                    errorMessage = "不能将当前主 Wi-Fi ($primSsid) 连接为副 Wi-Fi"
+                    errorMessage = context.getString(com.multiroute.R.string.wifi_i18n_primary_connection_error, primSsid)
                 )
             } }
             return@serialized false
@@ -1515,10 +1529,10 @@ DUALWIFI_EOF
             checkCurrentSecondaryIntent(ticket)
             // Only replace requests created by this app; other shell clients retain their requests.
             requestChanged = true
-            check(releaseOwnedShellRequest(context)) { "无法释放之前的副 Wi-Fi 请求" }
+            check(releaseOwnedShellRequest(context)) { context.getString(com.multiroute.R.string.wifi_i18n_release_previous_error) }
             val existing = SuHelper.executeShellWithOutput("cmd wifi list-requests")
             check(existing.isEmpty() || existing.all { it.isBlank() || it.contains("No active requests") }) {
-                "系统存在其他 Wi-Fi 连接请求，请结束后再试"
+                context.getString(com.multiroute.R.string.wifi_i18n_other_request_error)
             }
             val prepScript = """
                 cmd wifi set-multi-internet-mode 2 2>/dev/null
@@ -1577,11 +1591,11 @@ DUALWIFI_EOF
                     for (line in logs) {
                         when {
                             line.contains("WRONG_KEY") || line.contains("AUTH_FAILURE_WRONG_PSWD") -> {
-                                failureReason = "Wi-Fi 密码错误，请核对密码后重新连接"
+                                failureReason = context.getString(com.multiroute.R.string.wifi_i18n_wrong_password)
                                 break
                             }
                             line.contains("Association rejection") -> {
-                                failureReason = "AP 拒绝连接：请确认副 Wi-Fi 频段未与主 Wi-Fi 冲突（同一物理信道不可并发）"
+                                failureReason = context.getString(com.multiroute.R.string.wifi_i18n_ap_rejected)
                                 break
                             }
                         }
@@ -1611,7 +1625,7 @@ DUALWIFI_EOF
                 }
                 connectionAccepted
             } else {
-                val err = failureReason ?: "连接副 Wi-Fi 超时，请检查密码是否正确，且副 Wi-Fi 频段需与主 Wi-Fi 互补（如 2.4G + 5G）"
+                val err = failureReason ?: context.getString(com.multiroute.R.string.wifi_i18n_connect_timeout)
                 secondaryConnections.publish(ticket) { _status.update {
                     it.copy(
                         isConnecting = false,
@@ -1633,7 +1647,7 @@ DUALWIFI_EOF
             Log.e(TAG, "Failed to connect secondary wifi", t)
             secondaryConnections.publish(ticket) {
                 _status.update { it.copy(isConnecting = false, connectingSsid = null,
-                            connectingBssid = null, errorMessage = "发起连接失败: ${t.message}") }
+                            connectingBssid = null, errorMessage = context.getString(com.multiroute.R.string.wifi_i18n_connect_failed, t.message ?: "") ) }
             }
             false
         } finally {
