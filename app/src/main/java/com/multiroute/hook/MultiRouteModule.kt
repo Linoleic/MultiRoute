@@ -65,6 +65,8 @@ class MultiRouteModule : XposedModule() {
     private var isConnectivityHooked = false
     @Volatile private var connectivityService: Any? = null
     private var cellularPreferenceFingerprint: String? = null
+    private val cellularRequestNetworks = java.util.Collections.synchronizedMap(
+        java.util.WeakHashMap<android.net.NetworkRequest, Network>())
     private val isSlaveWifiHooked = AtomicBoolean(false)
     private val isDualStaHooked = AtomicBoolean(false)
     @Volatile private var isTetheringHooked = false
@@ -364,6 +366,13 @@ class MultiRouteModule : XposedModule() {
      * ConnectivityService then updates netd and default-network callbacks itself.
      */
     private fun hookCellularDefaultRequests(csClass: Class<*>): Boolean {
+        if (CellularFrameworkCompat.refreshMethod(csClass) == null) {
+            log(Log.WARN, TAG, "Cellular preference refresh unsupported; retaining platform defaults")
+            return false
+        }
+        // Subscription selectors alone cannot distinguish two Internet bearers on the same SIM.
+        // Refuse to install partial pinning if the platform's ranking entry point is unsupported.
+        if (!hookCellularNetworkRanking(csClass)) return false
         val factory = csClass.declaredMethods.firstOrNull {
             it.name == "createNrisFromMobileDataPreferredUids" && it.parameterTypes.size == 1 &&
                 Set::class.java.isAssignableFrom(it.parameterTypes[0])
@@ -384,6 +393,8 @@ class MultiRouteModule : XposedModule() {
         }.getOrNull() ?: return false
         listOf(factory, createRequest, createNris).forEach { it.isAccessible = true }
         return try {
+            csClass.declaredMethods.filter { it.name == "handleMobileDataPreferredUidsChanged" }
+                .forEach { deoptimize(it) }
             deoptimize(factory)
             hook(factory).intercept { chain ->
                 connectivityService = chain.thisObject
@@ -396,6 +407,8 @@ class MultiRouteModule : XposedModule() {
                     val groups = CellularDefaultNetworkPolicy.groups(allUids, HashMap(cachedUidRoutes))
                     for ((iface, uids) in groups) {
                         val agent = findNetworkAgentForChannel(chain.thisObject, iface) ?: continue
+                        val targetNetwork = findNetworkField(agent.javaClass)?.apply { isAccessible = true }
+                            ?.get(agent) as? Network ?: continue
                         val nc = findNetworkCapabilitiesField(agent.javaClass)?.apply { isAccessible = true }
                             ?.get(agent) as? NetworkCapabilities ?: continue
                         if (!nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
@@ -417,6 +430,8 @@ class MultiRouteModule : XposedModule() {
                         val fallback = createRequest.invoke(chain.thisObject, -1, fallbackType)
                         @Suppress("UNCHECKED_CAST")
                         val nris = createNris.invoke(chain.thisObject, uids, listOf(selected, fallback), preference) as Set<Any>
+                        // The factory mutates request UID ranges, which also changes its hash code.
+                        cellularRequestNetworks[selected as android.net.NetworkRequest] = targetNetwork
                         result.addAll(nris)
                         pinned.addAll(uids)
                         log(Log.INFO, TAG, "[CellularDefault] $uids -> $iface ($specifier)")
@@ -455,17 +470,46 @@ class MultiRouteModule : XposedModule() {
                         ?.apply { isAccessible = true }?.get(it) } as? NetworkCapabilities
                     val specifier = nc?.let { NetworkCapabilities::class.java
                         .getMethod("getNetworkSpecifier").invoke(it) }
-                    "$uid:$iface:$specifier:${nc?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)}"
+                    val network = agent?.let { findNetworkField(it.javaClass)?.apply { isAccessible = true }?.get(it) }
+                    "$uid:$iface:$network:$specifier:${nc?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)}"
                 }.joinToString(";")
                 if (fingerprint != cellularPreferenceFingerprint) {
-                    service.javaClass.getDeclaredMethod("updateMobileDataPreferredUids")
-                        .apply { isAccessible = true }.invoke(service)
+                    // Already on ConnectivityService's Handler, including for the private handler path.
+                    CellularFrameworkCompat.refresh(service)
                     cellularPreferenceFingerprint = fingerprint
                 }
             } catch (t: Throwable) {
                 log(Log.WARN, TAG, "[CellularDefault] Refresh failed", t)
             }
         }
+    }
+
+    /** Filter candidates for our selected request only; fallback and unrelated requests stay native. */
+    private fun hookCellularNetworkRanking(csClass: Class<*>): Boolean = try {
+        val rankerClass = getAllFields(csClass).first { it.name == "mNetworkRanker" }.type
+        val rank = rankerClass.declaredMethods.first {
+            it.name == "getBestNetwork" && it.parameterTypes.size == 3 &&
+                it.parameterTypes[0] == android.net.NetworkRequest::class.java &&
+                Collection::class.java.isAssignableFrom(it.parameterTypes[1])
+        }.apply { isAccessible = true }
+        csClass.declaredMethods.filter { it.name == "computeNetworkReassignment" }.forEach { deoptimize(it) }
+        deoptimize(rank)
+        hook(rank).intercept { chain ->
+            val target = cellularRequestNetworks[chain.getArg(0) as android.net.NetworkRequest]
+                ?: return@intercept chain.proceed()
+            @Suppress("UNCHECKED_CAST")
+            val networks = chain.getArg(1) as Collection<Any>
+            fun identity(agent: Any): Network? = findNetworkField(agent.javaClass)
+                ?.apply { isAccessible = true }?.get(agent) as? Network
+            val candidates = CellularNetworkSelection.candidates(target, networks, ::identity)
+            val incumbent = chain.getArg(2)?.takeIf { identity(it) == target }
+            chain.proceed(arrayOf(chain.getArg(0), candidates, incumbent))
+        }
+        log(Log.INFO, TAG, "Successfully hooked exact cellular network ranking")
+        true
+    } catch (t: Throwable) {
+        log(Log.WARN, TAG, "Exact cellular ranking unsupported; retaining platform defaults", t)
+        false
     }
 
     private fun hookGetDefaultNetworkForUid(csClass: Class<*>): Boolean {
@@ -614,112 +658,39 @@ class MultiRouteModule : XposedModule() {
     // High-frequency in-memory preference caching in system_server (1.5s TTL)
     private val prefCacheLock = Any()
     @Volatile private var lastPrefCacheTime: Long = 0L
-    private val cachedUidRoutes = ConcurrentHashMap<Int, String>()
+    @Volatile private var cachedUidRoutes: Map<Int, String> = emptyMap()
     @Volatile private var cachedCellularUids: Set<Int> = emptySet()
     private val PREF_CACHE_TTL_MS = 1500L
 
-    /** While the app has not started yet, poll less often and stay quiet unless the cache changes. */
-    private val FALLBACK_CACHE_TTL_MS = 10_000L
-    @Volatile private var cacheFallbackActive = false
-    private var lastCacheFileStamp = -1L
-    private var lastWrittenCacheText: String? = null
-
     private fun reloadPreferencesCacheIfNeeded() {
-        val now = System.currentTimeMillis()
-        val ttl = if (cacheFallbackActive) FALLBACK_CACHE_TTL_MS else PREF_CACHE_TTL_MS
-        if (now - lastPrefCacheTime < ttl) return
-
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastPrefCacheTime < PREF_CACHE_TTL_MS) return
         synchronized(prefCacheLock) {
-            if (now - lastPrefCacheTime < ttl) return
+            if (now - lastPrefCacheTime < PREF_CACHE_TTL_MS) return
             try {
-                val prefs = getRemotePreferences(PREF_NAME)
-                val newUidRoutes = mutableMapOf<Int, String>()
-
-                for ((key, value) in prefs.all) {
-                    val channelStr = value as? String ?: continue
-                    val uid = if (key.startsWith("uid_")) {
-                        key.removePrefix("uid_").toIntOrNull()
-                    } else {
-                        key.toIntOrNull()
-                    }
-                    if (uid != null && RouteRuleBuilder.isValidInterfaceName(channelStr)) {
-                        newUidRoutes[uid] = channelStr
-                    }
-                }
-
-                // Routes actually handed to the hooks: the preferences, or the cached copy while the
-                // app has not been started in this boot.
-                var effectiveRoutes: Map<Int, String> = newUidRoutes
-
-                if (newUidRoutes.isEmpty()) {
-                    // Start of a boot: the module app has not been started yet, and LSPosed then returns
-                    // an empty map rather than failing. Fall back to the cache the app publishes on
-                    // every sync, otherwise the hooks would not know any rule for the first ~90s.
-                    //
-                    // This runs on a hot path (every getDefaultNetworkForUid call), so the file is only
-                    // re-read when it actually changed and the transition is logged exactly once -
-                    // otherwise the fallback produced ~50 identical log lines per boot.
-                    val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
-                    val stamp = if (file.canRead()) file.lastModified() else -1L
-                    effectiveRoutes = if (cacheFallbackActive && stamp == lastCacheFileStamp) {
-                        HashMap(cachedUidRoutes)
-                    } else {
-                        lastCacheFileStamp = stamp
-                        val cached = readRuleCache()
-                        if (cached.isNotEmpty()) {
-                            log(Log.INFO, TAG, "Preferences empty (app not started yet); using cached rule map (${cached.size} entries)")
-                        } else {
-                            log(Log.INFO, TAG, "Preferences empty and no rule cache available yet")
-                        }
-                        cached
-                    }
-                    cacheFallbackActive = true
-                } else {
-                    if (cacheFallbackActive) {
-                        log(Log.INFO, TAG, "Preferences readable again; dropping the cached-rule fallback")
-                    }
-                    cacheFallbackActive = false
-                    lastCacheFileStamp = -1L
-                    writeRuleCacheIfChanged(newUidRoutes)
-                }
-
-                cachedUidRoutes.clear()
-                cachedUidRoutes.putAll(effectiveRoutes)
-                cachedCellularUids = effectiveRoutes.filterValues { isCellularChannel(it) }.keys.toSet()
+                val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
+                // Never replace an effective scenario/online snapshot with base assignments. A
+                // present but unreadable file is an error, not permission to resurrect base rules.
+                val published = if (file.exists()) file.readText() else null
+                val preferences = if (published == null) {
+                    getRemotePreferences(PREF_NAME).all.mapNotNull { (key, value) ->
+                        val uid = key.removePrefix("uid_").toIntOrNull()
+                        val iface = value as? String
+                        if (uid != null && iface != null) uid to iface else null
+                    }.toMap()
+                } else emptyMap()
+                val routes = EffectiveRouteSnapshot.resolve(published, preferences)
+                cachedUidRoutes = routes
+                cachedCellularUids = routes.filterValues { isCellularChannel(it) }.keys.toSet()
                 lastPrefCacheTime = now
             } catch (t: Throwable) {
-                log(Log.WARN, TAG, "Failed to reload remote preferences in system_server: ${t.message}")
+                lastPrefCacheTime = now
+                log(Log.WARN, TAG, "Could not reload effective route snapshot: ${t.message}")
             }
         }
     }
 
-    /** Cellular channels are the ones the platform tracks in `mobile_data_preferred_uids`. */
-    private fun isCellularChannel(iface: String): Boolean =
-        iface.startsWith("rmnet") || iface.startsWith("ccmni") || iface == "cellular"
-
-    /** Reads the app-published uid→interface cache; see [RouteRuleBuilder.RULE_CACHE_PATH]. */
-    private fun readRuleCache(): Map<Int, String> = try {
-        val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
-        if (file.canRead()) RouteRuleBuilder.parseRuleCache(file.readText()) else emptyMap()
-    } catch (t: Throwable) {
-        log(Log.WARN, TAG, "Could not read rule cache: ${t.message}")
-        emptyMap()
-    }
-
-    /** Self-heals the cache whenever the preferences were readable and non-empty (only on change). */
-    private fun writeRuleCacheIfChanged(uidToIface: Map<Int, String>) {
-        val text = RouteRuleBuilder.buildRuleCacheText(uidToIface)
-        if (text == lastWrittenCacheText) return
-        try {
-            val file = java.io.File(RouteRuleBuilder.RULE_CACHE_PATH)
-            file.writeText(text)
-            file.setReadable(true, false)
-            lastWrittenCacheText = text
-            lastCacheFileStamp = file.lastModified()
-        } catch (t: Throwable) {
-            log(Log.WARN, TAG, "Could not write rule cache: ${t.message}")
-        }
-    }
+    private fun isCellularChannel(iface: String): Boolean = CellularDefaultNetworkPolicy.isCellular(iface)
 
     private fun getTargetChannelForUid(uid: Int): String? {
         reloadPreferencesCacheIfNeeded()
@@ -1293,6 +1264,8 @@ class MultiRouteModule : XposedModule() {
             val callback = object : android.net.ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: android.net.Network) = onLinkChanged()
                 override fun onLost(network: android.net.Network) = onLinkChanged()
+                override fun onCapabilitiesChanged(network: android.net.Network, capabilities: NetworkCapabilities) =
+                    onLinkChanged()
                 override fun onLinkPropertiesChanged(
                     network: android.net.Network,
                     linkProperties: android.net.LinkProperties
@@ -1320,6 +1293,8 @@ class MultiRouteModule : XposedModule() {
      * debounce is needed because one transition produces several callbacks.
      */
     private fun onLinkChanged() {
+        // Network identities can change without a UID or subscription change, including without plans.
+        refreshCellularDefaults()
         val now = System.currentTimeMillis()
         if (now - lastScenarioWakeAt < 3000L) return
         lastScenarioWakeAt = now

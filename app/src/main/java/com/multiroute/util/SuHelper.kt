@@ -523,7 +523,6 @@ object SuHelper {
         )
 
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
-        val cellularUids = mutableSetOf<Int>()
         val hotspotIface = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context).iface }.getOrNull()
 
         for ((uid, channelId) in uidRules) {
@@ -550,46 +549,18 @@ object SuHelper {
             }
 
             channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
-            if (channelId.startsWith("rmnet") || channelId.startsWith("ccmni") || channelId.contains("mobile")) {
-                cellularUids.add(uid)
-            }
         }
-
-        // 1. Keep the platform's own "mobile data preferred" list in step with the assignments: add the
-        // UIDs that are missing and take back the ones this app added earlier, so unassigning an app no
-        // longer leaves a permanent entry behind. Only UIDs recorded as ours are ever removed; entries
-        // owned by the system or another tool stay untouched.
-        val oursMerged = RouteConfigProvider.getMergedCellularUids(context)
-        val platformUids = RouteRuleBuilder.parseUidList(
-            runCatching {
-                Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids")
-            }.getOrDefault("")
-        )
-        val (desiredPlatformUids, ourContribution) =
-            RouteRuleBuilder.mergeCellularUids(platformUids, cellularUids, oursMerged)
-        syncMobileDataPreferredUids(context, desiredPlatformUids)
-        RouteConfigProvider.setMergedCellularUids(context, ourContribution)
 
         // 2. Validate interface route tables
         val candidateChannels = channelToUidsMap.keys
         if (candidateChannels.isEmpty()) {
-            // User explicitly cleared all routing rules: clean up kernel rules, boot script and cache,
-            // and take this app's UIDs back out of the platform's preferred-mobile-data list.
-            val ours = RouteConfigProvider.getMergedCellularUids(context)
-            if (ours.isNotEmpty()) {
-                val current = runCatching {
-                    Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids")
-                }.getOrDefault("")
-                syncMobileDataPreferredUids(context, RouteRuleBuilder.parseUidList(current) - ours)
-                RouteConfigProvider.setMergedCellularUids(context, emptySet())
-                Log.i(TAG, "Removed ${ours.size} UID(s) this app had added to mobile_data_preferred_uids")
-            }
-            val cleanupScript = RouteRuleBuilder.buildFullSyncScript(emptyMap())
-            executeCommand(cleanupScript, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
-            executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
-            executeCommand("rm -f ${RouteRuleBuilder.RULE_CACHE_PATH}")
+            val success = executeCommand(RouteRuleBuilder.buildFullSyncScript(emptyMap()),
+                timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
+            if (!success || !updateRuleCache(emptyMap())) return false
+            syncCellularPreferredUids(context, emptySet())
+            val removed = executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
             notifyRouteRulesChanged(context)
-            return true
+            return removed
         }
 
         // A rule whose table has no default route does not blackhole traffic - the kernel falls through
@@ -663,14 +634,18 @@ object SuHelper {
             val bootScript = RouteRuleBuilder.buildFullSyncScript(bootChannels, connectedPrefixes)
             val bootSaved = updateBootRestoreScript(bootScript, bootChannels.keys)
             if (activeChannelMap.isEmpty()) {
-                updateRuleCache(emptyMap())
+                if (!updateRuleCache(emptyMap())) return false
                 Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script updated with current targets")
             } else {
                 // The boot script deliberately carries no DNS resolvers: they can change between boots
                 // (different network), and a stale one would break resolution. It flushes the NAT chain
                 // instead, and the app re-applies the redirect with fresh resolvers once it runs.
-                updateRuleCache(activeChannelMap)
+                if (!updateRuleCache(activeChannelMap)) return false
             }
+            val cellularUids = activeChannelMap.filterKeys {
+                com.multiroute.hook.CellularDefaultNetworkPolicy.isCellular(it)
+            }.values.flatten().toSet()
+            syncCellularPreferredUids(context, cellularUids)
             // UID membership can stay unchanged while the selected SIM changes. A setting write
             // alone then emits no observer event, so refresh after publishing the new route cache.
             notifyRouteRulesChanged(context)
@@ -707,35 +682,28 @@ object SuHelper {
         }.onFailure { Log.w(TAG, "Could not notify system_server of route changes", it) }
     }
 
-    /**
-     * Publishes the uid→interface map to [RouteRuleBuilder.RULE_CACHE_PATH].
-     *
-     * At the start of every boot, and until this app has been started, LSPosed's RemotePreferences
-     * return an empty map, so the ConnectivityService hooks cannot see any rule. This cache gives them
-     * a known-good fallback, and it is refreshed on every successful sync.
-     */
-    private fun updateRuleCache(channelToUidsMap: Map<String, List<Int>>) {
-        val uidToIface = mutableMapOf<Int, String>()
-        for ((iface, uids) in channelToUidsMap) {
-            if (!RouteRuleBuilder.isValidInterfaceName(iface)) continue
-            for (uid in uids) uidToIface[uid] = iface
-        }
-        val cacheText = RouteRuleBuilder.buildRuleCacheText(uidToIface)
-        if (cacheText.isEmpty()) {
-            executeCommand("rm -f ${RouteRuleBuilder.RULE_CACHE_PATH}")
-            return
-        }
-        try {
-            val cmd = "cat << 'MCROUTE_CACHE_EOF' > ${RouteRuleBuilder.RULE_CACHE_PATH}\n" +
-                    "$cacheText\n" +
-                    "MCROUTE_CACHE_EOF\n" +
-                    "chmod 644 ${RouteRuleBuilder.RULE_CACHE_PATH}"
-            if (!executeCommand(cmd)) {
-                Log.w(TAG, "Rule cache update returned a non-zero exit code")
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to update rule cache: ${t.message}")
-        }
+    /** Publish only successfully applied, online assignments; an empty file is authoritative. */
+    private fun updateRuleCache(channelToUidsMap: Map<String, List<Int>>): Boolean {
+        val routes = channelToUidsMap.flatMap { (iface, uids) -> uids.map { it to iface } }.toMap()
+        val text = RouteRuleBuilder.buildRuleCacheText(routes)
+        val path = RouteRuleBuilder.RULE_CACHE_PATH
+        // Root writes a sibling and renames it, so system_server cannot observe a partial snapshot.
+        val command = "(cat > $path.tmp << 'MCROUTE_CACHE_EOF'\n" + text +
+            "\nMCROUTE_CACHE_EOF\n) && chmod 644 $path.tmp && mv -f $path.tmp $path"
+        return executeCommand(command)
+    }
+
+    private fun syncCellularPreferredUids(context: Context, cellularUids: Set<Int>) {
+        val oursMerged = RouteConfigProvider.getMergedCellularUids(context)
+        val platformUids = RouteRuleBuilder.parseUidList(
+            runCatching {
+                Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids")
+            }.getOrDefault("")
+        )
+        val (desiredPlatformUids, ourContribution) =
+            RouteRuleBuilder.mergeCellularUids(platformUids, cellularUids, oursMerged)
+        syncMobileDataPreferredUids(context, desiredPlatformUids)
+        RouteConfigProvider.setMergedCellularUids(context, ourContribution)
     }
 
     @androidx.annotation.Keep
