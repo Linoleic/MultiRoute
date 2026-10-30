@@ -95,13 +95,15 @@ entry point from the package itself.
 
 | Android version | Status |
 | :-- | :-- |
-| **Android 17 / HyperOS (phone)** | Verified dual Wi-Fi, concurrent cellular connectivity, app and clone routing, IPv4/IPv6 routing and rule recovery |
+| **Android 17 / HyperOS (phone)** | Verified dual Wi-Fi, secondary SIM controls and SIM routing, app and clone routing, IPv4/IPv6 routing and rule recovery |
 | **Android 16 / HyperOS (tablet)** | Verified dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection and rule recovery; no cellular hardware |
 | **Android 16 / AOSP** | Verified connection, disconnection and IPv4 Internet access through saved secondary Wi-Fi networks; other features are not comprehensively verified |
 | Android 11 – 15 | ⚠️ **Not verified.** |
 | Android 7 – 10 | ❌ The APK requires Android 11 (`minSdk` 30) |
 
 The table does not establish compatibility with every device running these systems. Dual Wi-Fi and hotspot support also depend on hardware, firmware and ROM; Android version alone does not establish compatibility.
+
+Secondary SIM controls and SIM-based routing have only been verified on Android 17 / HyperOS with two active SIMs. Android 11 is the APK's minimum install version; it does not imply that these cellular features are verified on every Android 11+ system.
 
 ---
 
@@ -373,7 +375,7 @@ MultiRoute has no telemetry, analytics, crash-reporting or advertising backend a
 - **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
   space name; only ROMs whose clone spaces are real Android users are covered.
 - **Secondary Wi-Fi and screen-off behavior**: Xiaomi-specific hooks attempt to keep the secondary link active on supported Xiaomi ROMs. On other platforms the foreground service monitors the connection and attempts recovery; it cannot guarantee that hardware or firmware keeps the link up during screen-off or Doze.
-- **Cellular assignment** relies on the ROM honouring `mobile_data_preferred_uids`.
+- **Secondary SIM controls and cellular routing** — The control requires exactly two active SIMs and only manages the non-default data SIM. It does not switch the default data SIM or start automatically at boot. Whether both SIMs can provide data concurrently depends on the device, ROM and carrier; SIM routing also relies on the ROM honouring `mobile_data_preferred_uids`.
 - **Which interface sits on which band can change while the app is running** — that is exactly what the
   Wi-Fi band row is for.
 - **Cleartext HTTP is permitted for the egress probe.** Built-in presets use HTTPS, but a custom endpoint

@@ -94,13 +94,15 @@ APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，�
 
 | Android 版本 | 状态 |
 | :-- | :-- |
-| **Android 17 / HyperOS（手机）** | 已验证双 Wi-Fi、蜂窝并发、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
+| **Android 17 / HyperOS（手机）** | 已验证双 Wi-Fi、副卡启停与 SIM 分流、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
 | **Android 16 / HyperOS（平板）** | 已验证双 Wi-Fi、应用与分身分流、IPv4/IPv6 路由、DNS 改写及规则恢复；设备无蜂窝网络 |
 | **Android 16 / AOSP** | 已验证已保存副 Wi-Fi 的连接、断开与 IPv4 上网；其他功能尚未全面验证 |
 | Android 11 – 15 | ⚠️ **未验证** |
 | Android 7 – 10 | ❌ APK 要求 Android 11（`minSdk` 30） |
 
 上表不代表同类系统的所有设备均兼容。双 Wi-Fi 与热点功能还取决于硬件、固件和 ROM，不能仅根据 Android 版本判断兼容性。
+
+副卡启停与按 SIM 分流目前仅在 Android 17 / HyperOS 双卡环境验证。Android 11 是 APK 的最低安装版本，不代表副卡功能已在所有 Android 11 及以上系统验证。
 
 ---
 
@@ -328,7 +330,7 @@ MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账
 - **分身识别依赖 root 包列表**：界面显示数字空间号而非空间名称；仅覆盖"分身空间是真实 Android
   用户"的 ROM。
 - **副 Wi-Fi 与息屏行为**：小米专用 hook 会尝试在受支持的 Xiaomi ROM 上维持副网连接。其他平台由前台服务监控连接并尝试恢复；无法保证硬件或固件在息屏或 Doze 时保持链路。
-- **蜂窝分流**取决于 ROM 是否遵循 `mobile_data_preferred_uids`。
+- **副卡通道与蜂窝分流**：控制入口要求系统识别到恰好两张活动 SIM，只控制非默认数据卡，不切换默认数据卡，也不会在开机时自动启用。两卡能否同时联网取决于设备、ROM 与运营商；按 SIM 分流还取决于 ROM 是否遵循 `mobile_data_preferred_uids`。
 - **同一网卡所处频段会在运行中变化**——这正是「Wi-Fi 频段」那一行的用途。
 - **出口探测允许明文 HTTP**：内置预设均为 HTTPS，但自定义地址可能是明文（例如路由器页面
   `http://192.168.1.1/ip`），因此 `usesCleartextTraffic` 保持开启。
