@@ -10,7 +10,9 @@ class RouteRuleBuilderTest {
     @Test fun cellularIpv6FallbackIsScopedToAssignedUidAndRemovedByNormalCleanup() {
         val commands = RouteRuleBuilder.buildUidRoutingCommands(mapOf("rmnet_data2" to listOf(10596)))
         assertEquals(3, commands.size)
-        assertTrue(commands.last().contains("-6 route show table rmnet_data2"))
+        // Unconditional: a default may exist during sync and disappear before the next sync.
+        assertFalse(commands.last().contains("route show"))
+        assertTrue(commands[1].contains("lookup rmnet_data2"))
         assertTrue(commands.last().contains("rule add unreachable uidrange 10596-10596 pref 14500"))
         assertFalse(RouteRuleBuilder.buildUidRoutingCommands(mapOf("wlan0" to listOf(10698)))
             .any { it.contains("unreachable") })
