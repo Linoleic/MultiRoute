@@ -1414,6 +1414,10 @@ fun SettingsTab(
         }
 
         item {
+            WirelessAdbCard()
+        }
+
+        item {
             // 诊断日志与维护操作
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),

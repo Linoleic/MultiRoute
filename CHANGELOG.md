@@ -7,6 +7,18 @@ bilingual, Chinese first: the release page is what most users read.
 
 ## Unreleased
 
+**中文**
+
+### 新增
+
+- **无线调试辅助**：在设置页查看开关、监听状态及局域网候选 IPv4 地址，复制连接命令并打开开发者设置；提示配对端口与连接端口的区别。
+
+**English**
+
+### Added
+
+- **Wireless debugging helper:** View the toggle, listening status and candidate local IPv4 addresses in Settings, copy connection commands and open developer settings. Explain the distinction between pairing and connection ports.
+
 ## v1.6.0 - 2026-10-31
 
 **中文**

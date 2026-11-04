@@ -598,4 +598,21 @@
     <string name="wifi_i18n_band_enabled">Active</string>
     <string name="wifi_i18n_same_band_warning_24">Note: This hotspot and primary Wi-Fi are both on the 2.4 GHz band. Phone DBS radios usually require primary and secondary Wi-Fi to use separate bands (2.4 GHz and 5 GHz, or separate lower and upper 5 GHz bands); connecting on the same band may fail.</string>
     <string name="wifi_i18n_same_band_warning_5">Note: This hotspot and primary Wi-Fi are on the same 5 GHz sub-band/channel. Phone DBS radios usually require primary and secondary Wi-Fi to use separate bands (2.4 GHz and 5 GHz, or separate lower and upper 5 GHz bands); connecting on the same band may fail.</string>
+
+    <!-- Wireless debugging helper -->
+    <string name="adb_helper_title">Wireless debugging</string>
+    <string name="adb_helper_loading">Reading debugging status…</string>
+    <string name="adb_helper_off">Wireless debugging is off</string>
+    <string name="adb_helper_listening">Wireless debugging is on and the port is listening</string>
+    <string name="adb_helper_not_listening">Wireless debugging is on; no matching listening port found</string>
+    <string name="adb_helper_unknown">Debugging status unavailable. Check root access or system settings.</string>
+    <string name="adb_helper_refresh">Refresh</string>
+    <string name="adb_helper_settings">Developer settings</string>
+    <string name="adb_helper_settings_failed">Could not open developer settings. Open them manually in system settings.</string>
+    <string name="adb_helper_details">Show connection details</string>
+    <string name="adb_helper_hide">Hide connection details</string>
+    <string name="adb_helper_candidates">Candidate IPv4 addresses on local Wi-Fi / Ethernet interfaces. Workstation reachability has not been verified. An address does not mean a workstation is connected.</string>
+    <string name="adb_helper_no_address">No local IPv4 address could be read. If Wi-Fi is associated without an address, check address provisioning.</string>
+    <string name="adb_helper_copy">Copy connection command</string>
+    <string name="adb_helper_pairing_note">Pair in system wireless debugging settings before the first connection. These commands use the connection port, not the pairing port. Refresh after address or port changes. IPv6 link-local connections need the workstation interface scope; commands are not generated yet.</string>
 </resources>
