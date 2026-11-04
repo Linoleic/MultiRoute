@@ -11,11 +11,15 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 新增
 
+- **无线调试控制与开机恢复**：支持手动启停并核对实际状态；可在首次解锁后十分钟内，按指定主 Wi-Fi 网络名称尝试恢复。关闭调试同时关闭本应用的开机恢复，配置不参与备份；增加框架端口读取后备路径。
+
 - **无线调试辅助**：在设置页查看开关、监听状态及局域网候选 IPv4 地址，复制连接命令并打开开发者设置；提示配对端口与连接端口的区别。
 
 **English**
 
 ### Added
+
+- **Wireless debugging controls and boot recovery:** Enable or disable debugging with observed-state verification. Optionally attempt recovery on the selected primary Wi-Fi name within ten minutes after first unlock. Disabling debugging also disables app boot recovery. Recovery settings are excluded from backup; add a framework port-reading fallback.
 
 - **Wireless debugging helper:** View the toggle, listening status and candidate local IPv4 addresses in Settings, copy connection commands and open developer settings. Explain the distinction between pairing and connection ports.
 

@@ -5,11 +5,14 @@ data class WirelessAdbInfo(
     val enabled: Boolean?,
     val port: Int?,
     val listening: Boolean?,
-    val addresses: List<Pair<String, String>>
+    val addresses: List<Pair<String, String>>,
+    val tlsEnabled: Boolean? = null
 ) {
     companion object {
-        fun read(): WirelessAdbInfo = parse(SuHelper.executeShellWithOutput("""
+        fun read(context: android.content.Context? = null): WirelessAdbInfo {
+            val lines = SuHelper.executeShellWithOutput("""
             echo ENABLED=${'$'}(settings get global adb_wifi_enabled)
+            echo TLS=${'$'}(getprop persist.adb.tls_server.enable)
             echo PORT=${'$'}(getprop service.adb.tls.port)
             sockets=${'$'}(ss -lnt 2>/dev/null)
             if [ ${'$'}? -eq 0 ]; then
@@ -17,7 +20,22 @@ data class WirelessAdbInfo(
               echo SOCKETS_OK
             fi
             ip -o -4 addr show up scope global 2>/dev/null
-        """.trimIndent(), timeoutSeconds = 4))
+        """.trimIndent(), timeoutSeconds = 4)
+            val propertyPort = lines.firstOrNull { it.startsWith("PORT=") }?.substringAfter('=')
+                ?.toIntOrNull()?.takeIf { it in 1..65535 }
+            if (context != null && "ENABLED=1" in lines && (propertyPort == null || android.os.Build.VERSION.SDK_INT >= 37)) {
+                val apk = context.applicationInfo.sourceDir
+                if (!apk.contains('\'')) {
+                    val framework = SuHelper.executeShellWithOutput(
+                        "/system/bin/env CLASSPATH='$apk' /system/bin/app_process /system/bin com.multiroute.adb.AdbPortReader",
+                        timeoutSeconds = 4)
+                    val port = framework.firstOrNull { it.startsWith("PORT=") }?.substringAfter('=')
+                        ?.toIntOrNull()?.takeIf { it in 1..65535 }
+                    if (port != null) return parse(listOf("PORT=$port") + lines.filterNot { it.startsWith("PORT=") })
+                }
+            }
+            return parse(lines)
+        }
 
         internal fun parse(lines: List<String>): WirelessAdbInfo {
             val enabled = when (lines.firstOrNull { it.startsWith("ENABLED=") }?.substringAfter('=')) {
@@ -44,7 +62,12 @@ data class WirelessAdbInfo(
                     return@mapNotNull null
                 iface to ip
             }.distinct()
-            return WirelessAdbInfo(enabled, port, listening, addresses)
+            val tls = when (lines.firstOrNull { it.startsWith("TLS=") }?.substringAfter('=')) {
+                "1" -> true
+                "0" -> false
+                else -> null
+            }
+            return WirelessAdbInfo(enabled, port, listening, addresses, tls)
         }
     }
 }

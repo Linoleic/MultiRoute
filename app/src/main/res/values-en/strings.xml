@@ -615,4 +615,22 @@
     <string name="adb_helper_no_address">No local IPv4 address could be read. If Wi-Fi is associated without an address, check address provisioning.</string>
     <string name="adb_helper_copy">Copy connection command</string>
     <string name="adb_helper_pairing_note">Pair in system wireless debugging settings before the first connection. These commands use the connection port, not the pairing port. Refresh after address or port changes. IPv6 link-local connections need the workstation interface scope; commands are not generated yet.</string>
+
+    <string name="adb_control_working">Working…</string>
+    <string name="adb_control_on">Enable wireless debugging</string>
+    <string name="adb_control_off">Disable wireless debugging</string>
+    <string name="adb_control_ready">Connection port confirmed listening</string>
+    <string name="adb_control_stopped">Wireless debugging disabled</string>
+    <string name="adb_control_saved">Boot recovery settings saved</string>
+    <string name="adb_control_no_network">Primary Wi-Fi not identified. Connect to Wi-Fi and try again.</string>
+    <string name="adb_control_failed">Could not confirm success. Check root access and system wireless debugging settings.</string>
+    <string name="adb_control_off_warning">This disconnects wireless ADB and turns off boot recovery in this app. USB debugging settings remain unchanged.</string>
+    <string name="adb_boot_title">Restore wireless debugging after boot</string>
+    <string name="adb_boot_description">Enable wireless debugging and complete system authorization first. This option remembers the current primary Wi-Fi name and attempts recovery on that network within ten minutes after first unlock. It does not attempt to enable debugging on other networks or provide continuous recovery after everyday disconnections.</string>
+    <string name="adb_boot_network">Selected network: %1$s</string>
+    <string name="adb_boot_wait_network">Boot recovery is waiting for the selected primary Wi-Fi</string>
+    <string name="adb_boot_wait_unlock">Boot recovery is waiting for first unlock</string>
+    <string name="adb_boot_expired">Boot recovery window ended. Enable manually or wait for the next boot.</string>
+    <string name="adb_boot_inactive">Boot recovery is off</string>
+    <string name="adb_control_result">Latest result: %1$s</string>
 </resources>

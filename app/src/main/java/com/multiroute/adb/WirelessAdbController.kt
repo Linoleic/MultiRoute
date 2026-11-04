@@ -1,0 +1,123 @@
+package com.multiroute.adb
+
+import android.content.Context
+import android.os.SystemClock
+import android.os.UserManager
+import android.util.AtomicFile
+import com.multiroute.util.SuHelper
+import com.multiroute.util.WirelessAdbInfo
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
+import java.io.File
+
+enum class AdbActionResult { READY, OFF, FAILED, NO_NETWORK, WAIT_NETWORK, WAIT_UNLOCK, EXPIRED, INACTIVE, SAVED }
+data class AdbBootPolicy(val enabled: Boolean = false, val ssid: String? = null, val result: AdbActionResult? = null)
+
+object WirelessAdbController {
+    private val mutex = Mutex()
+    private val diskLock = Any()
+    private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "wireless-adb-policy.json"))
+    fun policy(context: Context): AdbBootPolicy = synchronized(diskLock) { try {
+        val data = JSONObject(file(context).readFully().toString(Charsets.UTF_8))
+        AdbBootPolicy(data.optBoolean("enabled"), data.optString("ssid").takeIf { it.isNotEmpty() },
+            runCatching { AdbActionResult.valueOf(data.optString("result")) }.getOrNull())
+    } catch (_: Exception) { AdbBootPolicy() } }
+
+    private fun save(context: Context, policy: AdbBootPolicy): Boolean = synchronized(diskLock) {
+        val target = file(context)
+        var stream: java.io.FileOutputStream? = null
+        try {
+            stream = target.startWrite()
+            stream.write(JSONObject().put("enabled", policy.enabled).put("ssid", policy.ssid.orEmpty())
+                .put("result", policy.result?.name.orEmpty()).toString().toByteArray())
+            target.finishWrite(stream)
+            true
+        } catch (_: Exception) { stream?.let { target.failWrite(it) }; false }
+    }
+
+    internal fun primarySsid(lines: List<String>): String? {
+        val section = lines.indexOfFirst { "ROLE_CLIENT_PRIMARY" in it }
+        val selected = if (section >= 0) lines.drop(section + 1).takeWhile { !it.startsWith("====") }
+            else if (lines.any { it.startsWith("====") }) emptyList() else lines
+        return selected.firstNotNullOfOrNull {
+            Regex("^Wifi is connected to \"(.*)\"$").matchEntire(it.trim())?.groupValues?.get(1)
+        }?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
+    }
+    private fun wifi() = SuHelper.executeShellWithOutput("cmd wifi status && echo WIFI_QUERY_OK", timeoutSeconds = 4)
+
+    internal fun restoreGate(policy: AdbBootPolicy, ssid: String?, unlocked: Boolean, now: Long, deadline: Long): AdbActionResult? = when {
+        !policy.enabled -> AdbActionResult.INACTIVE
+        now >= deadline -> AdbActionResult.EXPIRED
+        !unlocked -> AdbActionResult.WAIT_UNLOCK
+        policy.ssid == null || ssid != policy.ssid -> AdbActionResult.WAIT_NETWORK
+        else -> null
+    }
+
+    private suspend fun switch(context: Context, enabled: Boolean): AdbActionResult {
+        currentCoroutineContext().ensureActive()
+        if (enabled && SuHelper.executeShellWithOutput("settings get global development_settings_enabled", timeoutSeconds = 4)
+                .firstOrNull()?.trim() != "1") return AdbActionResult.FAILED
+        val written = SuHelper.executeCommand("settings put global adb_wifi_enabled ${if (enabled) 1 else 0}", timeoutSeconds = 4)
+        if (!written) return AdbActionResult.FAILED
+        repeat(8) {
+            currentCoroutineContext().ensureActive()
+            val info = WirelessAdbInfo.read(context)
+            if (enabled && info.enabled == true && info.listening == true) return AdbActionResult.READY
+            if (!enabled && info.enabled == false && info.tlsEnabled == false) return AdbActionResult.OFF
+            delay(750)
+        }
+        return AdbActionResult.FAILED
+    }
+
+    suspend fun setEnabled(context: Context, enabled: Boolean): AdbActionResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (!enabled) {
+                // Persist the cancellation before writing the system toggle. A queued boot job must not re-enable it.
+                if (!save(context, policy(context).copy(enabled = false, result = AdbActionResult.INACTIVE)))
+                    return@withLock AdbActionResult.FAILED
+                WirelessAdbBootJob.cancel(context)
+            } else {
+                val wifi = wifi()
+                if ("WIFI_QUERY_OK" !in wifi) return@withLock AdbActionResult.FAILED
+                if (primarySsid(wifi) == null) return@withLock AdbActionResult.NO_NETWORK
+            }
+            switch(context, enabled)
+        }
+    }
+
+    suspend fun setBootEnabled(context: Context, enabled: Boolean): AdbActionResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (!enabled) {
+                if (!save(context, policy(context).copy(enabled = false, result = AdbActionResult.INACTIVE)))
+                    return@withLock AdbActionResult.FAILED
+                WirelessAdbBootJob.cancel(context)
+                return@withLock AdbActionResult.SAVED
+            }
+            val wifi = wifi()
+            if ("WIFI_QUERY_OK" !in wifi) return@withLock AdbActionResult.FAILED
+            val ssid = primarySsid(wifi) ?: return@withLock AdbActionResult.NO_NETWORK
+            val info = WirelessAdbInfo.read(context)
+            if (info.enabled != true || info.listening != true) return@withLock AdbActionResult.FAILED
+            if (save(context, AdbBootPolicy(true, ssid, AdbActionResult.SAVED))) AdbActionResult.SAVED else AdbActionResult.FAILED
+        }
+    }
+
+    suspend fun restore(context: Context, deadline: Long): AdbActionResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val policy = policy(context)
+            if (!policy.enabled) return@withLock AdbActionResult.INACTIVE
+            val unlocked = context.getSystemService(UserManager::class.java).isUserUnlocked
+            val now = SystemClock.elapsedRealtime()
+            val gate = restoreGate(policy, null, unlocked, now, deadline)
+            val result = if (gate == AdbActionResult.EXPIRED || gate == AdbActionResult.WAIT_UNLOCK) gate else {
+                val wifi = wifi()
+                if ("WIFI_QUERY_OK" !in wifi) AdbActionResult.FAILED
+                else restoreGate(policy, primarySsid(wifi), unlocked, SystemClock.elapsedRealtime(), deadline) ?: switch(context, true)
+            }
+            save(context, policy.copy(result = result))
+            result
+        }
+    }
+}

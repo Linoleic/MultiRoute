@@ -22,6 +22,8 @@ import com.multiroute.R
 import com.multiroute.util.WirelessAdbInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import com.multiroute.adb.*
 
 @Composable
 fun WirelessAdbCard() {
@@ -33,6 +35,17 @@ fun WirelessAdbCard() {
     var info by remember { mutableStateOf<WirelessAdbInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var settingsFailed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<AdbActionResult?>(null) }
+    var bootPolicy by remember { mutableStateOf(AdbBootPolicy()) }
+    var confirmOff by remember { mutableStateOf(false) }
+    fun perform(action: suspend () -> AdbActionResult) {
+        scope.launch {
+            busy = true
+            try { result = action() } finally { busy = false; revision++ }
+        }
+    }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) revision++
@@ -42,7 +55,8 @@ fun WirelessAdbCard() {
     }
     LaunchedEffect(revision) {
         loading = true
-        info = withContext(Dispatchers.IO) { WirelessAdbInfo.read() }
+        info = withContext(Dispatchers.IO) { WirelessAdbInfo.read(context) }
+        bootPolicy = withContext(Dispatchers.IO) { WirelessAdbController.policy(context) }
         loading = false
     }
     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -60,19 +74,47 @@ fun WirelessAdbCard() {
                 else -> R.string.adb_helper_unknown
             }), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { revision++ }, enabled = !loading, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.adb_helper_refresh)) }
+                TextButton(onClick = { revision++ }, enabled = !loading && !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.adb_helper_refresh)) }
                 TextButton(onClick = {
                     settingsFailed = runCatching {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
                     }.isFailure
                 }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.adb_helper_settings)) }
             }
+            TextButton(onClick = {
+                if (info?.enabled == true) confirmOff = true
+                else perform { WirelessAdbController.setEnabled(context, true) }
+            }, enabled = !loading && !busy && info?.enabled != null) {
+                Text(stringResource(if (busy) R.string.adb_control_working else if (info?.enabled == true)
+                    R.string.adb_control_off else R.string.adb_control_on))
+            }
+            val outcome = result ?: bootPolicy.result
+            if (outcome != null) Text(stringResource(R.string.adb_control_result, stringResource(when (outcome) {
+                AdbActionResult.READY -> R.string.adb_control_ready
+                AdbActionResult.OFF -> R.string.adb_control_stopped
+                AdbActionResult.SAVED -> R.string.adb_control_saved
+                AdbActionResult.WAIT_NETWORK -> R.string.adb_boot_wait_network
+                AdbActionResult.WAIT_UNLOCK -> R.string.adb_boot_wait_unlock
+                AdbActionResult.EXPIRED -> R.string.adb_boot_expired
+                AdbActionResult.INACTIVE -> R.string.adb_boot_inactive
+                AdbActionResult.NO_NETWORK -> R.string.adb_control_no_network
+                AdbActionResult.FAILED -> R.string.adb_control_failed
+            })), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (settingsFailed) Text(stringResource(R.string.adb_helper_settings_failed), style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { expanded = !expanded }) {
                 Text(stringResource(if (expanded) R.string.adb_helper_hide else R.string.adb_helper_details),
                     style = MaterialTheme.typography.labelMedium)
             }
             if (expanded) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.adb_boot_title), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = bootPolicy.enabled, enabled = !loading && !busy &&
+                        (bootPolicy.enabled || info?.enabled == true && info?.listening == true),
+                        onCheckedChange = { enabled -> perform { WirelessAdbController.setBootEnabled(context, enabled) } })
+                }
+                Text(stringResource(R.string.adb_boot_description), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                bootPolicy.ssid?.let { Text(stringResource(R.string.adb_boot_network, it), style = MaterialTheme.typography.bodySmall) }
                 Text(stringResource(R.string.adb_helper_candidates), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val snapshot = info
@@ -84,7 +126,7 @@ fun WirelessAdbCard() {
                         Text("$iface · $address${snapshot.port?.let { ":$it" }.orEmpty()}", style = MaterialTheme.typography.bodyMedium)
                         TextButton(onClick = {
                             clipboard.setText(AnnotatedString("adb connect $address:${snapshot.port}"))
-                        }, enabled = !loading && snapshot.enabled == true && snapshot.listening == true) {
+                        }, enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true) {
                             Text(stringResource(R.string.adb_helper_copy))
                         }
                     }
@@ -94,4 +136,12 @@ fun WirelessAdbCard() {
             }
         }
     }
+    if (confirmOff) AlertDialog(onDismissRequest = { confirmOff = false },
+        title = { Text(stringResource(R.string.adb_control_off)) },
+        text = { Text(stringResource(R.string.adb_control_off_warning)) },
+        confirmButton = { TextButton(onClick = {
+            confirmOff = false
+            perform { WirelessAdbController.setEnabled(context, false) }
+        }) { Text(stringResource(R.string.adb_control_off)) } },
+        dismissButton = { TextButton(onClick = { confirmOff = false }) { Text(stringResource(android.R.string.cancel)) } })
 }

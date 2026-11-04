@@ -228,6 +228,14 @@ MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` in the Net
 
 ---
 
+## Wireless debugging helper
+
+The Settings tab reads system wireless debugging status, its connection port and candidate local IPv4 addresses. It can copy connection commands or enable and disable debugging through root. Complete initial pairing and network authorization in system settings. Candidate addresses do not establish workstation reachability.
+
+Optional boot recovery remembers the primary Wi-Fi name selected when enabling it and attempts to restore system wireless debugging on that network within ten minutes after first unlock. It does not continuously restore debugging after everyday network disconnections. Disabling debugging in the app also disables boot recovery. Recovery settings are excluded from backup and configuration exports. Vendor background restrictions may affect execution; the result is shown in the card details.
+
+The system allocates the TLS debugging port, which can change after a service restart. A fixed port is not provided. Port reading probes available system properties and framework interfaces; copy actions remain unavailable when listening cannot be confirmed.
+
 ## Installation
 
 1. Install the APK from the [releases page](https://github.com/Linoleic/MultiRoute/releases) — the asset
