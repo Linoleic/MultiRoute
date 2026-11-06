@@ -219,16 +219,20 @@ internal fun NetworkSettingsPanel(uiState: MainUiState, viewModel: MainScreenVie
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = stringResource(com.multiroute.R.string.settings_keep_cellular),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (uiState.supportsCellularData) 1f else 0.38f)
                     )
                     Text(
-                        text = stringResource(com.multiroute.R.string.settings_keep_cellular_desc),
+                        text = stringResource(if (uiState.supportsCellularData) com.multiroute.R.string.settings_keep_cellular_desc
+                            else com.multiroute.R.string.settings_cellular_unsupported),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
+                        color = if (uiState.supportsCellularData) MaterialTheme.colorScheme.outline
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                     )
                 }
                 Switch(
                     checked = uiState.isMobileDataAlwaysOn,
+                    enabled = uiState.supportsCellularData,
                     onCheckedChange = { viewModel.toggleMobileDataAlwaysOn() }
                 )
             }

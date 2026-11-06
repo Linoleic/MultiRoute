@@ -684,4 +684,5 @@
     <string name="channels_back">返回网络通道</string>
     <string name="channels_secondary_wifi">副 Wi-Fi</string>
     <string name="channels_hotspot">热点</string>
+    <string name="settings_cellular_unsupported">此设备不支持蜂窝数据网络</string>
 </resources>

@@ -57,6 +57,7 @@ data class MainUiState(
     val selectedTab: Int = 0, // 0: 应用分流, 1: 网络通道, 2: 工具, 3: 设置
     val isLoadingApps: Boolean = true,
     val isRootGranted: Boolean = false,
+    val supportsCellularData: Boolean = false,
     val isMobileDataAlwaysOn: Boolean = false,
     val isKeepSlaveWifiScreenOff: Boolean = false,
     val isDnsFollowsChannel: Boolean = true,
@@ -123,7 +124,9 @@ data class MainUiState(
 
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _uiState = MutableStateFlow(MainUiState())
+    private val _uiState = MutableStateFlow(MainUiState(supportsCellularData =
+        application.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) ||
+            (android.os.Build.VERSION.SDK_INT >= 33 && application.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_DATA))))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
     private val _cellularControlState = MutableStateFlow(CellularControlUiState())
     val cellularControlState: StateFlow<CellularControlUiState> = _cellularControlState.asStateFlow()
@@ -1062,6 +1065,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun toggleMobileDataAlwaysOn() {
+        if (!_uiState.value.supportsCellularData) return
         viewModelScope.launch {
             val context = getApplication<Application>()
             val current = _uiState.value.isMobileDataAlwaysOn

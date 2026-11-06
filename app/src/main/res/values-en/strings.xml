@@ -684,4 +684,5 @@
     <string name="channels_back">Back to Channels</string>
     <string name="channels_secondary_wifi">Secondary Wi-Fi</string>
     <string name="channels_hotspot">Hotspot</string>
+    <string name="settings_cellular_unsupported">This device does not support cellular data</string>
 </resources>

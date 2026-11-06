@@ -16,6 +16,8 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 变更
 
+- 无蜂窝数据能力的设备禁用蜂窝保活设置。
+
 - **UI 优化**：调整导航与功能分组，改进横竖屏布局、状态提示和交互动效。
 
 **English**
@@ -26,6 +28,8 @@ bilingual, Chinese first: the release page is what most users read.
 - **Wireless debugging controls and boot recovery:** Enable or disable debugging manually, with optional recovery on the selected primary Wi-Fi within ten minutes after first unlock. Disabling debugging also disables boot recovery. These settings are excluded from configuration backups.
 
 ### Changed
+
+- Disable cellular keepalive settings on devices without cellular data capability.
 
 - **UI improvements:** Refine navigation and feature grouping, portrait and landscape layouts, status indicators and interaction animations.
 
