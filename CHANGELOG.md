@@ -11,17 +11,23 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 新增
 
-- **无线调试控制与开机恢复**：支持手动启停并核对实际状态；可在首次解锁后十分钟内，按指定主 Wi-Fi 网络名称尝试恢复。关闭调试同时关闭本应用的开机恢复，配置不参与备份；增加框架端口读取后备路径。
+- **无线调试辅助**：查看调试状态与连接地址，复制连接命令，打开开发者设置。
+- **无线调试控制与开机恢复**：支持手动启停，并可在首次解锁后十分钟内，按指定主 Wi-Fi 尝试恢复。关闭调试时同时关闭开机恢复，相关设置不参与配置备份。
 
-- **无线调试辅助**：在设置页查看开关、监听状态及局域网候选 IPv4 地址，复制连接命令并打开开发者设置；提示配对端口与连接端口的区别。
+### 变更
+
+- **UI 优化**：调整导航与功能分组，改进横竖屏布局、状态提示和交互动效。
 
 **English**
 
 ### Added
 
-- **Wireless debugging controls and boot recovery:** Enable or disable debugging with observed-state verification. Optionally attempt recovery on the selected primary Wi-Fi name within ten minutes after first unlock. Disabling debugging also disables app boot recovery. Recovery settings are excluded from backup; add a framework port-reading fallback.
+- **Wireless debugging helper:** View debugging status and connection addresses, copy connection commands and open developer settings.
+- **Wireless debugging controls and boot recovery:** Enable or disable debugging manually, with optional recovery on the selected primary Wi-Fi within ten minutes after first unlock. Disabling debugging also disables boot recovery. These settings are excluded from configuration backups.
 
-- **Wireless debugging helper:** View the toggle, listening status and candidate local IPv4 addresses in Settings, copy connection commands and open developer settings. Explain the distinction between pairing and connection ports.
+### Changed
+
+- **UI improvements:** Refine navigation and feature grouping, portrait and landscape layouts, status indicators and interaction animations.
 
 ## v1.6.0 - 2026-10-31
 

@@ -53,7 +53,7 @@ MultiRoute combines Android framework hooks with Linux policy-routing rules:
 
 1. **Per-App Policy Routing**:
    - Assign any app to a dedicated channel (Primary Wi-Fi, Secondary Wi-Fi, Cellular, Ethernet), with independent assignment support for dual/cloned app spaces.
-   - On dual-SIM devices, enable or stop the non-default data SIM from Channels and assign apps or scenario plans to an identifiable SIM.
+   - On dual-SIM devices, enable or stop the non-default data SIM from Tools and assign apps or scenario plans to an identifiable SIM.
    - Enforced via Linux kernel policy routing (`ip rule`) without userspace VPN overhead; includes IPv4 UDP/TCP port 53 DNS rewriting, on-link LAN bypass, and automatic failover fallback on connection loss.
 
 2. **Dual Wi-Fi Activation & Management (STA + STA Concurrency)**:
@@ -112,7 +112,7 @@ Secondary SIM controls and SIM-based routing have only been verified on Android 
 - **Per-app channel assignment** — pick a channel for any app; its traffic egresses through that link
   while other apps keep using theirs.
 - **Secondary cellular controls and SIM routing** — enable or stop the non-default data SIM from
-  Channels, and assign apps or scenario plans to an identifiable SIM. The target resolves to its
+  Tools, and assign apps or scenario plans to an identifiable SIM. The target resolves to its
   current network after reconnection; if the SIM cannot be matched after importing on another
   device, select the target again.
 - **Independent configuration for cloned apps** — app-clone spaces (e.g. Xiaomi XSpace, user 999) and
@@ -228,9 +228,11 @@ MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` in the Net
 
 ---
 
+The main screen has App routing, Channels, Tools and Settings destinations. Tools contains secondary cellular, dual Wi-Fi, hotspot management, wireless debugging and runtime logs. The App routing menu provides rule reapplication and clearing. Settings contains network and routing options, appearance, language and configuration backup. The toolbar status icon opens module diagnostics. Channels shows online links, exit tests and management shortcuts for inactive or establishing channels. Wide windows use a navigation rail and list-detail panes; narrow windows use bottom navigation and settings displayed directly under section headings.
+
 ## Wireless debugging helper
 
-The Settings tab reads system wireless debugging status, its connection port and candidate local IPv4 addresses. It can copy connection commands or enable and disable debugging through root. Complete initial pairing and network authorization in system settings. Candidate addresses do not establish workstation reachability.
+The wireless debugging entry in Tools reads system wireless debugging status, its connection port and candidate local IPv4 addresses. It can copy connection commands or enable and disable debugging through root. Complete initial pairing and network authorization in system settings. Candidate addresses do not establish workstation reachability.
 
 Optional boot recovery remembers the primary Wi-Fi name selected when enabling it and attempts to restore system wireless debugging on that network within ten minutes after first unlock. It does not continuously restore debugging after everyday network disconnections. Disabling debugging in the app also disables boot recovery. Recovery settings are excluded from backup and configuration exports. Vendor background restrictions may affect execution; the result is shown in the card details.
 
@@ -245,7 +247,7 @@ The system allocates the TLS debugging port, which can change after a service re
    manager can offer updates in place, from the manifest the module declares.
 2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and verify the scopes (ensure **System Framework** and the **NetworkStack Tethering** packages such as `com.android.networkstack.tethering` are selected). The APK ships with `META-INF/xposed/scope.list` and package metadata so supported managers will select these automatically.
 3. Reboot, or restart the system server: `su -c 'setprop ctl.restart zygote'`.
-4. Open MultiRoute and grant root. The **Settings** tab should report *activated (hooks ready)*.
+4. Open MultiRoute and grant root. Open the **toolbar module status icon**; the diagnostics panel should report *activated (hooks ready)*.
    If it reports *loaded older build*, restart the system server once more.
 5. For routing apps over cellular while Wi-Fi is connected, enable **Mobile data always on**
    (developer options) or the ROM's own "keep cellular active" setting.
@@ -288,8 +290,8 @@ su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat 
 | Tab | What you do |
 | :-- | :-- |
 | **App routing** | Tap an app and choose a channel; a long press enters multi-select for batch assignment; clone apps listed independently; scenario profiles for automated switching based on network conditions. |
-| **Channels** | Inspect active links (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel); built-in **Dual Wi-Fi Management** and **Hotspot Upstream** cards; hotspot downlink and VPN tunnel identification; per-channel egress probes. |
-| **Settings** | Module and root status, active kernel rules, cellular keepalive, DNS redirection, auto failover hold-off, config backup/restore, diagnostic log export/share/copy, and rule purge maintenance. |
+| **Channels** | Inspect active links (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel); management shortcuts for inactive and establishing channels; hotspot downlink and VPN tunnel identification; per-channel egress probes. |
+| **Settings and tools** | Network and routing options, appearance, language and config backup/restore in Settings; module/root status, rule statistics and refresh in the toolbar diagnostics panel; network management, wireless debugging and logs in Tools. Rule reapplication and clearing are in the App routing menu. |
 
 ---
 
@@ -325,7 +327,7 @@ establish network links or guarantee that routing rules are restored at a fixed 
 
 ## Module status
 
-The Settings tab shows one of:
+The diagnostics panel opened from the toolbar status icon shows one of:
 
 | Status | Meaning |
 | :-- | :-- |
@@ -344,11 +346,11 @@ The Settings tab shows one of:
   then reboot or restart system server.
 - **Module shows "loaded older build" after an update** — expected: the framework cannot hot-reload.
   Reboot, or `su -c 'setprop ctl.restart zygote'`.
-- **An assignment has no effect** — check **Settings → View diagnostic log** (supports clipboard copy, file export, or system share): section *rule effectiveness* shows every configured UID with *in effect* or *not in effect*. A channel whose interface has no default route at that moment is skipped, and the log says so.
+- **An assignment has no effect** — check **Tools → Runtime logs** (supports clipboard copy, file export, or system share): section *rule effectiveness* shows every configured UID with *in effect* or *not in effect*. A channel whose interface has no default route at that moment is skipped, and the log says so.
 - **Rules disappeared after a reboot** — check the boot-recovery log in the same snapshot
   (section 3, `/data/adb/multiroute/last_boot_sync.log`). Also confirm KernelSU/Magisk/APatch executes
   `service.d` scripts on this ROM.
-- **Secondary Wi-Fi channel is missing** — check the reported capabilities in **Channels → Dual Wi-Fi Manager** and select an available scheme. Android 13+ is required for the AOSP Multi-Internet scheme; requirements for other schemes vary by ROM and device.
+- **Secondary Wi-Fi channel is missing** — check the reported capabilities in **Tools → Dual Wi-Fi Manager** and select an available scheme. Android 13+ is required for the AOSP Multi-Internet scheme; requirements for other schemes vary by ROM and device.
 - **DNS does not behave as expected** — only IPv4 UDP/TCP port 53 is redirected. IPv6 DNS, **Private DNS (DoT)**,
   and DoH are not rewritten; VPN behavior also depends on its mode.
 - **Assignment seems to do nothing while a VPN is active** — see the VPN note under *Known limitations*.
