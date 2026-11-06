@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 
 data class DualWifiUiState(
     val status: DualWifiStatus = DualWifiStatus(),
+    val supportDetailsExpanded: Boolean = false,
     val isActivating: Boolean = false,
     val isDeactivating: Boolean = false,
     val activationResult: String? = null,
@@ -29,6 +30,7 @@ data class DualWifiUiState(
 
 class DualWifiViewModel(application: Application) : AndroidViewModel(application) {
     private var selectionGeneration = 0L
+    private var initialized = false
 
     val status: StateFlow<DualWifiStatus> = DualWifiManager.status
 
@@ -46,6 +48,11 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update { it.copy(status = s) }
             }
         }
+    }
+
+    fun ensureInitialized() {
+        if (initialized) return
+        initialized = true
         checkCapability()
     }
 
@@ -54,6 +61,10 @@ class DualWifiViewModel(application: Application) : AndroidViewModel(application
             DualWifiManager.checkCapability(getApplication())
             scanNetworks()
         }
+    }
+
+    fun setSupportDetailsExpanded(expanded: Boolean) {
+        _uiState.update { it.copy(supportDetailsExpanded = expanded) }
     }
 
     fun onSelectScheme(scheme: com.multiroute.wifi.DualWifiScheme) {

@@ -1,5 +1,6 @@
 package com.multiroute.ui.main
 
+import com.multiroute.theme.AppMotion
 import android.content.Intent
 import com.multiroute.util.NetworkUtils
 import android.graphics.drawable.Drawable
@@ -65,6 +66,7 @@ fun MainScreen(
     viewModel: MainScreenViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showDiagnostics by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
     val importContext = androidx.compose.ui.platform.LocalContext.current
@@ -92,248 +94,243 @@ fun MainScreen(
         viewModel.exitSelectionMode()
     }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        val editingName = uiState.scenarioEditId?.let { id ->
-                            uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
-                        }
-                        Text(
-                            text = if (uiState.isSelectionMode) {
-                                editingName?.let {
-                                    stringResource(com.multiroute.R.string.scenario_editing, it)
-                                } ?: stringResource(com.multiroute.R.string.ui_batch_title)
-                            } else "MultiRoute",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Text(
-                            text = if (uiState.isSelectionMode) {
-                                stringResource(com.multiroute.R.string.ui_selected_apps_count, uiState.selectedRuleKeys.size)
-                            } else {
-                                when (uiState.selectedTab) {
-                                    0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
-                                    1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
-                                    else -> stringResource(com.multiroute.R.string.ui_module_routing_state)
-                                }
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                },
-                actions = {
-                    if (uiState.isSelectionMode) {
-                        IconButton(onClick = { viewModel.exitSelectionMode() }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = stringResource(com.multiroute.R.string.cd_exit_multi)
-                            )
-                        }
-                    } else {
-                        val editingName = uiState.scenarioEditId?.let { id ->
-                            uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
-                        }
-                        androidx.compose.material3.TextButton(
-                            onClick = {
-                                if (uiState.scenarioEditId != null) {
-                                    viewModel.finishEditingScenario()
-                                } else {
-                                    viewModel.openScenarioSheet()
-                                }
+    val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val useRail = maxWidth >= 840.dp
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            val editingName = uiState.scenarioEditId?.let { id ->
+                                uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
                             }
-                        ) {
                             Text(
-                                text = editingName?.let {
-                                    stringResource(com.multiroute.R.string.scenario_editing, it)
-                                } ?: uiState.activeScenarioName?.let {
-                                    stringResource(com.multiroute.R.string.scenario_current, it)
-                                } ?: stringResource(com.multiroute.R.string.scenario_default),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (uiState.activeScenarioName != null || editingName != null) {
-                                    MaterialTheme.colorScheme.primary
+                                text = if (uiState.isSelectionMode) {
+                                    editingName?.let {
+                                        stringResource(com.multiroute.R.string.scenario_editing, it)
+                                    } ?: stringResource(com.multiroute.R.string.ui_batch_title)
+                                } else "MultiRoute",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = if (uiState.isSelectionMode) {
+                                    stringResource(com.multiroute.R.string.ui_selected_apps_count, uiState.selectedRuleKeys.size)
                                 } else {
-                                    MaterialTheme.colorScheme.outline
-                                }
+                                    when (uiState.selectedTab) {
+                                        0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
+                                        1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
+                                        2 -> stringResource(com.multiroute.R.string.tools_subtitle)
+                                        else -> stringResource(com.multiroute.R.string.settings_subtitle)
+                                    }
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
                             )
                         }
-                        IconButton(onClick = { viewModel.refreshEnvironment() }) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = stringResource(com.multiroute.R.string.cd_refresh)
+                    },
+                    actions = {
+                        if (uiState.isSelectionMode) {
+                            IconButton(onClick = { viewModel.exitSelectionMode() }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = stringResource(com.multiroute.R.string.cd_exit_multi)
+                                )
+                            }
+                        } else {
+                            val editingName = uiState.scenarioEditId?.let { id ->
+                                uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
+                            }
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    if (uiState.scenarioEditId != null) {
+                                        viewModel.finishEditingScenario()
+                                    } else {
+                                        viewModel.openScenarioSheet()
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = editingName?.let {
+                                        stringResource(com.multiroute.R.string.scenario_editing, it)
+                                    } ?: uiState.activeScenarioName?.let {
+                                        stringResource(com.multiroute.R.string.scenario_current, it)
+                                    } ?: stringResource(com.multiroute.R.string.scenario_default),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (uiState.activeScenarioName != null || editingName != null) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outline
+                                    }
+                                )
+                            }
+                            ModuleStatusButton(uiState) {
+                                showDiagnostics = true
+                                viewModel.refreshEnvironment()
+                            }
+                            if (uiState.selectedTab == 0) RuleActionsMenu(uiState, viewModel)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            },
+            bottomBar = {
+                if (!useRail) MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, rail = false)
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { innerPadding ->
+            Row(Modifier.fillMaxSize().padding(innerPadding)) {
+                if (useRail) MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, rail = true)
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    AnimatedContent(targetState = uiState.selectedTab, modifier = Modifier.fillMaxSize(),
+                        transitionSpec = { AppMotion.content() }, label = "mainDestination") { tab ->
+                        tabStates.SaveableStateProvider(tab) {
+                            when (tab) {
+                                0 -> AppRulesTab(
+                                    uiState = uiState,
+                                    viewModel = viewModel
+                                )
+                                1 -> ChannelsTab(
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onNavigate = onItemClick
+                                )
+                                2 -> ToolsTab(uiState = uiState, viewModel = viewModel, onNavigate = onItemClick)
+                                3 -> SettingsTab(
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onNavigate = onItemClick
+                                )
+                            }
+
+                        }
+                    }
+
+                    // 选择通道的模态底部抽屉 (ModalBottomSheet - 热点下行通道不参与应用分流)
+                    if (uiState.selectedAppForSheet != null) {
+                        val app = uiState.selectedAppForSheet!!
+                        ChannelSelectBottomSheet(
+                            app = app,
+                            channels = uiState.channels.filter { !it.isHotspot },
+                            onSelectChannel = { channelId ->
+                                viewModel.updateRouteChannel(app, channelId)
+                                viewModel.closeAppSheet()
+                            },
+                            onDismiss = { viewModel.closeAppSheet() }
+                        )
+                    }
+
+                    // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet - 热点下行通道不参与应用分流)
+                    if (uiState.showBatchAssignSheet) {
+                        BatchChannelSelectBottomSheet(
+                            selectedCount = uiState.selectedRuleKeys.size,
+                            channels = uiState.channels.filter { !it.isHotspot },
+                            onSelectChannel = { channelId ->
+                                viewModel.batchAssignChannel(channelId)
+                            },
+                            onDismiss = { viewModel.closeBatchAssignSheet() }
+                        )
+                    }
+
+                    // 通道详细属性与诊断抽屉 (ChannelDetailBottomSheet)
+                    if (uiState.selectedChannelForDetail != null) {
+                        val channel = uiState.selectedChannelForDetail!!
+                        val routedApps = remember(channel.id, uiState.apps) {
+                            uiState.apps.filter { (it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName) }
+                        }
+                        ChannelDetailBottomSheet(
+                            channel = channel,
+                            routedApps = routedApps,
+                            testResult = uiState.testResults[channel.id],
+                            isTestingSingle = uiState.isTestingSingleChannel,
+                            testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
+                            testServerUrl = uiState.testServerConfig.activeUrl,
+                            onTestChannel = { viewModel.testSingleChannel(channel) },
+                            onDismiss = { viewModel.closeChannelDetail() }
+                        )
+                    }
+
+                    if (showDiagnostics) ModuleDiagnosticsOverlay(
+                        uiState = uiState, viewModel = viewModel, wide = useRail,
+                        onDismiss = { showDiagnostics = false },
+                        onLogs = { showDiagnostics = false; viewModel.openLogsDialog() }
+                    )
+
+                    // 运行与诊断日志查看对话框
+                    if (uiState.showLogsDialog) {
+                        DiagnosticLogsDialog(
+                            logs = uiState.logsContent,
+                            isLoading = uiState.isLoadingLogs,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(uiState.logsContent))
+                                viewModel.closeLogsDialog()
+                            },
+                            onDismiss = { viewModel.closeLogsDialog() }
+                        )
+                    }
+
+                    // 公网出口测试服务器设置对话框
+                    if (uiState.showTestServerDialog) {
+                        TestServerConfigDialog(
+                            currentConfig = uiState.testServerConfig,
+                            onSave = { presetId, customUrl ->
+                                viewModel.updateTestServerConfig(presetId, customUrl)
+                            },
+                            onDismiss = { viewModel.closeTestServerDialog() }
+                        )
+                    }
+
+                    // 场景方案抽屉：手动应用 / 恢复自动 / 保存当前指派 / 删除
+                    if (uiState.showScenarioSheet) {
+                        ScenarioBottomSheet(
+                            profiles = uiState.scenarioProfiles,
+                            manualMode = uiState.scenarioManualMode,
+                            manualIds = uiState.manualScenarioIds,
+                            onSetManual = { viewModel.setScenarioManualMode() },
+                            activeIds = uiState.activeScenarioIds,
+                            conflicts = uiState.scenarioConflicts,
+                            onApplyManually = { viewModel.toggleScenarioManually(it) },
+                            onClearManual = { viewModel.clearManualScenario() },
+                            onSaveCurrent = { viewModel.openScenarioSaveDialog() },
+                            onDelete = { viewModel.deleteScenario(it) },
+                            onEditOverrides = { viewModel.startEditingScenario(it) },
+                            onEditDetails = { viewModel.openScenarioDetails(it) },
+                            onMove = { id, delta -> viewModel.moveScenario(id, delta) },
+                            onDismiss = { viewModel.closeScenarioSheet() }
+                        )
+                    }
+                    if (uiState.showScenarioSaveDialog) {
+                        ScenarioSaveDialog(
+                            currentSsids = uiState.channels
+                                .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
+                                .distinct(),
+                            onSave = { name, trigger -> viewModel.saveCurrentAssignmentsAsScenario(name, trigger) },
+                            onDismiss = { viewModel.closeScenarioSaveDialog() }
+                        )
+                    }
+                    // 修改已有方案的名称与触发条件
+                    if (uiState.showScenarioDetailsDialog) {
+                        val edited = uiState.scenarioDetailsId?.let { id ->
+                            uiState.scenarioProfiles.firstOrNull { it.id == id }
+                        }
+                        if (edited != null) {
+                            ScenarioSaveDialog(
+                                titleRes = com.multiroute.R.string.scenario_details_title,
+                                initialName = edited.name,
+                                initialTrigger = edited.trigger,
+                                currentSsids = uiState.channels
+                                    .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
+                                    .distinct(),
+                                onSave = { name, trigger ->
+                                    viewModel.saveScenarioDetails(edited.id, name, trigger)
+                                },
+                                onDismiss = { viewModel.closeScenarioDetails() }
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                windowInsets = NavigationBarDefaults.windowInsets
-            ) {
-                NavigationBarItem(
-                    selected = uiState.selectedTab == 0,
-                    onClick = { viewModel.setSelectedTab(0) },
-                    icon = { Icon(Icons.Default.Apps, contentDescription = stringResource(com.multiroute.R.string.cd_routing)) },
-                    label = { Text(stringResource(com.multiroute.R.string.tab_routing)) }
-                )
-                NavigationBarItem(
-                    selected = uiState.selectedTab == 1,
-                    onClick = { viewModel.setSelectedTab(1) },
-                    icon = { Icon(Icons.Default.Hub, contentDescription = stringResource(com.multiroute.R.string.cd_channels)) },
-                    label = { Text(stringResource(com.multiroute.R.string.tab_channels)) }
-                )
-                NavigationBarItem(
-                    selected = uiState.selectedTab == 2,
-                    onClick = { viewModel.setSelectedTab(2) },
-                    icon = { Icon(Icons.Default.Tune, contentDescription = stringResource(com.multiroute.R.string.cd_settings)) },
-                    label = { Text(stringResource(com.multiroute.R.string.tab_settings)) }
-                )
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (uiState.selectedTab) {
-                0 -> AppRulesTab(
-                    uiState = uiState,
-                    viewModel = viewModel
-                )
-                1 -> ChannelsTab(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    onNavigate = onItemClick
-                )
-                2 -> SettingsTab(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    onNavigate = onItemClick
-                )
-            }
-
-            // 选择通道的模态底部抽屉 (ModalBottomSheet - 热点下行通道不参与应用分流)
-            if (uiState.selectedAppForSheet != null) {
-                val app = uiState.selectedAppForSheet!!
-                ChannelSelectBottomSheet(
-                    app = app,
-                    channels = uiState.channels.filter { !it.isHotspot },
-                    onSelectChannel = { channelId ->
-                        viewModel.updateRouteChannel(app, channelId)
-                        viewModel.closeAppSheet()
-                    },
-                    onDismiss = { viewModel.closeAppSheet() }
-                )
-            }
-
-            // 批量分配通道模态底部抽屉 (BatchChannelSelectBottomSheet - 热点下行通道不参与应用分流)
-            if (uiState.showBatchAssignSheet) {
-                BatchChannelSelectBottomSheet(
-                    selectedCount = uiState.selectedRuleKeys.size,
-                    channels = uiState.channels.filter { !it.isHotspot },
-                    onSelectChannel = { channelId ->
-                        viewModel.batchAssignChannel(channelId)
-                    },
-                    onDismiss = { viewModel.closeBatchAssignSheet() }
-                )
-            }
-
-            // 通道详细属性与诊断抽屉 (ChannelDetailBottomSheet)
-            if (uiState.selectedChannelForDetail != null) {
-                val channel = uiState.selectedChannelForDetail!!
-                val routedApps = remember(channel.id, uiState.apps) {
-                    uiState.apps.filter { (it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName) }
-                }
-                ChannelDetailBottomSheet(
-                    channel = channel,
-                    routedApps = routedApps,
-                    testResult = uiState.testResults[channel.id],
-                    isTestingSingle = uiState.isTestingSingleChannel,
-                    testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
-                    testServerUrl = uiState.testServerConfig.activeUrl,
-                    onTestChannel = { viewModel.testSingleChannel(channel) },
-                    onDismiss = { viewModel.closeChannelDetail() }
-                )
-            }
-
-            // 运行与诊断日志查看对话框
-            if (uiState.showLogsDialog) {
-                DiagnosticLogsDialog(
-                    logs = uiState.logsContent,
-                    isLoading = uiState.isLoadingLogs,
-                    onCopy = {
-                        clipboardManager.setText(AnnotatedString(uiState.logsContent))
-                        viewModel.closeLogsDialog()
-                    },
-                    onDismiss = { viewModel.closeLogsDialog() }
-                )
-            }
-
-            // 公网出口测试服务器设置对话框
-            if (uiState.showTestServerDialog) {
-                TestServerConfigDialog(
-                    currentConfig = uiState.testServerConfig,
-                    onSave = { presetId, customUrl ->
-                        viewModel.updateTestServerConfig(presetId, customUrl)
-                    },
-                    onDismiss = { viewModel.closeTestServerDialog() }
-                )
-            }
-
-            // 场景方案抽屉：手动应用 / 恢复自动 / 保存当前指派 / 删除
-            if (uiState.showScenarioSheet) {
-                ScenarioBottomSheet(
-                    profiles = uiState.scenarioProfiles,
-                    manualMode = uiState.scenarioManualMode,
-                    manualIds = uiState.manualScenarioIds,
-                    onSetManual = { viewModel.setScenarioManualMode() },
-                    activeIds = uiState.activeScenarioIds,
-                    conflicts = uiState.scenarioConflicts,
-                    onApplyManually = { viewModel.toggleScenarioManually(it) },
-                    onClearManual = { viewModel.clearManualScenario() },
-                    onSaveCurrent = { viewModel.openScenarioSaveDialog() },
-                    onDelete = { viewModel.deleteScenario(it) },
-                    onEditOverrides = { viewModel.startEditingScenario(it) },
-                    onEditDetails = { viewModel.openScenarioDetails(it) },
-                    onMove = { id, delta -> viewModel.moveScenario(id, delta) },
-                    onDismiss = { viewModel.closeScenarioSheet() }
-                )
-            }
-            if (uiState.showScenarioSaveDialog) {
-                ScenarioSaveDialog(
-                    currentSsids = uiState.channels
-                        .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
-                        .distinct(),
-                    onSave = { name, trigger -> viewModel.saveCurrentAssignmentsAsScenario(name, trigger) },
-                    onDismiss = { viewModel.closeScenarioSaveDialog() }
-                )
-            }
-            // 修改已有方案的名称与触发条件
-            if (uiState.showScenarioDetailsDialog) {
-                val edited = uiState.scenarioDetailsId?.let { id ->
-                    uiState.scenarioProfiles.firstOrNull { it.id == id }
-                }
-                if (edited != null) {
-                    ScenarioSaveDialog(
-                        titleRes = com.multiroute.R.string.scenario_details_title,
-                        initialName = edited.name,
-                        initialTrigger = edited.trigger,
-                        currentSsids = uiState.channels
-                            .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
-                            .distinct(),
-                        onSave = { name, trigger ->
-                            viewModel.saveScenarioDetails(edited.id, name, trigger)
-                        },
-                        onDismiss = { viewModel.closeScenarioDetails() }
-                    )
                 }
             }
         }
@@ -660,7 +657,7 @@ fun AppRulesTab(
 }
 
 /**
- * Tab 1: 网络通道状态与并发出口测试（纯粹展示通道与诊断，无多余环境卡片）
+ * Tab 1: 在线通道、出口测试与未就绪通道的管理入口
  */
 @Composable
 fun ChannelsTab(
@@ -669,17 +666,9 @@ fun ChannelsTab(
     onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
 ) {
     val dualWifiStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-
-    androidx.compose.runtime.LaunchedEffect(lifecycleOwner, context) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-            while (true) {
-                com.multiroute.wifi.DualWifiManager.refreshConnectionState(context)
-                kotlinx.coroutines.delay(1500)
-            }
-        }
-    }
+    val cellularState by viewModel.cellularControlState.collectAsState()
+    ObserveNetworkManagement(viewModel)
+    val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -691,192 +680,8 @@ fun ChannelsTab(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { CellularControlCard(uiState, viewModel) }
             item {
-                ElevatedCard(
-                    onClick = { onNavigate(com.multiroute.DualWifi) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Wifi,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_title),
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = stringResource(com.multiroute.R.string.settings_dual_wifi_card_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.outline
-                            )
-                        }
-
-                        // 下方状态简要显示（自适应长 SSID 边界情况）
-                        val isPrimaryConnected = dualWifiStatus.primarySsid != null
-                        val isSecondaryConnected = dualWifiStatus.secondaryConnected && dualWifiStatus.secondarySsid != null
-                        val primarySsid = dualWifiStatus.primarySsid ?: dualWifiStatus.primaryIface ?: "wlan0"
-                        val secondarySsid = dualWifiStatus.secondarySsid ?: dualWifiStatus.secondaryIface ?: "wlan1"
-
-                        // 弹性比例分配：单侧在线时在线侧占 70%，双侧在线时按长度在 35%~65% 自适应浮动
-                        val (primaryWeight, secondaryWeight) = when {
-                            isPrimaryConnected && !isSecondaryConnected -> 0.70f to 0.30f
-                            !isPrimaryConnected && isSecondaryConnected -> 0.30f to 0.70f
-                            isPrimaryConnected && isSecondaryConnected -> {
-                                val pLen = primarySsid.length.coerceAtLeast(3)
-                                val sLen = secondarySsid.length.coerceAtLeast(3)
-                                val ratio = (pLen.toFloat() / (pLen + sLen)).coerceIn(0.35f, 0.65f)
-                                ratio to (1f - ratio)
-                            }
-                            else -> 0.50f to 0.50f
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // 主 Wi-Fi 状态简要
-                                Row(
-                                    modifier = Modifier.weight(primaryWeight),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (isPrimaryConnected) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                                            )
-                                    )
-                                    Text(
-                                        text = stringResource(com.multiroute.R.string.dual_wifi_prefix_primary),
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        ),
-                                        color = if (isPrimaryConnected) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.outline
-                                    )
-                                    Text(
-                                        text = if (isPrimaryConnected) primarySsid
-                                        else stringResource(com.multiroute.R.string.dual_wifi_status_unconnected),
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false),
-                                        color = if (isPrimaryConnected) MaterialTheme.colorScheme.onSurface
-                                        else MaterialTheme.colorScheme.outline
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .height(12.dp)
-                                        .background(MaterialTheme.colorScheme.outlineVariant)
-                                )
-
-                                // 副 Wi-Fi 状态简要
-                                Row(
-                                    modifier = Modifier.weight(secondaryWeight),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
-                                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                                            )
-                                    )
-                                    Text(
-                                        text = stringResource(com.multiroute.R.string.dual_wifi_prefix_secondary),
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        ),
-                                        color = if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
-                                        else MaterialTheme.colorScheme.outline
-                                    )
-                                    Text(
-                                        text = if (isSecondaryConnected) secondarySsid
-                                        else stringResource(com.multiroute.R.string.dual_wifi_status_unconnected),
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false),
-                                        color = if (isSecondaryConnected) MaterialTheme.colorScheme.secondary
-                                        else MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 与“双 Wi-Fi 激活与管理”并列的“热点出口与分流”卡片
-            item {
-                com.multiroute.ui.wifi.HotspotUpstreamCard(
-                    status = dualWifiStatus,
-                    onSetUpstream = { viewModel.setHotspotUpstream(it) }
-                )
-            }
-
-            item {
-                Text(
-                    text = stringResource(com.multiroute.R.string.ui_active_channels, uiState.channels.size),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                SettingsSectionLabel(stringResource(com.multiroute.R.string.ui_active_channels, uiState.channels.size))
             }
 
             if (uiState.channels.isEmpty()) {
@@ -912,6 +717,9 @@ fun ChannelsTab(
                 }
             }
 
+            activationCandidateItems(candidates) { target ->
+                viewModel.openNetworkTool(target)
+            }
             item {
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -999,670 +807,15 @@ fun ChannelsTab(
  * Tab 2: 模块设置与维护（聚焦模块激活检测、网络运行设置与诊断日志）
  */
 @Composable
-fun SettingsTab(
-    uiState: MainUiState,
-    viewModel: MainScreenViewModel,
-    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}
-) {
-    var showClearDialog by remember { mutableStateOf(false) }
-    val diag = uiState.diagnosticInfo
+fun SettingsTab(uiState: MainUiState, viewModel: MainScreenViewModel,
+    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}) {
+    SettingsToolsHub(uiState, viewModel, tools = false)
+}
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-            // 模块与路由核心诊断卡片
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = stringResource(com.multiroute.R.string.ui_module_channel_state),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    // 1. LSPosed 模块状态（精确：区分未激活 / hook 未就绪 / 旧版本待重启 / 记录过期）
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = stringResource(com.multiroute.R.string.ui_module_state),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        val moduleStatus = diag?.moduleStatus
-                        val isHealthy = moduleStatus == ModuleStatus.ACTIVE
-                        val isBlocking = moduleStatus == null ||
-                                moduleStatus == ModuleStatus.PARTIAL ||
-                                moduleStatus == ModuleStatus.OUTDATED ||
-                                moduleStatus == ModuleStatus.STALE ||
-                                moduleStatus == ModuleStatus.NOT_ACTIVE
-                        val statusTint = when {
-                            isHealthy -> MaterialTheme.colorScheme.primary
-                            isBlocking -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.tertiary
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isHealthy) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = statusTint,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = if (moduleStatus != null) {
-                                    SuHelper.moduleStatusLabel(androidx.compose.ui.platform.LocalContext.current, moduleStatus)
-                                } else {
-                                    stringResource(com.multiroute.R.string.ui_checking_module)
-                                },
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = statusTint
-                                )
-                            )
-                        }
-                        val statusDetail = diag?.moduleStatusDetail
-                        if (!statusDetail.isNullOrEmpty()) {
-                            Text(
-                                text = statusDetail,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-
-                    // 2. Root 运行环境检测
-                    DiagnosticItem(
-                        label = stringResource(com.multiroute.R.string.settings_root_env),
-                        value = if (diag?.isRootGranted == true) stringResource(com.multiroute.R.string.diag_root_ready, diag?.suVersion?.ifEmpty { "KernelSU" } ?: "KernelSU") else stringResource(com.multiroute.R.string.diag_root_missing)
-                    )
-
-                    // 3. 内核策略路由生效规则统计
-                    DiagnosticItem(
-                        label = stringResource(com.multiroute.R.string.settings_kernel_rules),
-                        value = if ((diag?.kernelRulesCount ?: 0) > 0) stringResource(com.multiroute.R.string.diag_kernel_rules_on, diag?.kernelRulesCount ?: 0) else stringResource(com.multiroute.R.string.diag_kernel_rules_none)
-                    )
-
-                    // 4. 系统蜂窝首选 UID
-                    DiagnosticItem(
-                        label = stringResource(com.multiroute.R.string.settings_cellular_uids_2),
-                        value = diag?.mobileDataPreferredUids?.ifEmpty { stringResource(com.multiroute.R.string.diag_not_set) } ?: stringResource(com.multiroute.R.string.diag_not_set)
-                    )
-                }
-            }
-        }
-
-        item {
-            ConfigBackupCard(uiState = uiState, viewModel = viewModel)
-        }
-        item {
-            // 外观与语言：主题（跟随系统/浅色/深色）+ 动态取色 + 语言
-            val ctx = LocalContext.current
-            val host = ctx as? android.app.Activity
-            val themeMode = RouteConfigProvider.getThemeMode(ctx)
-            val language = RouteConfigProvider.getLanguage(ctx)
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = stringResource(com.multiroute.R.string.settings_appearance_language),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    Text(
-                        text = stringResource(com.multiroute.R.string.settings_theme),
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("system" to stringResource(com.multiroute.R.string.settings_follow_system), "light" to stringResource(com.multiroute.R.string.settings_theme_light), "dark" to stringResource(com.multiroute.R.string.settings_theme_dark)).forEach { (mode, label) ->
-                            androidx.compose.material3.FilterChip(
-                                selected = themeMode == mode,
-                                onClick = {
-                                    RouteConfigProvider.setThemeMode(ctx, mode)
-                                    com.multiroute.theme.ThemeSettings.mode = mode
-                                },
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = stringResource(com.multiroute.R.string.settings_dynamic_color),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Switch(
-                            checked = RouteConfigProvider.isDynamicColor(ctx),
-                            onCheckedChange = {
-                                RouteConfigProvider.setDynamicColor(ctx, it)
-                                com.multiroute.theme.ThemeSettings.dynamicColor = it
-                            }
-                        )
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    Text(
-                        text = stringResource(com.multiroute.R.string.settings_language),
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("" to stringResource(com.multiroute.R.string.settings_follow_system), "zh-CN" to stringResource(com.multiroute.R.string.settings_language_zh), "en" to stringResource(com.multiroute.R.string.settings_language_en)).forEach { (tag, label) ->
-                            androidx.compose.material3.FilterChip(
-                                selected = language == tag,
-                                onClick = {
-                                    if (language != tag) {
-                                        RouteConfigProvider.setLanguage(ctx, tag)
-                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                            runCatching {
-                                                val manager = ctx.getSystemService(android.app.LocaleManager::class.java)
-                                                val expected =
-                                                    if (tag.isEmpty()) android.os.LocaleList.getEmptyLocaleList()
-                                                    else android.os.LocaleList.forLanguageTags(tag)
-                                                manager?.applicationLocales = expected
-                                            }
-                                        }
-                                        host?.recreate()
-                                    }
-                                },
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-                    Text(
-                        text = stringResource(com.multiroute.R.string.settings_i18n_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-        }
-
-
-        item {
-            // 网络运行参数设置 (蜂窝常活)
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = stringResource(com.multiroute.R.string.settings_network),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_keep_cellular),
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_keep_cellular_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                        Switch(
-                            checked = uiState.isMobileDataAlwaysOn,
-                            onCheckedChange = { viewModel.toggleMobileDataAlwaysOn() }
-                        )
-                    }
-
-
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dns_redirect),
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_dns_redirect_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                        Switch(
-                            checked = uiState.isDnsFollowsChannel,
-                            onCheckedChange = { viewModel.toggleDnsFollowsChannel() }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_auto_failover),
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_auto_failover_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                        Switch(
-                            checked = uiState.isAutoFailoverEnabled,
-                            onCheckedChange = { viewModel.toggleAutoFailover() }
-                        )
-                    }
-
-                    if (uiState.isAutoFailoverEnabled || uiState.scenarioProfiles.isNotEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_failover_holdoff, uiState.failoverHoldOffSeconds),
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.settings_failover_holdoff_desc),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                listOf(1, 2, 3, 5, 8).forEach { secs ->
-                                    FilterChip(
-                                        selected = uiState.failoverHoldOffSeconds == secs,
-                                        onClick = { viewModel.updateFailoverHoldOffSeconds(secs) },
-                                        label = { Text("${secs}s") }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (uiState.isAutoFailoverEnabled) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-                        }
-                    }
-
-                    if (uiState.isAutoFailoverEnabled) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(com.multiroute.R.string.settings_failover_probe_internet),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                                )
-                                Text(
-                                    text = stringResource(com.multiroute.R.string.settings_failover_probe_internet_desc),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                            Switch(
-                                checked = uiState.isFailoverProbeInternet,
-                                onCheckedChange = { viewModel.toggleFailoverProbeInternet() }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            // 公网出口测试设置
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = stringResource(com.multiroute.R.string.settings_egress),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = uiState.testServerConfig.activeUrl,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        FilledTonalButton(
-                            onClick = { viewModel.openTestServerDialog() },
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(com.multiroute.R.string.filter_configured))
-                        }
-                    }
-
-                    Text(
-                        text = stringResource(com.multiroute.R.string.ui_test_server_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-        }
-
-        item {
-            WirelessAdbCard()
-        }
-
-        item {
-            // 诊断日志与维护操作
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = stringResource(com.multiroute.R.string.ui_diag_maintenance),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    Button(
-                        onClick = { viewModel.openLogsDialog() },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    ) {
-                        Icon(Icons.Default.Article, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(com.multiroute.R.string.ui_view_log))
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.forceSyncAllRules() },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        enabled = !uiState.isSyncing
-                    ) {
-                        Icon(Icons.Default.Sync, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (uiState.isSyncing) stringResource(com.multiroute.R.string.ui_syncing_kernel) else stringResource(com.multiroute.R.string.ui_force_resync))
-                    }
-
-                    OutlinedButton(
-                        onClick = { showClearDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(com.multiroute.R.string.ui_clear_all_rules))
-                    }
-                }
-            }
-        }
-
-        item {
-            // 关于卡片
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = stringResource(com.multiroute.R.string.ui_about),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-
-                        val context = LocalContext.current
-                        val packageInfo = remember(context) {
-                            try {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                    context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
-                                } else {
-                                    @Suppress("DEPRECATION")
-                                    context.packageManager.getPackageInfo(context.packageName, 0)
-                                }
-                            } catch (_: Exception) {
-                                null
-                            }
-                        }
-                        val versionName = packageInfo?.versionName ?: "1.0.0"
-                        val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                            packageInfo?.longVersionCode ?: 1L
-                        } else {
-                            @Suppress("DEPRECATION")
-                            packageInfo?.versionCode?.toLong() ?: 1L
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ) {
-                            Text(
-                                text = "v$versionName ($versionCode)",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = stringResource(com.multiroute.R.string.about_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        lineHeight = 18.sp
-                    )
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.ui_system_support),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = "Android 10 - 17",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                        }
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.ui_open_source_license),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = "GNU GPL-3.0",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    val context = LocalContext.current
-                    Surface(
-                        onClick = {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Linoleic/MultiRoute"))
-                                context.startActivity(intent)
-                            } catch (_: Exception) {
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Code,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Column {
-                                    Text(
-                                        text = stringResource(com.multiroute.R.string.ui_github_repo),
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                                    )
-                                    Text(
-                                        text = "https://github.com/Linoleic/MultiRoute",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                            Icon(
-                                imageVector = Icons.Default.OpenInNew,
-                                contentDescription = stringResource(com.multiroute.R.string.cd_open_link),
-                                tint = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-
-    if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text(stringResource(com.multiroute.R.string.ui_confirm_clear_title)) },
-            text = { Text(stringResource(com.multiroute.R.string.ui_clear_rules_desc)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearAllRules()
-                        showClearDialog = false
-                    }
-                ) {
-                    Text(stringResource(com.multiroute.R.string.ui_confirm_clear), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
-                    Text(stringResource(com.multiroute.R.string.ui_cancel))
-                }
-            }
-        )
-    }
+@Composable
+fun ToolsTab(uiState: MainUiState, viewModel: MainScreenViewModel,
+    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}) {
+    SettingsToolsHub(uiState, viewModel, tools = true, onNavigate = onNavigate)
 }
 
 /**
@@ -1922,7 +1075,7 @@ fun ChannelSelectBottomSheet(
  * 配置备份卡片：整份配置（分应用指派 + 场景方案 + 相关设置）的导出与导入。
  */
 @Composable
-fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
+fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel, showTitle: Boolean = true) {
     val context = LocalContext.current
     val pathState = remember {
         androidx.compose.runtime.mutableStateOf(
@@ -1937,7 +1090,7 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
+            if (showTitle) Text(
                 text = stringResource(com.multiroute.R.string.config_card_title),
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )

@@ -1,9 +1,15 @@
 package com.multiroute.ui.wifi
 
+import com.multiroute.theme.AppMotion
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -36,31 +42,272 @@ import com.multiroute.wifi.DualWifiCapability
 import com.multiroute.wifi.DualWifiStatus
 import com.multiroute.wifi.WifiScanItem
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DualWifiScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    embedded: Boolean = false,
+    listState: androidx.compose.foundation.lazy.LazyListState? = null,
     viewModel: DualWifiViewModel = viewModel()
 ) {
+    LaunchedEffect(viewModel) { viewModel.ensureInitialized() }
     val uiState by viewModel.uiState.collectAsState()
     val status = uiState.status
 
     var passwordInput by remember(uiState.pendingPasswordItem) { mutableStateOf("") }
     var selectedDetailItem by remember { mutableStateOf<WifiScanItem?>(null) }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
+    val singleScroll = listState ?: rememberLazyListState()
+    val managementContent: LazyListScope.() -> Unit = {
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
+        // 1. 连接方案选择与软硬件支持状态
+        item {
+            DualWifiSupportCard(
+                status = status,
+                selectedScheme = uiState.selectedScheme,
+                onSelectScheme = { viewModel.onSelectScheme(it) },
+                isActivating = uiState.isActivating,
+                isDeactivating = uiState.isDeactivating,
+                onActivateClick = { viewModel.activateDualWifi() },
+                onDeactivateClick = { viewModel.deactivateDualWifi() },
+                onClearBlocklist = { viewModel.clearBlocklist() },
+                detailsExpanded = uiState.supportDetailsExpanded,
+                onToggleDetails = { viewModel.setSupportDetailsExpanded(!uiState.supportDetailsExpanded) }
+            )
+        }
+
+        // 3. 个人热点频段占用感知与冲突避让提示卡片
+        if (status.isHotspotEnabled) {
+            item {
+                HotspotUpstreamCard(
+                    status = status,
+                    onSetUpstream = { viewModel.setHotspotUpstream(it) }
+                )
+            }
+        }
+
+        // 4. 当前双 Wi-Fi 通道状态卡片
+        item {
+            ActiveChannelsCard(
+                status = status,
+                isAutoReconnect = uiState.isAutoReconnect,
+                onToggleAutoReconnect = { viewModel.setAutoReconnect(it) },
+                onOpenSystemWifi = { viewModel.openSystemWifiSettings() },
+                onDisconnectSecondary = { viewModel.disconnectSecondary() }
+            )
+        }
+
+        // 激活反馈卡片
+        uiState.activationResult?.let { msg ->
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { viewModel.clearActivationResult() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 提示信息卡片 (如清理限制)
+        uiState.infoMessage?.let { msg ->
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.needsSystemWifiSettings) Icons.Default.Info else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { viewModel.clearInfoMessage() }) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        if (uiState.needsSystemWifiSettings) {
+                            TextButton(onClick = { viewModel.openSystemWifiSettings() }, modifier = Modifier.align(Alignment.End)) {
+                                Text(stringResource(R.string.dual_wifi_open_system_wifi))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 错误提示卡片
+        status.errorMessage?.let { errorMsg ->
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = errorMsg,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+        }
+
+    }
+    val scanContent: LazyListScope.() -> Unit = {
+        // 3. 附近可用 Wi-Fi 列表标题与扫描按钮
+        stickyHeader(key = "scan-header") {
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.dual_wifi_scan_title),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.weight(1f).padding(end = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis
+                    )
+                    OutlinedButton(
+                        onClick = { viewModel.scanNetworks() },
+                        enabled = !status.isScanning,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        if (status.isScanning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.dual_wifi_scanning), fontSize = 13.sp)
+                        } else {
+                            Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.dual_wifi_scan_btn), fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Wi-Fi 扫描结果列表
+        if (status.scanResults.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (status.isScanning) stringResource(R.string.dual_wifi_scanning)
+                            else stringResource(R.string.dual_wifi_no_scan_results),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            items(status.scanResults, key = { "${it.ssid}_${it.bssid}_${it.frequencyMhz}" }) { item ->
+                WifiScanRow(
+                    item = item,
+                    primaryFreq = status.primaryFreq,
+                    isSecondaryConnected = status.secondaryConnected,
+                    isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
+                    isHotspotEnabled = status.isHotspotEnabled,
+                    hotspotFreq = status.hotspotFreq,
+                    onCardClick = { selectedDetailItem = item },
+                    onConnectClick = { viewModel.onSelectScanItem(item) }
+                )
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    val content: @Composable (PaddingValues) -> Unit = { padding ->
+        Box(modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(state = singleScroll, modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                managementContent()
+                scanContent()
+            }
+        }
+    }
+    if (embedded) content(PaddingValues(0.dp))
+    else Scaffold(modifier = modifier.fillMaxSize(), topBar = {
             TopAppBar(
                 title = {
                     Column {
                         Text(
-                            text = stringResource(R.string.dual_wifi_title),
+                            text = stringResource(R.string.dual_wifi_title), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = stringResource(R.string.dual_wifi_subtitle),
+                            text = stringResource(R.string.dual_wifi_subtitle), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -95,235 +342,7 @@ fun DualWifiScreen(
                     }
                 }
             )
-        }
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            // 1. 连接方案选择与软硬件支持状态
-            item {
-                DualWifiSupportCard(
-                    status = status,
-                    selectedScheme = uiState.selectedScheme,
-                    onSelectScheme = { viewModel.onSelectScheme(it) },
-                    isActivating = uiState.isActivating,
-                    isDeactivating = uiState.isDeactivating,
-                    onActivateClick = { viewModel.activateDualWifi() },
-                    onDeactivateClick = { viewModel.deactivateDualWifi() },
-                    onClearBlocklist = { viewModel.clearBlocklist() }
-                )
-            }
-
-            // 3. 个人热点频段占用感知与冲突避让提示卡片
-            if (status.isHotspotEnabled) {
-                item {
-                    HotspotUpstreamCard(
-                        status = status,
-                        onSetUpstream = { viewModel.setHotspotUpstream(it) }
-                    )
-                }
-            }
-
-            // 4. 当前双 Wi-Fi 通道状态卡片
-            item {
-                ActiveChannelsCard(
-                    status = status,
-                    isAutoReconnect = uiState.isAutoReconnect,
-                    onToggleAutoReconnect = { viewModel.setAutoReconnect(it) },
-                    onOpenSystemWifi = { viewModel.openSystemWifiSettings() },
-                    onDisconnectSecondary = { viewModel.disconnectSecondary() }
-                )
-            }
-
-            // 激活反馈卡片
-            uiState.activationResult?.let { msg ->
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = msg,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { viewModel.clearActivationResult() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 提示信息卡片 (如清理限制)
-            uiState.infoMessage?.let { msg ->
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (uiState.needsSystemWifiSettings) Icons.Default.Info else Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary
-                                )
-                                Text(
-                                    text = msg,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(onClick = { viewModel.clearInfoMessage() }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
-                                }
-                            }
-                            if (uiState.needsSystemWifiSettings) {
-                                TextButton(onClick = { viewModel.openSystemWifiSettings() }, modifier = Modifier.align(Alignment.End)) {
-                                    Text(stringResource(R.string.dual_wifi_open_system_wifi))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 错误提示卡片
-            status.errorMessage?.let { errorMsg ->
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Text(
-                                text = errorMsg,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 3. 附近可用 Wi-Fi 列表标题与扫描按钮
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.dual_wifi_scan_title),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    OutlinedButton(
-                        onClick = { viewModel.scanNetworks() },
-                        enabled = !status.isScanning,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        if (status.isScanning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.dual_wifi_scanning), fontSize = 13.sp)
-                        } else {
-                            Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.dual_wifi_scan_btn), fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-
-            // 4. Wi-Fi 扫描结果列表
-            if (status.scanResults.isEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        )
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (status.isScanning) stringResource(R.string.dual_wifi_scanning)
-                                else stringResource(R.string.dual_wifi_no_scan_results),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            } else {
-                items(status.scanResults, key = { "${it.ssid}_${it.bssid}_${it.frequencyMhz}" }) { item ->
-                    WifiScanRow(
-                        item = item,
-                        primaryFreq = status.primaryFreq,
-                        isSecondaryConnected = status.secondaryConnected,
-                        isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
-                        isHotspotEnabled = status.isHotspotEnabled,
-                        hotspotFreq = status.hotspotFreq,
-                        onCardClick = { selectedDetailItem = item },
-                        onConnectClick = { viewModel.onSelectScanItem(item) }
-                    )
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-    }
+    }, content = content)
 
     // 密码输入对话框
     uiState.pendingPasswordItem?.let { item ->
@@ -356,7 +375,7 @@ fun DualWifiScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "${scanBandLabel(item.frequencyMhz)} • RSSI: ${item.rssi} dBm",
                         style = MaterialTheme.typography.bodySmall,
@@ -423,6 +442,7 @@ fun DualWifiScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DualWifiSupportCard(
     status: DualWifiStatus,
@@ -432,10 +452,11 @@ private fun DualWifiSupportCard(
     isDeactivating: Boolean,
     onActivateClick: () -> Unit,
     onDeactivateClick: () -> Unit,
-    onClearBlocklist: () -> Unit
+    onClearBlocklist: () -> Unit,
+    detailsExpanded: Boolean,
+    onToggleDetails: () -> Unit
 ) {
     val capability = status.capability
-    var detailsExpanded by remember { mutableStateOf(false) }
     val dualWifiActive = capability.modeActive || status.secondaryConnected || status.isConnecting
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -485,11 +506,11 @@ private fun DualWifiSupportCard(
                 }
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { detailsExpanded = !detailsExpanded }) {
+            FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onToggleDetails) {
                     Text(stringResource(if (detailsExpanded) R.string.wifi_i18n_hide_details else R.string.wifi_i18n_show_details))
                 }
-                Spacer(Modifier.weight(1f))
                 when {
                     isDeactivating -> OutlinedButton(onClick = {}, enabled = false) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -510,7 +531,7 @@ private fun DualWifiSupportCard(
                 }
             }
 
-            AnimatedVisibility(visible = detailsExpanded) {
+            AnimatedVisibility(visible = detailsExpanded, enter = AppMotion.expand(), exit = AppMotion.collapse()) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
@@ -1389,12 +1410,15 @@ private fun WifiDetailBottomSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         containerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.85f)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1431,6 +1455,7 @@ private fun WifiDetailBottomSheet(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             text = item.ssid,
+                            modifier = Modifier.weight(1f, fill = false),
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis

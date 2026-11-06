@@ -1,5 +1,6 @@
 package com.multiroute.ui.main
 
+import com.multiroute.theme.AppMotion
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -25,11 +26,11 @@ import kotlinx.coroutines.delay
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-fun CellularControlCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
+fun CellularControlCard(uiState: MainUiState, viewModel: MainScreenViewModel, observeState: Boolean = true) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     val controlState by viewModel.cellularControlState.collectAsState()
-    LaunchedEffect(context, lifecycle) {
+    if (observeState) LaunchedEffect(context, lifecycle) {
         lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 viewModel.refreshCellularControlState()
@@ -167,7 +168,7 @@ fun CellularControlCard(uiState: MainUiState, viewModel: MainScreenViewModel) {
                 )
             }
 
-            AnimatedVisibility(visible = controlState.detailsExpanded) {
+            AnimatedVisibility(visible = controlState.detailsExpanded, enter = AppMotion.expand(), exit = AppMotion.collapse()) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     Row(

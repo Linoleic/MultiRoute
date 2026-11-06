@@ -1,5 +1,7 @@
 package com.multiroute.ui.main
 
+import androidx.compose.animation.AnimatedVisibility
+import com.multiroute.theme.AppMotion
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.*
@@ -26,7 +28,7 @@ import kotlinx.coroutines.launch
 import com.multiroute.adb.*
 
 @Composable
-fun WirelessAdbCard() {
+fun WirelessAdbCard(showTitle: Boolean = true) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val owner = LocalLifecycleOwner.current
@@ -61,7 +63,7 @@ fun WirelessAdbCard() {
     }
     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (showTitle) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text(stringResource(R.string.adb_helper_title), style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f))
@@ -105,7 +107,8 @@ fun WirelessAdbCard() {
                 Text(stringResource(if (expanded) R.string.adb_helper_hide else R.string.adb_helper_details),
                     style = MaterialTheme.typography.labelMedium)
             }
-            if (expanded) {
+            AnimatedVisibility(visible = expanded, enter = AppMotion.expand(), exit = AppMotion.collapse()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.adb_boot_title), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Switch(checked = bootPolicy.enabled, enabled = !loading && !busy &&
@@ -133,6 +136,7 @@ fun WirelessAdbCard() {
                 }
                 Text(stringResource(R.string.adb_helper_pairing_note), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

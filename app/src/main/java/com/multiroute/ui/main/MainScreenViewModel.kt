@@ -52,7 +52,9 @@ data class CellularControlUiState(
 )
 
 data class MainUiState(
-    val selectedTab: Int = 0, // 0: 应用分流, 1: 网络通道, 2: 模块与设置
+    val requestedNetworkTool: NetworkTool? = null,
+    val networkToolReturnTab: Int? = null,
+    val selectedTab: Int = 0, // 0: 应用分流, 1: 网络通道, 2: 工具, 3: 设置
     val isLoadingApps: Boolean = true,
     val isRootGranted: Boolean = false,
     val isMobileDataAlwaysOn: Boolean = false,
@@ -76,6 +78,8 @@ data class MainUiState(
     val isSyncing: Boolean = false,
     val snackBarMessage: String? = null,
     val diagnosticInfo: DiagnosticInfo? = null,
+    val isEnvironmentRefreshing: Boolean = false,
+    val environmentRefreshFailed: Boolean = false,
     val testServerConfig: TestServerConfig = TestServerConfig(),
     val showTestServerDialog: Boolean = false,
     val showLogsDialog: Boolean = false,
@@ -128,6 +132,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private var lastNetworkChangeTime = 0L
     private var recoveryJob: Job? = null
+    private var environmentRefreshCount = 0
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -306,13 +311,28 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun setSelectedTab(index: Int) {
         _uiState.value = _uiState.value.copy(
             selectedTab = index,
+            requestedNetworkTool = null,
+            networkToolReturnTab = null,
             isSelectionMode = if (index != 0) false else _uiState.value.isSelectionMode,
             selectedRuleKeys = if (index != 0) emptySet() else _uiState.value.selectedRuleKeys,
             showBatchAssignSheet = if (index != 0) false else _uiState.value.showBatchAssignSheet
         )
-        if (index == 2) {
+        if (index == 3) {
             refreshEnvironment()
         }
+    }
+
+    fun openNetworkTool(tool: NetworkTool) {
+        _uiState.value = _uiState.value.copy(selectedTab = 2, requestedNetworkTool = tool, networkToolReturnTab = 1)
+    }
+
+    fun consumeNetworkToolRequest() {
+        _uiState.value = _uiState.value.copy(requestedNetworkTool = null)
+    }
+
+    fun returnFromNetworkTool() {
+        val target = _uiState.value.networkToolReturnTab ?: return
+        setSelectedTab(target)
     }
 
     fun enterSelectionMode(initialPackage: String? = null) {
@@ -933,6 +953,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun refreshEnvironment() {
         viewModelScope.launch {
+            environmentRefreshCount++
+            _uiState.value = _uiState.value.copy(isEnvironmentRefreshing = true, environmentRefreshFailed = false)
             try {
                 val context = getApplication<Application>()
                 val diag = withContext(Dispatchers.IO) { SuHelper.getDiagnosticInfo(context) }
@@ -947,10 +969,17 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                     failoverHoldOffSeconds = RouteConfigProvider.getFailoverHoldOffSeconds(context),
                     isFailoverProbeInternet = RouteConfigProvider.isFailoverProbeInternet(context),
                     channels = activeChannels,
-                    diagnosticInfo = diag
+                    diagnosticInfo = diag,
+                    environmentRefreshFailed = false
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(environmentRefreshFailed = true)
                 android.util.Log.e("MainViewModel", "Error refreshing environment", e)
+            } finally {
+                environmentRefreshCount--
+                _uiState.value = _uiState.value.copy(isEnvironmentRefreshing = environmentRefreshCount > 0)
             }
         }
     }
