@@ -3,7 +3,8 @@ package com.multiroute.theme
 import android.content.Context
 import android.app.Activity
 import android.os.Build
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -59,14 +60,12 @@ fun MultiRouteTheme(
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
-    // Crossfade so a light/dark switch or a palette change fades instead of flashing.
-    Crossfade(targetState = darkTheme to dynamicColor, label = "theme") { (dark, dynamic) ->
-        MaterialTheme(
-            colorScheme = colorSchemeFor(context, dark, dynamic),
-            typography = Typography,
-            content = content,
-        )
-    }
+    // Animate colors, not the application subtree: theme changes must preserve navigation and scroll state.
+    MaterialTheme(
+        colorScheme = animatedScheme(colorSchemeFor(context, darkTheme, dynamicColor)),
+        typography = Typography,
+        content = content,
+    )
 }
 
 private fun colorSchemeFor(context: Context, darkTheme: Boolean, dynamicColor: Boolean): ColorScheme =
@@ -76,3 +75,46 @@ private fun colorSchemeFor(context: Context, darkTheme: Boolean, dynamicColor: B
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
+
+@Composable
+private fun themeColor(value: Color): Color = animateColorAsState(value, label = "themeColor").value
+
+@Composable
+private fun animatedScheme(target: ColorScheme): ColorScheme = target.copy(
+    primary = themeColor(target.primary),
+    onPrimary = themeColor(target.onPrimary),
+    primaryContainer = themeColor(target.primaryContainer),
+    onPrimaryContainer = themeColor(target.onPrimaryContainer),
+    inversePrimary = themeColor(target.inversePrimary),
+    secondary = themeColor(target.secondary),
+    onSecondary = themeColor(target.onSecondary),
+    secondaryContainer = themeColor(target.secondaryContainer),
+    onSecondaryContainer = themeColor(target.onSecondaryContainer),
+    tertiary = themeColor(target.tertiary),
+    onTertiary = themeColor(target.onTertiary),
+    tertiaryContainer = themeColor(target.tertiaryContainer),
+    onTertiaryContainer = themeColor(target.onTertiaryContainer),
+    background = themeColor(target.background),
+    onBackground = themeColor(target.onBackground),
+    surface = themeColor(target.surface),
+    onSurface = themeColor(target.onSurface),
+    surfaceVariant = themeColor(target.surfaceVariant),
+    onSurfaceVariant = themeColor(target.onSurfaceVariant),
+    surfaceTint = themeColor(target.surfaceTint),
+    inverseSurface = themeColor(target.inverseSurface),
+    inverseOnSurface = themeColor(target.inverseOnSurface),
+    error = themeColor(target.error),
+    onError = themeColor(target.onError),
+    errorContainer = themeColor(target.errorContainer),
+    onErrorContainer = themeColor(target.onErrorContainer),
+    outline = themeColor(target.outline),
+    outlineVariant = themeColor(target.outlineVariant),
+    scrim = themeColor(target.scrim),
+    surfaceBright = themeColor(target.surfaceBright),
+    surfaceDim = themeColor(target.surfaceDim),
+    surfaceContainer = themeColor(target.surfaceContainer),
+    surfaceContainerHigh = themeColor(target.surfaceContainerHigh),
+    surfaceContainerHighest = themeColor(target.surfaceContainerHighest),
+    surfaceContainerLow = themeColor(target.surfaceContainerLow),
+    surfaceContainerLowest = themeColor(target.surfaceContainerLowest),
+)
