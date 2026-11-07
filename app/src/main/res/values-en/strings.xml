@@ -604,6 +604,8 @@
     <string name="adb_helper_loading">Reading debugging status…</string>
     <string name="adb_helper_off">Wireless debugging is off</string>
     <string name="adb_helper_listening">Wireless debugging is on and the port is listening</string>
+    <string name="adb_helper_listening_tls">Native TLS debugging active, port %1$d listening</string>
+    <string name="adb_helper_listening_tcp">Legacy TCP debugging active, port %1$d listening</string>
     <string name="adb_helper_not_listening">Wireless debugging is on; no matching listening port found</string>
     <string name="adb_helper_unknown">Debugging status unavailable. Check root access or system settings.</string>
     <string name="adb_helper_refresh">Refresh</string>
@@ -615,6 +617,17 @@
     <string name="adb_helper_no_address">No local IPv4 address could be read. If Wi-Fi is associated without an address, check address provisioning.</string>
     <string name="adb_helper_copy">Copy connection command</string>
     <string name="adb_helper_pairing_note">Pair in system wireless debugging settings before the first connection. These commands use the connection port, not the pairing port. Refresh after address or port changes. IPv6 link-local connections need the workstation interface scope; commands are not generated yet.</string>
+    <string name="adb_helper_tcp_note">Keep the device unlocked for the first connection. After running adb connect on your computer, accept the system debugging authorization (RSA key) prompt on screen. This mode uses a fixed port and does not require a pairing code.</string>
+
+    <string name="adb_mode_title">Operating mode</string>
+    <string name="adb_mode_tls">Native TLS</string>
+    <string name="adb_mode_tcp">Legacy TCP</string>
+    <string name="adb_mode_tls_summary">Android 11+ pairing mechanism with dynamic random port</string>
+    <string name="adb_mode_tcp_summary">Classic adbd listener with customizable fixed port</string>
+    <string name="adb_custom_port_label">Listening port (1024–65535)</string>
+    <string name="adb_custom_port_error">Port must be between 1024 and 65535</string>
+    <string name="adb_custom_port_reset">Reset to 5555</string>
+    <string name="adb_control_apply">Apply changes</string>
 
     <string name="adb_control_working">Working…</string>
     <string name="adb_control_on">Enable wireless debugging</string>
@@ -628,6 +641,7 @@
     <string name="adb_boot_title">Restore wireless debugging after boot</string>
     <string name="adb_boot_description">Enable wireless debugging and complete system authorization first. This option remembers the current primary Wi-Fi name and attempts recovery on that network within ten minutes after first unlock. It does not attempt to enable debugging on other networks or provide continuous recovery after everyday disconnections.</string>
     <string name="adb_boot_network">Selected network: %1$s</string>
+    <string name="adb_boot_mode_summary">Restore target: %1$s (port %2$d)</string>
     <string name="adb_boot_wait_network">Boot recovery is waiting for the selected primary Wi-Fi</string>
     <string name="adb_boot_wait_unlock">Boot recovery is waiting for first unlock</string>
     <string name="adb_boot_expired">Boot recovery window ended. Enable manually or wait for the next boot.</string>

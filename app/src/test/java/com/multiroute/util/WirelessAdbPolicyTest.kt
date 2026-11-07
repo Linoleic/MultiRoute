@@ -31,4 +31,15 @@ class WirelessAdbPolicyTest {
         assertNull(WirelessAdbController.primarySsid(listOf("Wifi is connected to \"<unknown ssid>\"")))
         assertEquals("F5G", WirelessAdbController.primarySsid(listOf("Wifi is connected to \"F5G\"")))
     }
+    @Test fun policyDefaultValuesSupportDualMode() {
+        val defaultPolicy = AdbBootPolicy()
+        assertFalse(defaultPolicy.enabled)
+        assertNull(defaultPolicy.ssid)
+        assertEquals(AdbMode.TLS, defaultPolicy.mode)
+        assertEquals(5555, defaultPolicy.customPort)
+
+        val tcpPolicy = defaultPolicy.copy(mode = AdbMode.TCP, customPort = 6666)
+        assertEquals(AdbMode.TCP, tcpPolicy.mode)
+        assertEquals(6666, tcpPolicy.customPort)
+    }
 }

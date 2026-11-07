@@ -232,11 +232,13 @@ The main screen has App routing, Channels, Tools and Settings destinations. Tool
 
 ## Wireless debugging helper
 
-The wireless debugging entry in Tools reads system wireless debugging status, its connection port and candidate local IPv4 addresses. It can copy connection commands or enable and disable debugging through root. Complete initial pairing and network authorization in system settings. Candidate addresses do not establish workstation reachability.
+The wireless debugging entry in Tools supports two operating modes:
+- **Native TLS Mode:** Based on Android 11+ wireless debugging, using dynamic random ports and pairing code authentication. Synchronizes directly with the system Developer Options "Wireless debugging" switch.
+- **Legacy TCP Mode:** Based on the classic `adbd` daemon mechanism, supporting customizable fixed listening ports (defaults to `5555`, validated in `1024..65535`). First connection prompts for standard system USB debugging (RSA key fingerprint) authorization on the screen; subsequent connections use the fixed port without requiring pairing codes, suitable for IDEs and automated scripts.
 
-Optional boot recovery remembers the primary Wi-Fi name selected when enabling it and attempts to restore system wireless debugging on that network within ten minutes after first unlock. It does not continuously restore debugging after everyday network disconnections. Disabling debugging in the app also disables boot recovery. Recovery settings are excluded from backup and configuration exports. Vendor background restrictions may affect execution; the result is shown in the card details.
+Reads debugging status, active ports, and local candidate IPv4 addresses, generates one-click connection commands adapted to the active mode and port, and supports runtime hot-switching of mode and port (automatically restarting the `adbd` daemon).
 
-The system allocates the TLS debugging port, which can change after a service restart. A fixed port is not provided. Port reading probes available system properties and framework interfaces; copy actions remain unavailable when listening cannot be confirmed.
+Optional boot recovery remembers the selected primary Wi-Fi name, operating mode, and custom port when enabled, and attempts to restore wireless debugging on that network within ten minutes after first unlock. It does not continuously restore debugging after everyday network disconnections. Disabling debugging in the app also disables boot recovery. Recovery settings are excluded from backup and configuration exports. Vendor background restrictions may affect execution; the result is shown in the card details.
 
 ## Installation
 
