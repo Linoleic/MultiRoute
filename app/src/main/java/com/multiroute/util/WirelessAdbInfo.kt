@@ -12,8 +12,11 @@ data class WirelessAdbInfo(
     val tlsEnabled: Boolean? = null,
     val mode: AdbMode? = null,
     val tcpPort: Int? = null,
-    val tlsPort: Int? = null
+    val tlsPort: Int? = null,
+    val connectedClients: List<String> = emptyList(),
+    val connectedLocalAddresses: Set<String> = emptySet()
 ) {
+    val isClientConnected: Boolean get() = connectedClients.isNotEmpty()
     companion object {
         fun read(context: android.content.Context? = null, preferredMode: AdbMode? = null): WirelessAdbInfo {
             val modeToUse = preferredMode ?: context?.let {
@@ -30,6 +33,12 @@ data class WirelessAdbInfo(
             if [ ${'$'}? -eq 0 ]; then
               printf '%s\n' "${'$'}sockets"
               echo SOCKETS_OK
+            fi
+            conns=${'$'}(ss -Hnt state established 2>/dev/null)
+            if [ ${'$'}? -eq 0 ]; then
+              echo ESTABLISHED_START
+              printf '%s\n' "${'$'}conns"
+              echo ESTABLISHED_END
             fi
             ip -o -4 addr show up scope global 2>/dev/null
             ip -o -6 addr show up scope global 2>/dev/null
@@ -55,6 +64,16 @@ data class WirelessAdbInfo(
                 }
             }
             return parse(lines, modeToUse)
+        }
+
+        internal fun parseEndpoint(raw: String): Pair<String, Int>? {
+            val clean = raw.trim()
+            val port = clean.substringAfterLast(':').toIntOrNull() ?: return null
+            var ip = clean.substringBeforeLast(':').removeSurrounding("[", "]").substringBefore('%')
+            if (ip.startsWith("::ffff:")) {
+                ip = ip.substring(7)
+            }
+            return ip to port
         }
 
         internal fun parse(lines: List<String>, preferredMode: AdbMode? = null): WirelessAdbInfo {
@@ -146,6 +165,38 @@ data class WirelessAdbInfo(
                 }
             }.distinct()
 
+            val establishedLines = mutableListOf<String>()
+            var inEstablished = false
+            for (line in lines) {
+                if (line == "ESTABLISHED_START") {
+                    inEstablished = true
+                    continue
+                }
+                if (line == "ESTABLISHED_END") {
+                    inEstablished = false
+                    continue
+                }
+                if (inEstablished && line.isNotBlank()) {
+                    establishedLines.add(line.trim())
+                }
+            }
+
+            val connectedClients = mutableListOf<String>()
+            val connectedLocalAddresses = mutableSetOf<String>()
+            if (effectivePort != null) {
+                for (line in establishedLines) {
+                    val fields = line.split(Regex("\\s+"))
+                    if (fields.size >= 4) {
+                        val localEp = parseEndpoint(fields[fields.size - 2])
+                        val peerEp = parseEndpoint(fields[fields.size - 1])
+                        if (localEp != null && peerEp != null && localEp.second == effectivePort) {
+                            connectedClients.add(peerEp.first)
+                            connectedLocalAddresses.add(localEp.first)
+                        }
+                    }
+                }
+            }
+
             val tls = when (lines.firstOrNull { it.startsWith("TLS=") }?.substringAfter('=')) {
                 "1" -> true
                 "0" -> false
@@ -160,7 +211,9 @@ data class WirelessAdbInfo(
                 tlsEnabled = tls,
                 mode = mode,
                 tcpPort = tcpPort,
-                tlsPort = tlsPort
+                tlsPort = tlsPort,
+                connectedClients = connectedClients.distinct(),
+                connectedLocalAddresses = connectedLocalAddresses
             )
         }
     }

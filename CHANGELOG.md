@@ -14,6 +14,9 @@ bilingual, Chinese first: the release page is what most users read.
 - **无线调试双模式支持**：支持选择「原生 TLS 模式」（Android 11+ 原生配对机制与动态随机端口）或「传统 TCP 模式」（经典 adbd 监听机制，支持自定义固定端口）。
 - **自定义监听端口**：传统 TCP 模式支持在 `1024..65535` 范围内自定义固定监听端口（默认 `5555`），提供合法性校验与一键恢复默认按钮。
 - **全局 IPv6 地址支持**：候选地址新增识别全局与 ULA IPv6 地址（排查链路本地与易过期的临时隐私地址），生成标准方括号命令（`[ipv6]:port`）。
+- **电脑连接状态识别**：通过内核 socket 实时探查已建立的 ADB 连接（`ss -Hnt state established`），精准识别并展示已连接电脑的局域网 IP（如 `已连接电脑 (192.168.1.158) · 调试就绪`），无连接时清晰提示等待连接状态。
+- **候选地址卡片紧凑化与活跃标识**：将候选地址重构为单行紧凑列表项，配备等宽字体、紧凑复制按钮与复制反馈 Toast，并在正在提供 ADB 会话的本地地址旁展示「已连接」高亮标识。
+- **开机恢复安全边界说明弹窗**：开机恢复开关下方精简为单行摘要，详细安全边界与设计考量（锁屏首次解锁保护、10 分钟时间窗口、Wi-Fi SSID 绑定等）移至信息图标弹窗，降低视觉负担。
 - **运行中热应用与服务重载**：在调试已开启状态下修改工作模式或端口时，提供应用更改并自动重启 `adbd` 守护进程。
 - **开机恢复策略联动**：开机恢复配置保存并联动对应的工作模式与自定义端口，保持受控在指定 Wi-Fi SSID 与开机 10 分钟安全窗口内。
 
@@ -29,6 +32,9 @@ bilingual, Chinese first: the release page is what most users read.
 - **Dual-mode wireless debugging:** Choose between Native TLS (Android 11+ pairing mechanism with dynamic random port) and Legacy TCP (classic adbd mechanism with customizable fixed port).
 - **Custom listening port:** Support customizing the listening port within `1024..65535` in Legacy TCP mode (defaults to `5555`), with range validation and a one-click reset button.
 - **Global IPv6 candidate addresses:** Detect Global and ULA IPv6 addresses on Wi-Fi interfaces while excluding link-local and ephemeral SLAAC privacy addresses, formatting them with bracketed syntax (`[ipv6]:port`).
+- **Active workstation connection detection:** Detect established ADB client sockets via kernel state (`ss -Hnt state established`) to display the connected computer IP (e.g. `Connected to computer (192.168.1.158) · Ready`) or waiting state.
+- **Compact candidate address tiles with active badge:** Redesign candidate addresses into compact single-row tiles featuring monospace typography, a quick-copy icon button with toast feedback, and an active "Connected" pill on the serving interface address.
+- **Boot recovery security info dialog:** Condense boot recovery description to a concise 1-line subtitle, moving full security constraints (first-unlock requirement, 10-minute expiry, SSID binding) into an info icon dialog.
 - **Runtime hot-switch and daemon reload:** Allow switching modes or changing ports while debugging is active, with an apply button to restart the adbd daemon.
 - **Boot recovery dual-mode integration:** Save the operating mode and custom port alongside boot recovery policy, continuing to enforce the designated Wi-Fi SSID and 10-minute security window.
 

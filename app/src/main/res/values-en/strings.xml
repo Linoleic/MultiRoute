@@ -606,6 +606,13 @@
     <string name="adb_helper_listening">Wireless debugging is on and the port is listening</string>
     <string name="adb_helper_listening_tls">Native TLS debugging active, port %1$d listening</string>
     <string name="adb_helper_listening_tcp">Legacy TCP debugging active, port %1$d listening</string>
+    <string name="adb_helper_connected_single">Connected to computer (%1$s) · Ready</string>
+    <string name="adb_helper_connected_multi">Connected to %1$d computers (%2$s) · Ready</string>
+    <string name="adb_helper_waiting_tls">Waiting for computer · Native TLS port %1$d listening</string>
+    <string name="adb_helper_waiting_tcp">Waiting for computer · Legacy TCP port %1$d listening</string>
+    <string name="adb_helper_waiting">Waiting for computer · Port listening</string>
+    <string name="adb_address_active_badge">Connected</string>
+    <string name="adb_helper_copied">Copied connection command: %1$s</string>
     <string name="adb_helper_not_listening">Wireless debugging is on; no matching listening port found</string>
     <string name="adb_helper_unknown">Debugging status unavailable. Check root access or system settings.</string>
     <string name="adb_helper_refresh">Refresh</string>
@@ -639,6 +646,10 @@
     <string name="adb_control_failed">Could not confirm success. Check root access and system wireless debugging settings.</string>
     <string name="adb_control_off_warning">This disconnects wireless ADB and turns off boot recovery in this app. USB debugging settings remain unchanged.</string>
     <string name="adb_boot_title">Restore wireless debugging after boot</string>
+    <string name="adb_boot_recovery_summary">Attempts recovery on current primary Wi-Fi within 10 min after first unlock</string>
+    <string name="adb_boot_dialog_title">Boot Recovery Security &amp; Scope</string>
+    <string name="adb_boot_dialog_content">1. Requires authorization: Wireless debugging must first be paired or authorized on your computer.\n2. First unlock protection: Only triggers after the device is first unlocked with PIN/password after boot.\n3. Network binding: Only attempts recovery on the primary Wi-Fi recorded at setup; skipped on untrusted networks.\n4. 10-minute window: If conditions are not met within 10 minutes after boot, the recovery window expires.\n5. No continuous retry: Does not continuously restart debugging after everyday disconnections, preserving security and battery.</string>
+    <string name="adb_boot_dialog_confirm">Got it</string>
     <string name="adb_boot_description">Enable wireless debugging and complete system authorization first. This option remembers the current primary Wi-Fi name and attempts recovery on that network within ten minutes after first unlock. It does not attempt to enable debugging on other networks or provide continuous recovery after everyday disconnections.</string>
     <string name="adb_boot_network">Selected network: %1$s</string>
     <string name="adb_boot_mode_summary">Restore target: %1$s (port %2$d)</string>

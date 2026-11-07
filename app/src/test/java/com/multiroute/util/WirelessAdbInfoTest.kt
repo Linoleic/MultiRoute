@@ -115,4 +115,67 @@ class WirelessAdbInfoTest {
         assertEquals(5555, tcpInfo.port)
         assertEquals(true, tcpInfo.listening)
     }
+
+    @Test fun parseEndpointHandlesDifferentAddressFormats() {
+        assertEquals("192.168.1.240" to 5555, WirelessAdbInfo.parseEndpoint("192.168.1.240:5555"))
+        assertEquals("192.168.1.240" to 35345, WirelessAdbInfo.parseEndpoint("[::ffff:192.168.1.240]:35345"))
+        assertEquals("fd77:2c88:73a5:0:7462:12ff:fea1:ebfc" to 35345,
+            WirelessAdbInfo.parseEndpoint("[fd77:2c88:73a5:0:7462:12ff:fea1:ebfc]:35345"))
+        assertEquals("fe80::1" to 5555, WirelessAdbInfo.parseEndpoint("[fe80::1%wlan0]:5555"))
+        assertNull(WirelessAdbInfo.parseEndpoint("invalid_string"))
+    }
+
+    @Test fun establishedClientsDetectedOnActivePort() {
+        val lines = listOf(
+            "ENABLED=1",
+            "PORT=35345",
+            "SOCKETS_OK",
+            "LISTEN 0 4 [::]:35345 [::]:*",
+            "ESTABLISHED_START",
+            "0 92 [::ffff:192.168.1.240]:35345 [::ffff:192.168.1.158]:5501",
+            "0 0 [::ffff:192.168.1.240]:22 [::ffff:192.168.1.99]:4000",
+            "ESTABLISHED_END",
+            "15: wlan0 inet 192.168.1.240/24 brd 192.168.1.255 scope global wlan0"
+        )
+        val info = WirelessAdbInfo.parse(lines)
+        assertTrue(info.isClientConnected)
+        assertEquals(listOf("192.168.1.158"), info.connectedClients)
+        assertTrue(info.connectedLocalAddresses.contains("192.168.1.240"))
+    }
+
+    @Test fun multipleAndIPv6EstablishedClientsDetected() {
+        val lines = listOf(
+            "ENABLED=0",
+            "TCP_PORT=5555",
+            "SOCKETS_OK",
+            "LISTEN 0 4 *:5555 *:*",
+            "ESTABLISHED_START",
+            "0 0 192.168.1.207:5555 192.168.1.158:2923",
+            "0 0 [fd77:2c88:73a5:0:7462:12ff:fea1:ebfc]:5555 [fd77:2c88:73a5:0:1:2:3:4]:61234",
+            "ESTABLISHED_END",
+            "15: wlan0 inet 192.168.1.207/24 brd 192.168.1.255 scope global wlan0",
+            "15: wlan0 inet6 fd77:2c88:73a5:0:7462:12ff:fea1:ebfc/64 scope global dynamic mngtmpaddr wlan0"
+        )
+        val info = WirelessAdbInfo.parse(lines)
+        assertTrue(info.isClientConnected)
+        assertEquals(listOf("192.168.1.158", "fd77:2c88:73a5:0:1:2:3:4"), info.connectedClients)
+        assertTrue(info.connectedLocalAddresses.contains("192.168.1.207"))
+        assertTrue(info.connectedLocalAddresses.contains("fd77:2c88:73a5:0:7462:12ff:fea1:ebfc"))
+    }
+
+    @Test fun noEstablishedClientsWhenPortDiffers() {
+        val lines = listOf(
+            "ENABLED=1",
+            "PORT=35345",
+            "SOCKETS_OK",
+            "LISTEN 0 4 [::]:35345 [::]:*",
+            "ESTABLISHED_START",
+            "0 0 192.168.1.207:5555 192.168.1.158:2923",
+            "ESTABLISHED_END"
+        )
+        val info = WirelessAdbInfo.parse(lines)
+        assertFalse(info.isClientConnected)
+        assertTrue(info.connectedClients.isEmpty())
+        assertTrue(info.connectedLocalAddresses.isEmpty())
+    }
 }

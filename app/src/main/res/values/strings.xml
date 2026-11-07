@@ -606,6 +606,13 @@
     <string name="adb_helper_listening">无线调试已开启，端口正在监听</string>
     <string name="adb_helper_listening_tls">原生 TLS 调试已开启，端口 %1$d 正在监听</string>
     <string name="adb_helper_listening_tcp">传统 TCP 调试已开启，端口 %1$d 正在监听</string>
+    <string name="adb_helper_connected_single">已连接电脑 (%1$s) · 调试就绪</string>
+    <string name="adb_helper_connected_multi">已连接 %1$d 台电脑 (%2$s) · 调试就绪</string>
+    <string name="adb_helper_waiting_tls">等待电脑连接 · 原生 TLS 端口 %1$d 正在监听</string>
+    <string name="adb_helper_waiting_tcp">等待电脑连接 · 传统 TCP 端口 %1$d 正在监听</string>
+    <string name="adb_helper_waiting">等待电脑连接 · 端口正在监听</string>
+    <string name="adb_address_active_badge">已连接</string>
+    <string name="adb_helper_copied">已复制连接命令：%1$s</string>
     <string name="adb_helper_not_listening">无线调试已开启，未发现对应监听端口</string>
     <string name="adb_helper_unknown">无法确认调试状态，请检查 Root 授权或系统设置</string>
     <string name="adb_helper_refresh">刷新</string>
@@ -639,6 +646,10 @@
     <string name="adb_control_failed">未能确认操作成功，请检查 Root 授权和系统无线调试页面</string>
     <string name="adb_control_off_warning">这会断开当前无线 ADB 连接，并关闭本应用的开机恢复。USB 调试设置保持不变。</string>
     <string name="adb_boot_title">开机后恢复无线调试</string>
+    <string name="adb_boot_recovery_summary">在当前主 Wi-Fi 下首次解锁后 10 分钟内尝试恢复</string>
+    <string name="adb_boot_dialog_title">开机恢复说明与安全边界</string>
+    <string name="adb_boot_dialog_content">1. 依赖系统授权：需先手动开启无线调试并在电脑端完成配对或授权。\n2. 首次解锁保护：仅在设备开机首次输入锁屏密码/PIN 解锁后触发。\n3. Wi-Fi 网络绑定：仅在启用时所记录的主 Wi-Fi 下尝试恢复，连接陌生或公共 Wi-Fi 时自动跳过。\n4. 10 分钟时间窗口：开机后若 10 分钟内未满足网络条件，恢复窗口自动关闭。\n5. 本功能不提供日常断开后的持续重试，以兼顾安全性与功耗。</string>
+    <string name="adb_boot_dialog_confirm">我知道了</string>
     <string name="adb_boot_description">先开启无线调试并完成系统授权，才可启用此项。启用时记住当前主 Wi-Fi 的网络名称；首次解锁后十分钟内，在该网络上尝试恢复。切换到其他网络时不尝试开启。此项不提供日常断网后的持续自动恢复。</string>
     <string name="adb_boot_network">指定网络：%1$s</string>
     <string name="adb_boot_mode_summary">恢复目标：%1$s（端口 %2$d）</string>
