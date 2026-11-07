@@ -620,6 +620,11 @@
     <string name="adb_helper_settings_failed">Could not open developer settings. Open them manually in system settings.</string>
     <string name="adb_helper_details">Show connection details</string>
     <string name="adb_helper_hide">Hide connection details</string>
+    <string name="adb_candidates_title">Candidate addresses</string>
+    <string name="adb_address_expand">Expand</string>
+    <string name="adb_address_collapse">Collapse</string>
+    <string name="adb_address_expand_all">Expand all</string>
+    <string name="adb_address_collapse_all">Collapse all</string>
     <string name="adb_helper_candidates">Candidate IPv4/IPv6 addresses on local Wi-Fi / Ethernet interfaces. Workstation reachability has not been verified. An address does not mean a workstation is connected.</string>
     <string name="adb_helper_no_address">No local candidate address could be read. If Wi-Fi is associated without an address, check address provisioning.</string>
     <string name="adb_helper_copy">Copy connection command</string>
@@ -627,6 +632,8 @@
     <string name="adb_helper_tcp_note">Keep the device unlocked for the first connection. After running adb connect on your computer, accept the system debugging authorization (RSA key) prompt on screen. This mode uses a fixed port and does not require a pairing code.</string>
 
     <string name="adb_mode_title">Operating mode</string>
+    <string name="adb_mode_off">Off</string>
+    <string name="adb_mode_off_summary">Wireless debugging is off. Select a mode above to configure and enable.</string>
     <string name="adb_mode_tls">Native TLS</string>
     <string name="adb_mode_tcp">Legacy TCP</string>
     <string name="adb_mode_tls_summary">Android 11+ pairing mechanism with dynamic random port</string>

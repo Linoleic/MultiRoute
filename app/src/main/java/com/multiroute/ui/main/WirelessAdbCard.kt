@@ -40,6 +40,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class AdbModeChoice {
+    OFF,
+    TLS,
+    TCP
+}
+
 @Composable
 fun WirelessAdbCard(showTitle: Boolean = true) {
     val context = LocalContext.current
@@ -58,8 +64,11 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
     var showBootInfoDialog by remember { mutableStateOf(false) }
 
     var selectedMode by rememberSaveable { mutableStateOf(AdbMode.TLS) }
+    var selectedChoice by rememberSaveable { mutableStateOf<AdbModeChoice?>(null) }
     var portText by rememberSaveable { mutableStateOf("5555") }
     var initializedPrefs by remember { mutableStateOf(false) }
+    var expandAllAddresses by rememberSaveable { mutableStateOf(false) }
+    var expandedAddressIndices by rememberSaveable { mutableStateOf(setOf<Int>()) }
 
     fun perform(action: suspend () -> AdbActionResult) {
         scope.launch {
@@ -86,7 +95,18 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
         if (!initializedPrefs) {
             selectedMode = inf.mode ?: p.mode
             portText = (inf.tcpPort ?: p.customPort).toString()
+            selectedChoice = if (inf.enabled == true) {
+                if (inf.mode == AdbMode.TCP) AdbModeChoice.TCP else AdbModeChoice.TLS
+            } else {
+                AdbModeChoice.OFF
+            }
             initializedPrefs = true
+        } else {
+            if (inf.enabled == false && selectedChoice != AdbModeChoice.TLS && selectedChoice != AdbModeChoice.TCP) {
+                selectedChoice = AdbModeChoice.OFF
+            } else if (inf.enabled == true && selectedChoice == AdbModeChoice.OFF) {
+                selectedChoice = if (inf.mode == AdbMode.TCP) AdbModeChoice.TCP else AdbModeChoice.TLS
+            }
         }
         loading = false
     }
@@ -94,11 +114,20 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
     val parsedPort = portText.toIntOrNull()
     val isPortValid = parsedPort != null && parsedPort in 1024..65535
     val isRunning = info?.enabled == true && info?.listening == true
+    val isEnabled = info?.enabled == true
     val activeMode = info?.mode ?: bootPolicy.mode
     val activePort = info?.port ?: (if (activeMode == AdbMode.TCP) bootPolicy.customPort else null)
-    val isConfigModified = isRunning && (
-        selectedMode != activeMode ||
-        (selectedMode == AdbMode.TCP && isPortValid && parsedPort != activePort)
+    val activeChoice = if (isEnabled) {
+        if (activeMode == AdbMode.TCP) AdbModeChoice.TCP else AdbModeChoice.TLS
+    } else {
+        AdbModeChoice.OFF
+    }
+    val currentChoice = selectedChoice ?: activeChoice
+
+    val isPendingTurnOn = !isEnabled && (currentChoice == AdbModeChoice.TLS || currentChoice == AdbModeChoice.TCP)
+    val isConfigModified = isEnabled && (
+        currentChoice != activeChoice ||
+        (currentChoice == AdbModeChoice.TCP && isPortValid && parsedPort != activePort)
     )
 
     ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -253,39 +282,70 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
-                        selected = selectedMode == AdbMode.TLS,
+                        selected = currentChoice == AdbModeChoice.OFF,
                         onClick = {
+                            if (isEnabled) {
+                                confirmOff = true
+                            } else {
+                                selectedChoice = AdbModeChoice.OFF
+                            }
+                        },
+                        enabled = !busy && !loading,
+                        label = {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text(stringResource(R.string.adb_mode_off))
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = currentChoice == AdbModeChoice.TLS,
+                        onClick = {
+                            selectedChoice = AdbModeChoice.TLS
                             selectedMode = AdbMode.TLS
                             scope.launch(Dispatchers.IO) {
                                 WirelessAdbController.updateConfig(context, AdbMode.TLS, parsedPort ?: 5555)
                             }
                         },
-                        enabled = !busy,
-                        label = { Text(stringResource(R.string.adb_mode_tls)) },
+                        enabled = !busy && !loading,
+                        label = {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text(stringResource(R.string.adb_mode_tls))
+                            }
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
-                        selected = selectedMode == AdbMode.TCP,
+                        selected = currentChoice == AdbModeChoice.TCP,
                         onClick = {
+                            selectedChoice = AdbModeChoice.TCP
                             selectedMode = AdbMode.TCP
                             scope.launch(Dispatchers.IO) {
                                 WirelessAdbController.updateConfig(context, AdbMode.TCP, parsedPort ?: 5555)
                             }
                         },
-                        enabled = !busy,
-                        label = { Text(stringResource(R.string.adb_mode_tcp)) },
+                        enabled = !busy && !loading,
+                        label = {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text(stringResource(R.string.adb_mode_tcp))
+                            }
+                        },
                         modifier = Modifier.weight(1f)
                     )
                 }
                 Text(
-                    stringResource(if (selectedMode == AdbMode.TCP) R.string.adb_mode_tcp_summary else R.string.adb_mode_tls_summary),
+                    text = when (currentChoice) {
+                        AdbModeChoice.OFF -> stringResource(R.string.adb_mode_off_summary)
+                        AdbModeChoice.TCP -> stringResource(R.string.adb_mode_tcp_summary)
+                        else -> stringResource(R.string.adb_mode_tls_summary)
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             AnimatedVisibility(
-                visible = selectedMode == AdbMode.TCP,
+                visible = currentChoice == AdbModeChoice.TCP,
                 enter = AppMotion.expand(),
                 exit = AppMotion.collapse()
             ) {
@@ -346,49 +406,29 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                 ) { Text(stringResource(R.string.adb_helper_settings)) }
             }
 
-            if (info?.enabled == true) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        onClick = { confirmOff = true },
-                        enabled = !loading && !busy,
-                        modifier = if (isConfigModified) Modifier.weight(1f) else Modifier
-                    ) {
-                        Text(stringResource(if (busy) R.string.adb_control_working else R.string.adb_control_off))
-                    }
-                    if (isConfigModified) {
-                        Button(
-                            onClick = {
-                                perform {
-                                    WirelessAdbController.setEnabled(
-                                        context,
-                                        true,
-                                        selectedMode,
-                                        parsedPort ?: 5555
-                                    )
-                                }
-                            },
-                            enabled = !loading && !busy && (selectedMode != AdbMode.TCP || isPortValid),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(stringResource(R.string.adb_control_apply))
-                        }
-                    }
-                }
-            } else {
+            if (isConfigModified || isPendingTurnOn) {
                 Button(
                     onClick = {
+                        val targetMode = if (currentChoice == AdbModeChoice.TCP) AdbMode.TCP else AdbMode.TLS
                         perform {
                             WirelessAdbController.setEnabled(
                                 context,
                                 true,
-                                selectedMode,
+                                targetMode,
                                 parsedPort ?: 5555
                             )
                         }
                     },
-                    enabled = !loading && !busy && info?.enabled != null && (selectedMode != AdbMode.TCP || isPortValid)
+                    enabled = !loading && !busy && (currentChoice != AdbModeChoice.TCP || isPortValid),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(stringResource(if (busy) R.string.adb_control_working else R.string.adb_control_on))
+                    Text(
+                        stringResource(
+                            if (busy) R.string.adb_control_working
+                            else if (isConfigModified) R.string.adb_control_apply
+                            else R.string.adb_control_on
+                        )
+                    )
                 }
             }
 
@@ -481,6 +521,36 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         )
                     }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            stringResource(R.string.adb_candidates_title),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        val snapshot = info
+                        if (!snapshot?.addresses.isNullOrEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    expandAllAddresses = !expandAllAddresses
+                                    if (!expandAllAddresses) {
+                                        expandedAddressIndices = emptySet()
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text(
+                                    stringResource(if (expandAllAddresses) R.string.adb_address_collapse_all else R.string.adb_address_expand_all),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+
                     Text(
                         stringResource(R.string.adb_helper_candidates),
                         style = MaterialTheme.typography.bodySmall,
@@ -491,11 +561,13 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         Text(stringResource(R.string.adb_helper_no_address), style = MaterialTheme.typography.bodyMedium)
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            snapshot.addresses.forEach { (iface, address) ->
+                            snapshot.addresses.forEachIndexed { index, (iface, address) ->
+                                val isExpanded = expandAllAddresses || expandedAddressIndices.contains(index)
                                 val isIpv6 = address.contains(':')
                                 val formattedAddr = if (isIpv6) "[$address]" else address
                                 val isConnected = snapshot.connectedLocalAddresses.contains(address)
-                                val copyCmd = "adb connect $formattedAddr:${snapshot.port}"
+                                val endpointText = "$formattedAddr${snapshot.port?.let { ":$it" }.orEmpty()}"
+                                val copyCmd = "adb connect $endpointText"
 
                                 Surface(
                                     color = if (isConnected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
@@ -503,69 +575,167 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceVariant,
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = iface,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                        }
-
+                                    if (!isExpanded) {
                                         Row(
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Text(
-                                                text = "$formattedAddr${snapshot.port?.let { ":$it" }.orEmpty()}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontFamily = FontFamily.Monospace,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (isConnected) {
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = iface,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = endpointText,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (isConnected) {
+                                                    Surface(
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = stringResource(R.string.adb_address_active_badge),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onPrimary,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            TextButton(
+                                                onClick = {
+                                                    expandedAddressIndices = expandedAddressIndices + index
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Text(
+                                                    stringResource(R.string.adb_address_expand),
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    clipboard.setText(AnnotatedString(copyCmd))
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(R.string.adb_helper_copied, copyCmd),
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+                                                enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true && snapshot.port != null,
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.ContentCopy,
+                                                    contentDescription = stringResource(R.string.adb_helper_copy),
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
                                                 Surface(
-                                                    color = MaterialTheme.colorScheme.primary,
+                                                    color = MaterialTheme.colorScheme.surfaceVariant,
                                                     shape = RoundedCornerShape(4.dp)
                                                 ) {
                                                     Text(
-                                                        text = stringResource(R.string.adb_address_active_badge),
+                                                        text = iface,
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onPrimary,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+
+                                                if (isConnected) {
+                                                    Surface(
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = stringResource(R.string.adb_address_active_badge),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onPrimary,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                Spacer(Modifier.weight(1f))
+
+                                                TextButton(
+                                                    onClick = {
+                                                        expandedAddressIndices = expandedAddressIndices - index
+                                                        expandAllAddresses = false
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                                    modifier = Modifier.height(28.dp)
+                                                ) {
+                                                    Text(
+                                                        stringResource(R.string.adb_address_collapse),
+                                                        style = MaterialTheme.typography.labelSmall
+                                                    )
+                                                }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        clipboard.setText(AnnotatedString(copyCmd))
+                                                        Toast.makeText(
+                                                            context,
+                                                            context.getString(R.string.adb_helper_copied, copyCmd),
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    },
+                                                    enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true && snapshot.port != null,
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.ContentCopy,
+                                                        contentDescription = stringResource(R.string.adb_helper_copy),
+                                                        modifier = Modifier.size(16.dp),
+                                                        tint = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                 }
                                             }
-                                        }
 
-                                        IconButton(
-                                            onClick = {
-                                                clipboard.setText(AnnotatedString(copyCmd))
-                                                Toast.makeText(
-                                                    context,
-                                                    context.getString(R.string.adb_helper_copied, copyCmd),
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            },
-                                            enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true && snapshot.port != null,
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.ContentCopy,
-                                                contentDescription = stringResource(R.string.adb_helper_copy),
-                                                modifier = Modifier.size(16.dp),
-                                                tint = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            Text(
+                                                text = endpointText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth()
                                             )
                                         }
                                     }
@@ -591,6 +761,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
         confirmButton = {
             TextButton(onClick = {
                 confirmOff = false
+                selectedChoice = AdbModeChoice.OFF
                 perform { WirelessAdbController.setEnabled(context, false) }
             }) { Text(stringResource(R.string.adb_control_off)) }
         },

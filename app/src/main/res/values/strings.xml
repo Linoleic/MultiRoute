@@ -620,6 +620,11 @@
     <string name="adb_helper_settings_failed">无法打开开发者设置，请从系统设置手动进入。</string>
     <string name="adb_helper_details">展开连接详情</string>
     <string name="adb_helper_hide">收起连接详情</string>
+    <string name="adb_candidates_title">候选连接地址</string>
+    <string name="adb_address_expand">展开</string>
+    <string name="adb_address_collapse">收起</string>
+    <string name="adb_address_expand_all">展开全部</string>
+    <string name="adb_address_collapse_all">收起全部</string>
     <string name="adb_helper_candidates">以下是本机 Wi-Fi / 以太网的候选 IPv4 / IPv6 地址，尚未验证电脑端可达性。接口有地址不代表已连接电脑。</string>
     <string name="adb_helper_no_address">暂无可读取的局域网候选地址；若 Wi-Fi 已关联但没有地址，请检查地址获取状态。</string>
     <string name="adb_helper_copy">复制连接命令</string>
@@ -627,6 +632,8 @@
     <string name="adb_helper_tcp_note">首次连接请确保手机处于解锁状态。电脑端执行 adb connect 后，手机屏幕会弹出系统 USB 调试授权（RSA 密钥）确认窗口，勾选始终允许即可。此模式使用固定端口，无需配对码。</string>
 
     <string name="adb_mode_title">工作模式</string>
+    <string name="adb_mode_off">关闭</string>
+    <string name="adb_mode_off_summary">无线调试已关闭，选择上方模式可配置并开启</string>
     <string name="adb_mode_tls">原生 TLS</string>
     <string name="adb_mode_tcp">传统 TCP</string>
     <string name="adb_mode_tls_summary">Android 11+ 原生配对机制，动态随机端口</string>
