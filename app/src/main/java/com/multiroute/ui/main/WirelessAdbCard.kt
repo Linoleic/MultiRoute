@@ -595,32 +595,30 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                                 )
                                             }
 
-                                            Row(
-                                                modifier = Modifier.weight(1f),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = endpointText,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                if (isConnected) {
-                                                    Surface(
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        shape = RoundedCornerShape(4.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = stringResource(R.string.adb_address_active_badge),
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onPrimary,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                        )
-                                                    }
+                                            if (isConnected) {
+                                                Surface(
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.adb_address_active_badge),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onPrimary,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
                                                 }
                                             }
+
+                                            Text(
+                                                text = endpointText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
 
                                             TextButton(
                                                 onClick = {
@@ -688,7 +686,9 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                                             text = stringResource(R.string.adb_address_active_badge),
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = MaterialTheme.colorScheme.onPrimary,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            maxLines = 1,
+                                                            softWrap = false
                                                         )
                                                     }
                                                 }
