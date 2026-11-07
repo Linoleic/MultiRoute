@@ -178,4 +178,17 @@ class WirelessAdbInfoTest {
         assertTrue(info.connectedClients.isEmpty())
         assertTrue(info.connectedLocalAddresses.isEmpty())
     }
+
+    @Test fun tlsEnabledWithoutPortReportsListeningFalse() {
+        val lines = listOf(
+            "ENABLED=1",
+            "TCP_PORT=-1",
+            "SOCKETS_OK"
+        )
+        val info = WirelessAdbInfo.parse(lines, preferredMode = AdbMode.TLS)
+        assertEquals(AdbMode.TLS, info.mode)
+        assertEquals(true, info.enabled)
+        assertEquals(false, info.listening)
+        assertNull(info.port)
+    }
 }

@@ -237,7 +237,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         }
                     }
                 }
-                info?.enabled == true && info?.listening == false -> {
+                info?.enabled == true && info?.listening != true -> {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
                         shape = RoundedCornerShape(8.dp),

@@ -89,8 +89,23 @@ object WirelessAdbController {
         val ok = if (enabled) {
             when (mode) {
                 AdbMode.TLS -> {
+                    val tcpPortProp = SuHelper.executeShellWithOutput("getprop service.adb.tcp.port", timeoutSeconds = 2)
+                        .firstOrNull()?.trim()
+                    val tcpPortActive = tcpPortProp != null && tcpPortProp != "-1" && tcpPortProp.toIntOrNull()?.let { it > 0 } == true
+                    if (tcpPortActive) {
+                        SuHelper.executeCommand(
+                            "setprop service.adb.tcp.port -1 && setprop persist.adb.tcp.port \"\" && setprop ctl.restart adbd",
+                            timeoutSeconds = 4
+                        )
+                        delay(800)
+                    } else {
+                        SuHelper.executeCommand(
+                            "setprop service.adb.tcp.port -1 && setprop persist.adb.tcp.port \"\"",
+                            timeoutSeconds = 2
+                        )
+                    }
                     SuHelper.executeCommand(
-                        "setprop service.adb.tcp.port -1 && setprop persist.adb.tcp.port \"\" && setprop ctl.restart adbd && settings put global adb_wifi_enabled 1",
+                        "settings put global adb_wifi_enabled 0 && sleep 0.2 && settings put global adb_wifi_enabled 1",
                         timeoutSeconds = 4
                     )
                 }
@@ -109,7 +124,7 @@ object WirelessAdbController {
         }
         if (!ok) return AdbActionResult.FAILED
 
-        repeat(8) {
+        repeat(12) {
             currentCoroutineContext().ensureActive()
             val info = WirelessAdbInfo.read(context, preferredMode = mode)
             if (enabled) {
@@ -120,7 +135,7 @@ object WirelessAdbController {
             } else {
                 if (info.enabled == false && (info.listening != true || info.port == null)) return AdbActionResult.OFF
             }
-            delay(750)
+            delay(500)
         }
         return AdbActionResult.FAILED
     }

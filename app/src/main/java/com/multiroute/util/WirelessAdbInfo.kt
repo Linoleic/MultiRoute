@@ -104,8 +104,12 @@ data class WirelessAdbInfo(
                 }.toSet()
             } else null
 
-            val tlsListening = if (listeningPorts != null && tlsPort != null) tlsPort in listeningPorts else null
-            val tcpListening = if (listeningPorts != null && tcpPort != null) tcpPort in listeningPorts else null
+            val tlsListening = if (listeningPorts != null && tlsPort != null) tlsPort in listeningPorts
+                else if (listeningPorts != null && tlsPort == null) false
+                else null
+            val tcpListening = if (listeningPorts != null && tcpPort != null) tcpPort in listeningPorts
+                else if (listeningPorts != null && tcpPort == null) false
+                else null
 
             val mode = when {
                 preferredMode == AdbMode.TCP && (tcpListening == true || tcpPort != null) -> AdbMode.TCP
