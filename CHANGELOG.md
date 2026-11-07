@@ -5,47 +5,41 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
-## Unreleased
+## v1.7.1 - 2026-11-08
 
 **中文**
 
 ### 新增
 
-- **无线调试双模式支持**：支持选择「原生 TLS 模式」（Android 11+ 原生配对机制与动态随机端口）或「传统 TCP 模式」（经典 adbd 监听机制，支持自定义固定端口）。
-- **自定义监听端口**：传统 TCP 模式支持在 `1024..65535` 范围内自定义固定监听端口（默认 `5555`），提供合法性校验与一键恢复默认按钮。
-- **模式选择器整合「关闭」选项**：将原本单独放置的关闭无线调试操作整合进工作模式选择行，置于最左端形成「关闭 · 原生 TLS · 传统 TCP」三段式切换，关闭状态下选中模式即显示配置与开启选项，开启状态下点击关闭即唤起安全关闭确认。
-- **全局 IPv6 地址支持**：候选地址新增识别全局与 ULA IPv6 地址（排查链路本地与易过期的临时隐私地址），生成标准方括号命令（`[ipv6]:port`）。
-- **候选地址「展开」与自适应折叠**：为横向 DPI 较小或屏幕较窄机型提供地址多行展开选项，每个候选地址支持独立「展开/收起」，并在列表顶部提供「展开全部/收起全部」切换，确保长 IPv6 地址及双协议栈端口在窄屏下完整可视。
-- **电脑连接状态识别**：通过内核 socket 实时探查已建立的 ADB 连接（`ss -Hnt state established`），精准识别并展示已连接电脑的局域网 IP（如 `已连接电脑 (192.168.1.158) · 调试就绪`），无连接时清晰提示等待连接状态。
-- **候选地址卡片紧凑化与活跃标识**：将候选地址重构为单行紧凑列表项，配备等宽字体、紧凑复制按钮与复制反馈 Toast，并在正在提供 ADB 会话的本地地址旁展示「已连接」高亮标识。
-- **开机恢复安全边界说明弹窗**：开机恢复开关下方精简为单行摘要，详细安全边界与设计考量（锁屏首次解锁保护、10 分钟时间窗口、Wi-Fi SSID 绑定等）移至信息图标弹窗，降低视觉负担。
-- **运行中热应用与服务重载**：在调试已开启状态下修改工作模式或端口时，提供应用更改并自动重启 `adbd` 守护进程。
-- **开机恢复策略联动**：开机恢复配置保存并联动对应的工作模式与自定义端口，保持受控在指定 Wi-Fi SSID 与开机 10 分钟安全窗口内。
+- **无线调试双模式与端口自定义**：支持切换「原生 TLS 模式」（Android 11+ 随机端口）与「传统 TCP 模式」（支持 1024..65535 自定义端口），支持调试开启时热切换与开机恢复联动；模式选择器整合关闭选项。
+- **已连接电脑识别与候选地址优化**：实时探查并显示已连接电脑的局域网 IP 与就绪状态；候选地址卡片紧凑化并高亮活跃连接，支持全局 IPv6 地址与窄屏展开/收起。
 
 ### 变更
 
-- **副 Wi-Fi 连接稳定性**：针对 AOSP 原生多网络架构将连接轮询超时放宽至 20 秒，包容内核接口冷启动与 DHCP 握手流程，修复假性超时问题。
-- 连接详情文案与候选命令根据当前激活的工作模式动态适配，传统 TCP 模式提供 RSA 密钥指纹授权指引，原生 TLS 模式提供配对码指引。
+- **开机恢复说明弹窗**：开机恢复条目精简为单行摘要，安全边界与约束说明移至信息弹窗。
+- **副 Wi-Fi 连接超时放宽**：将连接轮询超时放宽至 20 秒，避免接口冷启动导致的假性超时。
+
+### 修复
+
+- **原生 TLS 模式启动时序**：修复从关闭状态或 TCP 模式切换至 TLS 模式时因 adbd 重启导致的启动竞争与状态误报。
+- **窄屏标签排版**：修复窄屏下未展开候选条目时长 IP 挤压「已连接」标签换行的问题。
 
 **English**
 
 ### Added
 
-- **Dual-mode wireless debugging:** Choose between Native TLS (Android 11+ pairing mechanism with dynamic random port) and Legacy TCP (classic adbd mechanism with customizable fixed port).
-- **Custom listening port:** Support customizing the listening port within `1024..65535` in Legacy TCP mode (defaults to `5555`), with range validation and a one-click reset button.
-- **Integrated 'Off' mode choice:** Consolidate the enable/disable action into the operating mode selector as an "Off · Native TLS · Legacy TCP" 3-way toggle placed at the far left. Selecting a mode while off displays configuration and an enable action; selecting Off while running triggers the safe shutdown confirmation.
-- **Global IPv6 candidate addresses:** Detect Global and ULA IPv6 addresses on Wi-Fi interfaces while excluding link-local and ephemeral SLAAC privacy addresses, formatting them with bracketed syntax (`[ipv6]:port`).
-- **Candidate address expand toggle:** Add per-item "Expand / Collapse" buttons and an "Expand all / Collapse all" header toggle for candidate addresses, ensuring long IPv6 and dual-stack endpoints wrap gracefully and display completely on devices with narrower horizontal DPI.
-- **Active workstation connection detection:** Detect established ADB client sockets via kernel state (`ss -Hnt state established`) to display the connected computer IP (e.g. `Connected to computer (192.168.1.158) · Ready`) or waiting state.
-- **Compact candidate address tiles with active badge:** Redesign candidate addresses into compact single-row tiles featuring monospace typography, a quick-copy icon button with toast feedback, and an active "Connected" pill on the serving interface address.
-- **Boot recovery security info dialog:** Condense boot recovery description to a concise 1-line subtitle, moving full security constraints (first-unlock requirement, 10-minute expiry, SSID binding) into an info icon dialog.
-- **Runtime hot-switch and daemon reload:** Allow switching modes or changing ports while debugging is active, with an apply button to restart the adbd daemon.
-- **Boot recovery dual-mode integration:** Save the operating mode and custom port alongside boot recovery policy, continuing to enforce the designated Wi-Fi SSID and 10-minute security window.
+- **Dual-mode wireless debugging & custom port:** Switch between Native TLS (Android 11+ dynamic port) and Legacy TCP (custom port 1024..65535), with live hot-switching, boot recovery sync, and an integrated "Off" choice in the mode selector.
+- **Workstation detection & candidate address UX:** Detect and display active computer IPs and ready status; redesign candidate addresses into compact tiles with active connection badges, supporting global IPv6 addresses and narrow-screen expand/collapse.
 
 ### Changed
 
-- **Secondary Wi-Fi stability:** Extend connection polling timeout to 20 seconds for the AOSP overlay scheme to accommodate interface cold-start and DHCP negotiation, resolving premature timeouts.
-- Adapt connection notes and candidate commands dynamically to the active mode, displaying RSA fingerprint authorization guidance for Legacy TCP and pairing code instructions for Native TLS.
+- **Boot recovery info dialog:** Streamline boot recovery description to a single-line summary with security bounds moved into an info dialog.
+- **Secondary Wi-Fi timeout:** Extend connection polling timeout to 20 seconds to prevent premature timeouts during interface cold-start.
+
+### Fixed
+
+- **Native TLS startup race condition:** Resolve an adbd restart race condition and false unknown status prompt when enabling Native TLS mode.
+- **Narrow-screen label layout:** Fix long IP addresses squeezing the "Connected" badge into a multi-line wrap on narrow screens.
 
 ## v1.7.0 - 2026-11-07
 
