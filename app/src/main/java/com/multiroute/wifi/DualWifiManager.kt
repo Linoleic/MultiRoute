@@ -1638,10 +1638,11 @@ DUALWIFI_EOF
                 SuHelper.executeCommand("cmd wifi start-scan", timeoutSeconds = 3)
             }
 
-            // 4. Poll for secondary connection for up to 12 seconds with auth failure detection
+            // 4. Poll for secondary connection (AOSP multi-internet needs nl80211 wlan1 cold-start + DHCP)
             var connected = false
             var failureReason: String? = null
-            for (i in 0 until 12) {
+            val maxAttempts = if (isXiaomiSlave) 12 else 20
+            for (i in 0 until maxAttempts) {
                 delay(1000)
                 checkCurrentSecondaryIntent(ticket)
                 refreshConnectionState(context)
@@ -1653,9 +1654,9 @@ DUALWIFI_EOF
                 }
 
                 // Check recent logcat for handshake failures
-                if (i in 2..10) {
+                if (i in 2..(maxAttempts - 2)) {
                     val logs = SuHelper.executeShellWithOutput(
-                        "logcat -d -t 30 -s wpa_supplicant:I WifiClientModeImpl:D | grep -E 'WRONG_KEY|AUTH_FAILURE|Association rejection'",
+                        "logcat -d -t 30 -s wpa_supplicant:I WifiClientModeImpl:D ClientModeImpl:D | grep -E 'WRONG_KEY|AUTH_FAILURE|Association rejection'",
                         timeoutSeconds = 2
                     )
                     for (line in logs) {

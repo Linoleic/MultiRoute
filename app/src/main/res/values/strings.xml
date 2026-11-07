@@ -613,10 +613,10 @@
     <string name="adb_helper_settings_failed">无法打开开发者设置，请从系统设置手动进入。</string>
     <string name="adb_helper_details">展开连接详情</string>
     <string name="adb_helper_hide">收起连接详情</string>
-    <string name="adb_helper_candidates">以下是本机 Wi-Fi / 以太网的候选 IPv4 地址，尚未验证电脑端可达性。接口有地址不代表已连接电脑。</string>
-    <string name="adb_helper_no_address">暂无可读取的局域网 IPv4 地址；若 Wi-Fi 已关联但没有地址，请检查地址获取状态。</string>
+    <string name="adb_helper_candidates">以下是本机 Wi-Fi / 以太网的候选 IPv4 / IPv6 地址，尚未验证电脑端可达性。接口有地址不代表已连接电脑。</string>
+    <string name="adb_helper_no_address">暂无可读取的局域网候选地址；若 Wi-Fi 已关联但没有地址，请检查地址获取状态。</string>
     <string name="adb_helper_copy">复制连接命令</string>
-    <string name="adb_helper_pairing_note">首次连接请在系统无线调试页面完成配对。这里使用连接端口，不是配对端口。地址或端口变化后请刷新。IPv6 链路本地连接需要电脑端的接口范围标识，暂不生成命令。</string>
+    <string name="adb_helper_pairing_note">首次连接请在系统无线调试页面完成配对。这里使用连接端口，不是配对端口。地址或端口变化后请刷新。IPv6 链路本地连接需客户端接口范围标识，这里仅展示全局与 ULA IPv6 地址。</string>
     <string name="adb_helper_tcp_note">首次连接请确保手机处于解锁状态。电脑端执行 adb connect 后，手机屏幕会弹出系统 USB 调试授权（RSA 密钥）确认窗口，勾选始终允许即可。此模式使用固定端口，无需配对码。</string>
 
     <string name="adb_mode_title">工作模式</string>

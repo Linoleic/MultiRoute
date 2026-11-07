@@ -613,10 +613,10 @@
     <string name="adb_helper_settings_failed">Could not open developer settings. Open them manually in system settings.</string>
     <string name="adb_helper_details">Show connection details</string>
     <string name="adb_helper_hide">Hide connection details</string>
-    <string name="adb_helper_candidates">Candidate IPv4 addresses on local Wi-Fi / Ethernet interfaces. Workstation reachability has not been verified. An address does not mean a workstation is connected.</string>
-    <string name="adb_helper_no_address">No local IPv4 address could be read. If Wi-Fi is associated without an address, check address provisioning.</string>
+    <string name="adb_helper_candidates">Candidate IPv4/IPv6 addresses on local Wi-Fi / Ethernet interfaces. Workstation reachability has not been verified. An address does not mean a workstation is connected.</string>
+    <string name="adb_helper_no_address">No local candidate address could be read. If Wi-Fi is associated without an address, check address provisioning.</string>
     <string name="adb_helper_copy">Copy connection command</string>
-    <string name="adb_helper_pairing_note">Pair in system wireless debugging settings before the first connection. These commands use the connection port, not the pairing port. Refresh after address or port changes. IPv6 link-local connections need the workstation interface scope; commands are not generated yet.</string>
+    <string name="adb_helper_pairing_note">Pair in system wireless debugging settings before the first connection. These commands use the connection port, not the pairing port. Refresh after address or port changes. IPv6 link-local addresses require a client-side interface scope; only Global and ULA IPv6 addresses are shown.</string>
     <string name="adb_helper_tcp_note">Keep the device unlocked for the first connection. After running adb connect on your computer, accept the system debugging authorization (RSA key) prompt on screen. This mode uses a fixed port and does not require a pairing code.</string>
 
     <string name="adb_mode_title">Operating mode</string>

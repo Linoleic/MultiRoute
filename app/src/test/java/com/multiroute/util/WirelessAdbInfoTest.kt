@@ -29,6 +29,28 @@ class WirelessAdbInfoTest {
         assertEquals(listOf("wlan0" to "192.168.1.207", "wlan1" to "192.168.137.73"), info.addresses)
     }
 
+    @Test fun ipv6GlobalScopeAcceptedAndLinkLocalRejected() {
+        val lines = listOf(
+            "ENABLED=1", "PORT=37425", "SOCKETS_OK",
+            "LISTEN 0 4 [::]:37425 [::]:*",
+            "15: wlan0    inet 192.168.1.240/24 brd 192.168.1.255 scope global wlan0",
+            "15: wlan0    inet6 fd77:2c88:73a5:0:6fc0:68b6:341e:f71/64 scope global temporary dynamic wlan0",
+            "15: wlan0    inet6 fd77:2c88:73a5:0:7462:12ff:fea1:ebfc/64 scope global dynamic mngtmpaddr wlan0",
+            "15: wlan0    inet6 fe80::7462:12ff:fea1:ebfc/64 scope link wlan0",
+            "21: tun0     inet6 2001:db8::1/64 scope global tun0"
+        )
+        val info = WirelessAdbInfo.parse(lines)
+        assertEquals(true, info.listening)
+        // Temporary SLAAC is skipped; link-local fe80 is skipped; tun0 is skipped
+        assertEquals(
+            listOf(
+                "wlan0" to "192.168.1.240",
+                "wlan0" to "fd77:2c88:73a5:0:7462:12ff:fea1:ebfc"
+            ),
+            info.addresses
+        )
+    }
+
     @Test fun invalidPortAndIncompleteReadDoNotClaimListening() {
         assertNull(WirelessAdbInfo.parse(listOf("PORT=65536", "SOCKETS_OK")).port)
         assertNull(WirelessAdbInfo.parse(listOf("PORT=37425", "LISTEN 0 4 *:37425 *:*")).listening)

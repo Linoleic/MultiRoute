@@ -32,6 +32,7 @@ data class WirelessAdbInfo(
               echo SOCKETS_OK
             fi
             ip -o -4 addr show up scope global 2>/dev/null
+            ip -o -6 addr show up scope global 2>/dev/null
         """.trimIndent(), timeoutSeconds = 4)
             val propertyTlsPort = lines.firstOrNull { it.startsWith("TLS_PORT=") }?.substringAfter('=')
                 ?.toIntOrNull()?.takeIf { it in 1..65535 }
@@ -122,15 +123,27 @@ data class WirelessAdbInfo(
                 }
             }
 
-            val addressPattern = Regex("^\\d+:\\s+(\\S+)\\s+inet\\s+([0-9.]+)/\\d+")
+            val addressPattern = Regex("""^\d+:\s+(\S+)\s+(inet6?)\s+([0-9a-fA-F:.]+)/\d+""")
             val addresses = lines.mapNotNull { line ->
+                if (line.contains(" temporary ")) return@mapNotNull null
                 val match = addressPattern.find(line.trim()) ?: return@mapNotNull null
                 val iface = match.groupValues[1].substringBefore('@')
                 if (!Regex("(?:wlan|eth|ap|swlan)\\d+").matches(iface)) return@mapNotNull null
-                val ip = match.groupValues[2]
-                if (ip.split('.').size != 4 || ip.split('.').any { it.toIntOrNull() !in 0..255 })
-                    return@mapNotNull null
-                iface to ip
+                val proto = match.groupValues[2]
+                val ip = match.groupValues[3]
+                when (proto) {
+                    "inet" -> {
+                        if (ip.split('.').size != 4 || ip.split('.').any { it.toIntOrNull() !in 0..255 })
+                            return@mapNotNull null
+                        iface to ip
+                    }
+                    "inet6" -> {
+                        if (!ip.contains(':') || ip.startsWith("fe80", ignoreCase = true))
+                            return@mapNotNull null
+                        iface to ip
+                    }
+                    else -> null
+                }
             }.distinct()
 
             val tls = when (lines.firstOrNull { it.startsWith("TLS=") }?.substringAfter('=')) {

@@ -13,11 +13,13 @@ bilingual, Chinese first: the release page is what most users read.
 
 - **无线调试双模式支持**：支持选择「原生 TLS 模式」（Android 11+ 原生配对机制与动态随机端口）或「传统 TCP 模式」（经典 adbd 监听机制，支持自定义固定端口）。
 - **自定义监听端口**：传统 TCP 模式支持在 `1024..65535` 范围内自定义固定监听端口（默认 `5555`），提供合法性校验与一键恢复默认按钮。
+- **全局 IPv6 地址支持**：候选地址新增识别全局与 ULA IPv6 地址（排查链路本地与易过期的临时隐私地址），生成标准方括号命令（`[ipv6]:port`）。
 - **运行中热应用与服务重载**：在调试已开启状态下修改工作模式或端口时，提供应用更改并自动重启 `adbd` 守护进程。
 - **开机恢复策略联动**：开机恢复配置保存并联动对应的工作模式与自定义端口，保持受控在指定 Wi-Fi SSID 与开机 10 分钟安全窗口内。
 
 ### 变更
 
+- **副 Wi-Fi 连接稳定性**：针对 AOSP 原生多网络架构将连接轮询超时放宽至 20 秒，包容内核接口冷启动与 DHCP 握手流程，修复假性超时问题。
 - 连接详情文案与候选命令根据当前激活的工作模式动态适配，传统 TCP 模式提供 RSA 密钥指纹授权指引，原生 TLS 模式提供配对码指引。
 
 **English**
@@ -26,11 +28,13 @@ bilingual, Chinese first: the release page is what most users read.
 
 - **Dual-mode wireless debugging:** Choose between Native TLS (Android 11+ pairing mechanism with dynamic random port) and Legacy TCP (classic adbd mechanism with customizable fixed port).
 - **Custom listening port:** Support customizing the listening port within `1024..65535` in Legacy TCP mode (defaults to `5555`), with range validation and a one-click reset button.
+- **Global IPv6 candidate addresses:** Detect Global and ULA IPv6 addresses on Wi-Fi interfaces while excluding link-local and ephemeral SLAAC privacy addresses, formatting them with bracketed syntax (`[ipv6]:port`).
 - **Runtime hot-switch and daemon reload:** Allow switching modes or changing ports while debugging is active, with an apply button to restart the adbd daemon.
 - **Boot recovery dual-mode integration:** Save the operating mode and custom port alongside boot recovery policy, continuing to enforce the designated Wi-Fi SSID and 10-minute security window.
 
 ### Changed
 
+- **Secondary Wi-Fi stability:** Extend connection polling timeout to 20 seconds for the AOSP overlay scheme to accommodate interface cold-start and DHCP negotiation, resolving premature timeouts.
 - Adapt connection notes and candidate commands dynamically to the active mode, displaying RSA fingerprint authorization guidance for Legacy TCP and pairing code instructions for Native TLS.
 
 ## v1.7.0 - 2026-11-07

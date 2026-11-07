@@ -340,11 +340,12 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         Text(stringResource(R.string.adb_helper_no_address), style = MaterialTheme.typography.bodyMedium)
                     }
                     snapshot?.addresses?.forEach { (iface, address) ->
+                        val formattedAddr = if (address.contains(':')) "[$address]" else address
                         Column(Modifier.fillMaxWidth()) {
-                            Text("$iface · $address${snapshot.port?.let { ":$it" }.orEmpty()}", style = MaterialTheme.typography.bodyMedium)
+                            Text("$iface · $formattedAddr${snapshot.port?.let { ":$it" }.orEmpty()}", style = MaterialTheme.typography.bodyMedium)
                             TextButton(
                                 onClick = {
-                                    clipboard.setText(AnnotatedString("adb connect $address:${snapshot.port}"))
+                                    clipboard.setText(AnnotatedString("adb connect $formattedAddr:${snapshot.port}"))
                                 },
                                 enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true && snapshot.port != null
                             ) {
