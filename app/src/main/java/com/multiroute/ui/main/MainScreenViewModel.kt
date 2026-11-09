@@ -1,1366 +1,263 @@
 package com.multiroute.ui.main
 
 import android.app.Application
-import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.LinkProperties
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.multiroute.cellular.CellularSubscription
-import com.multiroute.cellular.CellularSubscriptions
-import com.multiroute.cellular.DualSimController
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import com.multiroute.data.RouteConfigProvider
-import com.multiroute.data.RuleTarget
-import com.multiroute.data.TestServerManager
-import com.multiroute.model.AppItem
-import com.multiroute.model.CHANNEL_DEFAULT
-import com.multiroute.model.NetworkChannel
-import com.multiroute.model.TestServerConfig
-import com.multiroute.util.DiagnosticInfo
-import com.multiroute.util.NetworkUtils
-import com.multiroute.data.ScenarioStore
 import com.multiroute.data.ConfigTransfer
-import com.multiroute.model.ScenarioObservation
-import com.multiroute.model.ScenarioProfile
+import com.multiroute.model.AppItem
+import com.multiroute.model.NetworkChannel
 import com.multiroute.model.ScenarioTrigger
-import com.multiroute.util.ScenarioEngine
-import com.multiroute.util.SuHelper
-import kotlinx.coroutines.Dispatchers
+import com.multiroute.wifi.DualWifiManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-data class CellularControlUiState(
-    val mode: Int = 0,
-    val subscriptions: List<CellularSubscription> = emptyList(),
-    val isBusy: Boolean = false,
-    val hasFailed: Boolean = false,
-    val detailsExpanded: Boolean = false,
-    val preferredMode: Int = 2,
-    val isLoaded: Boolean = false
-)
-
-data class MainUiState(
-    val requestedNetworkTool: NetworkTool? = null,
-    val networkToolReturnTab: Int? = null,
-    val selectedTab: Int = 0, // 0: 应用分流, 1: 网络通道, 2: 工具, 3: 设置
-    val isLoadingApps: Boolean = true,
-    val isRootGranted: Boolean = false,
-    val supportsCellularData: Boolean = false,
-    val isMobileDataAlwaysOn: Boolean = false,
-    val isKeepSlaveWifiScreenOff: Boolean = false,
-    val isDnsFollowsChannel: Boolean = true,
-    val isAutoFailoverEnabled: Boolean = true,
-    val failoverHoldOffSeconds: Int = 3,
-    val isFailoverProbeInternet: Boolean = true,
-    val channels: List<NetworkChannel> = emptyList(),
-    val testResults: Map<String, String> = emptyMap(),
-    val isTesting: Boolean = false,
-    val apps: List<AppItem> = emptyList(),
-    val totalAppsCount: Int = 0,
-    val configuredAppsCount: Int = 0,
-    val searchQuery: String = "",
-    val showSystemApps: Boolean = false,
-    val filterChannelId: String? = null,
-    val selectedAppForSheet: AppItem? = null,
-    val selectedChannelForDetail: NetworkChannel? = null,
-    val isTestingSingleChannel: Boolean = false,
-    val isSyncing: Boolean = false,
-    val snackBarMessage: String? = null,
-    val diagnosticInfo: DiagnosticInfo? = null,
-    val isEnvironmentRefreshing: Boolean = false,
-    val environmentRefreshFailed: Boolean = false,
-    val testServerConfig: TestServerConfig = TestServerConfig(),
-    val showTestServerDialog: Boolean = false,
-    val showLogsDialog: Boolean = false,
-    val isLoadingLogs: Boolean = false,
-    val logsContent: String = "",
-    // 批量通道分配多选状态
-    val isSelectionMode: Boolean = false,
-    val selectedRuleKeys: Set<String> = emptySet(),
-    val showBatchAssignSheet: Boolean = false,
-    // 场景方案
-    val scenarioProfiles: List<ScenarioProfile> = emptyList(),
-    val activeScenarioId: String? = null,
-    /** Every plan that is applying right now; more than one when several conditions match at once. */
-    val activeScenarioIds: Set<String> = emptySet(),
-    /** Plan id → how many of its apps a later (higher-priority) active plan re-routed. */
-    val scenarioConflicts: Map<String, Int> = emptyMap(),
-    val activeScenarioName: String? = null,
-    val activeScenarioTrigger: ScenarioTrigger? = null,
-    val activeScenarioSsid: String? = null,
-    val activeScenarioManual: Boolean = false,
-    val manualScenarioId: String = "",
-    /** True when conditions are ignored and plans are switched by hand only. */
-    val scenarioManualMode: Boolean = false,
-    /** Plans switched on by hand; several can be on at once. */
-    val manualScenarioIds: Set<String> = emptySet(),
-    val showScenarioSheet: Boolean = false,
-    val showScenarioSaveDialog: Boolean = false,
-    /** id of the plan whose overrides are being edited; null when assignments go to the base. */
-    val scenarioEditId: String? = null,
-    val scenarioDetailsId: String? = null,
-    val showScenarioDetailsDialog: Boolean = false,
-    // 配置导入导出
-    val configPath: String = "",
-    val pendingImportJson: String? = null,
-    val configImportPreview: ConfigTransfer.Preview? = null,
-    val configImportSections: Set<ConfigTransfer.Section> = emptySet(),
-    val configAppearanceImported: Boolean = false,
-    val showConfigImportConfirm: Boolean = false,
-    val isConfigBusy: Boolean = false
-)
-
+/**
+ * Presentation ViewModel serving as a thin Facade for the MainScreen tabs and overlays.
+ * Business domains are delegated to cohesive controllers:
+ * - [AppRoutingDelegate]: App scanning, searching, selection, and rule binding
+ * - [ScenarioDelegate]: Profile management, condition evaluation, and overrides
+ * - [ConfigTransferDelegate]: Backup JSON export, validation, and transactional import
+ * - [EnvironmentAndChannelDelegate]: Network status monitoring, diagnostics, egress tests, and cellular SIM control
+ */
 class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _uiState = MutableStateFlow(MainUiState(supportsCellularData =
+    private val supportsCellular =
         application.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) ||
-            (android.os.Build.VERSION.SDK_INT >= 33 && application.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_DATA))))
+            (Build.VERSION.SDK_INT >= 33 && application.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_DATA))
+
+    private val _uiState = MutableStateFlow(
+        MainUiState(env = SystemEnvUiState(supportsCellularData = supportsCellular))
+    )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
     private val _cellularControlState = MutableStateFlow(CellularControlUiState())
     val cellularControlState: StateFlow<CellularControlUiState> = _cellularControlState.asStateFlow()
 
-    private var allApps: List<AppItem> = emptyList()
-    private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-    private var lastNetworkChangeTime = 0L
-    private var recoveryJob: Job? = null
-    private var environmentRefreshCount = 0
-
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            handleNetworkAvailable()
-        }
-
-        override fun onLost(network: Network) {
-            handleNetworkLost()
-        }
-
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            handleNetworkChanged()
-        }
-
-        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            handleNetworkChanged()
-        }
+    private val envDelegate: EnvironmentAndChannelDelegate by lazy {
+        EnvironmentAndChannelDelegate(
+            application = getApplication(),
+            scope = viewModelScope,
+            uiStateFlow = _uiState,
+            cellularControlStateFlow = _cellularControlState,
+            onRefreshScenario = { scenarioDelegate.refreshScenarioState() }
+        )
     }
 
-    private fun handleNetworkLost() {
-        // Hard failure: Disconnected or out of range. If auto failover is enabled,
-        // cancel any pending recovery debounce and trigger immediate rule resync (so kernel rules fall through).
-        recoveryJob?.cancel()
-        val now = System.currentTimeMillis()
-        if (now - lastNetworkChangeTime < 300L) return
-        lastNetworkChangeTime = now
-        viewModelScope.launch {
-            try {
-                val context = getApplication<Application>()
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
-                _uiState.value = _uiState.value.copy(channels = activeChannels)
-                refreshScenarioState()
-                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-            } catch (_: Exception) {}
-        }
+    private val appRoutingDelegate: AppRoutingDelegate by lazy {
+        AppRoutingDelegate(
+            application = getApplication(),
+            scope = viewModelScope,
+            uiStateFlow = _uiState,
+            onRefreshEnvironment = { envDelegate.refreshEnvironment() },
+            onRefreshScenario = { scenarioDelegate.refreshScenarioState() },
+            onPlanOverrideValue = { channelId -> scenarioDelegate.planOverrideValue(channelId) },
+            onAddBatchScenarioOverrides = { editingId, keys, channelId ->
+                scenarioDelegate.addOverridesToScenario(editingId, keys, channelId)
+            },
+            onFinishScenarioEdit = { scenarioDelegate.finishEditingScenario() }
+        )
     }
 
-    private fun handleNetworkAvailable() {
-        val context = getApplication<Application>()
-        val holdOffSecs = RouteConfigProvider.getFailoverHoldOffSeconds(context)
-        recoveryJob?.cancel()
-        recoveryJob = viewModelScope.launch {
-            val hasScenarios = com.multiroute.data.ScenarioStore.load(context).isNotEmpty()
-            val isFailover = RouteConfigProvider.isAutoFailoverEnabled(context)
-            // Anti-flapping hold-off debounce delay: wait for interface to stabilize before restoring rules or switching scenarios
-            if ((isFailover || hasScenarios) && holdOffSecs > 0) {
-                delay(holdOffSecs * 1000L)
+    private val scenarioDelegate: ScenarioDelegate by lazy {
+        ScenarioDelegate(
+            application = getApplication(),
+            scope = viewModelScope,
+            uiStateFlow = _uiState,
+            transformAllApps = { transform -> appRoutingDelegate.transformAllApps(transform) },
+            onFilterApps = { appRoutingDelegate.filterApps() }
+        )
+    }
+
+    private val configDelegate: ConfigTransferDelegate by lazy {
+        ConfigTransferDelegate(
+            application = getApplication(),
+            scope = viewModelScope,
+            uiStateFlow = _uiState,
+            onReloadAfterImport = {
+                appRoutingDelegate.loadInstalledApps()
+                scenarioDelegate.refreshScenarioState()
+                envDelegate.loadTestServerConfig()
+                envDelegate.refreshEnvironment()
             }
-            try {
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
-                _uiState.value = _uiState.value.copy(channels = activeChannels)
-                refreshScenarioState()
-                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-            } catch (_: Exception) {}
-        }
-    }
-
-    private fun handleNetworkChanged() {
-        if (recoveryJob?.isActive == true) return
-        val now = System.currentTimeMillis()
-        if (now - lastNetworkChangeTime < 1500L) return
-        lastNetworkChangeTime = now
-        viewModelScope.launch {
-            try {
-                val context = getApplication<Application>()
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
-                _uiState.value = _uiState.value.copy(channels = activeChannels)
-                refreshScenarioState()
-                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-            } catch (_: Exception) {}
-        }
+        )
     }
 
     init {
-        loadTestServerConfig()
-        refreshEnvironment()
-        loadInstalledApps()
-        try {
-            val request = NetworkRequest.Builder().build()
-            connectivityManager?.registerNetworkCallback(request, networkCallback)
-        } catch (_: Exception) {}
+        envDelegate.loadTestServerConfig()
+        envDelegate.refreshEnvironment()
+        appRoutingDelegate.loadInstalledApps()
+        envDelegate.registerNetworkCallbacks()
     }
 
     override fun onCleared() {
         super.onCleared()
-        try {
-            connectivityManager?.unregisterNetworkCallback(networkCallback)
-        } catch (_: Exception) {}
+        envDelegate.unregisterNetworkCallbacks()
     }
 
-    suspend fun refreshCellularControlState() {
-        if (_cellularControlState.value.isBusy) return
-        try {
-            val mode = DualSimController.status()
-            val subscriptions = CellularSubscriptions.read(getApplication<Application>())
-            val current = _cellularControlState.value
-            if (current.isBusy) return
-            _cellularControlState.value = current.copy(
-                mode = mode,
-                subscriptions = subscriptions,
-                preferredMode = if (mode != 0) mode else current.preferredMode,
-                isLoaded = true
-            )
-            if (subscriptions != current.subscriptions) refreshEnvironment()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            val current = _cellularControlState.value
-            if (!current.isLoaded) _cellularControlState.value = current.copy(isLoaded = true)
-        }
-    }
+    // ------------------------------------------------------------------ Cellular Control
+    suspend fun refreshCellularControlState() = envDelegate.refreshCellularControlState()
+    fun setCellularDetailsExpanded(expanded: Boolean) = envDelegate.setCellularDetailsExpanded(expanded)
+    fun setCellularPreferredMode(mode: Int) = envDelegate.setCellularPreferredMode(mode)
+    fun selectCellularMode(mode: Int) = envDelegate.selectCellularMode(mode)
 
-    fun setCellularDetailsExpanded(expanded: Boolean) {
-        _cellularControlState.value = _cellularControlState.value.copy(detailsExpanded = expanded)
-    }
-
-    fun setCellularPreferredMode(mode: Int) {
-        if (mode !in 1..2) return
-        val current = _cellularControlState.value
-        if (current.mode != 0 || current.isBusy) return
-        _cellularControlState.value = current.copy(preferredMode = mode)
-    }
-
-    fun selectCellularMode(mode: Int) {
-        val current = _cellularControlState.value
-        if (mode !in 0..2 || current.isBusy) return
-        if (mode != 0 && (current.subscriptions.size != 2 ||
-                    current.subscriptions.singleOrNull { !it.isDefault } == null)) return
-
-        _cellularControlState.value = current.copy(isBusy = true, hasFailed = false)
-        viewModelScope.launch {
-            try {
-                val succeeded = DualSimController.select(getApplication<Application>(), mode)
-                val actualMode = DualSimController.status()
-                val latest = _cellularControlState.value
-                _cellularControlState.value = latest.copy(
-                    mode = actualMode,
-                    preferredMode = if (actualMode != 0) actualMode else latest.preferredMode,
-                    hasFailed = !succeeded,
-                    isLoaded = true
-                )
-                refreshEnvironment()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                _cellularControlState.value = _cellularControlState.value.copy(hasFailed = true)
-            } finally {
-                _cellularControlState.value = _cellularControlState.value.copy(isBusy = false)
-            }
-        }
-    }
-
-    private fun loadTestServerConfig() {
-        val config = TestServerManager.getConfig(getApplication())
-        _uiState.value = _uiState.value.copy(testServerConfig = config)
-    }
-
+    // ------------------------------------------------------------------ Navigation & Dialogs
     fun openTestServerDialog() {
-        _uiState.value = _uiState.value.copy(showTestServerDialog = true)
+        _uiState.update { it.copy(navigation = it.navigation.copy(showTestServerDialog = true)) }
     }
 
     fun closeTestServerDialog() {
-        _uiState.value = _uiState.value.copy(showTestServerDialog = false)
+        _uiState.update { it.copy(navigation = it.navigation.copy(showTestServerDialog = false)) }
     }
 
-    fun updateTestServerConfig(presetId: String, customUrl: String? = null) {
-        val context = getApplication<Application>()
-        val newConfig = TestServerManager.saveConfig(context, presetId, customUrl)
-        _uiState.value = _uiState.value.copy(
-            testServerConfig = newConfig,
-            showTestServerDialog = false,
-            snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_test_node_set, newConfig.displayName(getApplication()))
-        )
-    }
+    fun updateTestServerConfig(presetId: String, customUrl: String? = null) =
+        envDelegate.updateTestServerConfig(presetId, customUrl)
 
     fun setSelectedTab(index: Int) {
-        _uiState.value = _uiState.value.copy(
-            selectedTab = index,
-            requestedNetworkTool = null,
-            networkToolReturnTab = null,
-            isSelectionMode = if (index != 0) false else _uiState.value.isSelectionMode,
-            selectedRuleKeys = if (index != 0) emptySet() else _uiState.value.selectedRuleKeys,
-            showBatchAssignSheet = if (index != 0) false else _uiState.value.showBatchAssignSheet
-        )
+        _uiState.update { state ->
+            state.copy(
+                navigation = state.navigation.copy(
+                    selectedTab = index,
+                    requestedNetworkTool = null,
+                    networkToolReturnTab = null
+                ),
+                routing = if (index != 0) {
+                    state.routing.copy(
+                        isSelectionMode = false,
+                        selectedRuleKeys = emptySet(),
+                        showBatchAssignSheet = false
+                    )
+                } else state.routing
+            )
+        }
         if (index == 3) {
-            refreshEnvironment()
+            envDelegate.refreshEnvironment()
         }
     }
 
     fun openNetworkTool(tool: NetworkTool) {
-        _uiState.value = _uiState.value.copy(selectedTab = 2, requestedNetworkTool = tool, networkToolReturnTab = 1)
+        _uiState.update {
+            it.copy(
+                navigation = it.navigation.copy(
+                    selectedTab = 2,
+                    requestedNetworkTool = tool,
+                    networkToolReturnTab = 1
+                )
+            )
+        }
     }
 
     fun consumeNetworkToolRequest() {
-        _uiState.value = _uiState.value.copy(requestedNetworkTool = null)
+        _uiState.update { it.copy(navigation = it.navigation.copy(requestedNetworkTool = null)) }
     }
 
     fun returnFromNetworkTool() {
-        val target = _uiState.value.networkToolReturnTab ?: return
+        val target = _uiState.value.navigation.networkToolReturnTab ?: return
         setSelectedTab(target)
     }
 
-    fun enterSelectionMode(initialPackage: String? = null) {
-        val selected = if (initialPackage != null) setOf(initialPackage) else emptySet()
-        _uiState.value = _uiState.value.copy(
-            isSelectionMode = true,
-            selectedRuleKeys = selected
-        )
-    }
-
-    fun exitSelectionMode() {
-        // Leaving the selection also ends scenario edit mode: everything assigned there is already stored
-        // in the plan, so nothing is lost, and the app list goes back to the base configuration.
-        if (_uiState.value.scenarioEditId != null) {
-            finishEditingScenario()
-            return
-        }
-        _uiState.value = _uiState.value.copy(
-            isSelectionMode = false,
-            selectedRuleKeys = emptySet(),
-            showBatchAssignSheet = false
-        )
-    }
-
-    fun toggleSelectApp(ruleKey: String) {
-        val current = _uiState.value.selectedRuleKeys.toMutableSet()
-        if (current.contains(ruleKey)) {
-            current.remove(ruleKey)
-        } else {
-            current.add(ruleKey)
-        }
-        _uiState.value = _uiState.value.copy(selectedRuleKeys = current)
-    }
-
-    fun selectAllFilteredApps() {
-        val currentFiltered = _uiState.value.apps.map { it.ruleKey }.toSet()
-        val currentSelected = _uiState.value.selectedRuleKeys
-        val allSelected = currentFiltered.isNotEmpty() && currentFiltered.all { it in currentSelected }
-        val newSelected = if (allSelected) {
-            currentSelected - currentFiltered
-        } else {
-            currentSelected + currentFiltered
-        }
-        _uiState.value = _uiState.value.copy(selectedRuleKeys = newSelected)
-    }
-
-    fun openBatchAssignSheet() {
-        if (_uiState.value.selectedRuleKeys.isEmpty()) return
-        _uiState.value = _uiState.value.copy(showBatchAssignSheet = true)
-    }
-
-    fun closeBatchAssignSheet() {
-        _uiState.value = _uiState.value.copy(showBatchAssignSheet = false)
-    }
-
-    fun batchAssignChannel(channelId: String) {
-        if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
-            return
-        }
-        val targetChannel = _uiState.value.channels.firstOrNull { it.id == channelId }
-        val rawKeys = _uiState.value.selectedRuleKeys
-        val keys = if (targetChannel?.isVpn == true) {
-            rawKeys.filter { key ->
-                val app = allApps.firstOrNull { it.ruleKey == key }
-                if (app == null) true
-                else !(
-                    (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
-                    app.packageName.contains("clash", ignoreCase = true) ||
-                    app.packageName.contains("v2ray", ignoreCase = true) ||
-                    app.packageName.contains("wireguard", ignoreCase = true) ||
-                    app.packageName.contains("singbox", ignoreCase = true) ||
-                    app.packageName.contains("nekobox", ignoreCase = true) ||
-                    app.packageName.contains("shadowsocks", ignoreCase = true)
-                )
-            }.toSet()
-        } else {
-            rawKeys
-        }
-        // Selection is keyed by rule key (`pkg` or `pkg@userId`), so a clone-space install and the
-        // primary install of the same package can be assigned independently.
-        if (keys.isEmpty()) return
-
-        // While a plan is being edited the selection lands in that plan instead of the base configuration -
-        // that is what edit mode is for, and it keeps the routing screen meaning "the default plan".
-        _uiState.value.scenarioEditId?.let { editingId ->
-            addOverridesToScenario(editingId, keys, channelId)
-            return
-        }
-
-        val context = getApplication<Application>()
-        val targets = allApps.filter { it.ruleKey in keys }
-            .map { RuleTarget(it.ruleKey, it.uid) }
-        RouteConfigProvider.setTargetChannels(context, targets, channelId)
-
-        allApps = allApps.map {
-            if (it.ruleKey in keys) it.copy(targetChannelId = channelId) else it
-        }
-
-        val channelName = when {
-            channelId == CHANNEL_DEFAULT -> getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_system_default)
-            else -> _uiState.value.channels.firstOrNull { it.id == channelId }?.let { NetworkUtils.channelLabel(getApplication(), it) } ?: channelId
-        }
-
-        val count = targets.size
-        _uiState.value = _uiState.value.copy(
-            isSelectionMode = false,
-            selectedRuleKeys = emptySet(),
-            showBatchAssignSheet = false,
-            snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_batch_assigned, count, channelName)
-        )
-
-        filterApps()
-
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSyncing = true)
-            val ok = SuHelper.syncAllRouteRules(context)
-            _uiState.value = _uiState.value.copy(
-                isSyncing = false,
-                snackBarMessage = if (ok) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_batch_ok, count) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_batch_pending, count)
-            )
-            refreshEnvironment()
-        }
-    }
-
     fun openAppSheet(app: AppItem) {
-        _uiState.value = _uiState.value.copy(selectedAppForSheet = app)
+        _uiState.update { it.copy(navigation = it.navigation.copy(selectedAppForSheet = app)) }
     }
 
     fun closeAppSheet() {
-        _uiState.value = _uiState.value.copy(selectedAppForSheet = null)
+        _uiState.update { it.copy(navigation = it.navigation.copy(selectedAppForSheet = null)) }
     }
 
     fun selectChannelForDetail(channel: NetworkChannel) {
-        _uiState.value = _uiState.value.copy(selectedChannelForDetail = channel)
+        _uiState.update { it.copy(navigation = it.navigation.copy(selectedChannelForDetail = channel)) }
     }
 
     fun closeChannelDetail() {
-        _uiState.value = _uiState.value.copy(selectedChannelForDetail = null)
+        _uiState.update { it.copy(navigation = it.navigation.copy(selectedChannelForDetail = null)) }
     }
 
-    fun testSingleChannel(channel: NetworkChannel) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isTestingSingleChannel = true)
-            try {
-                val result = NetworkUtils.testSingleChannelPublicIp(
-                    context = getApplication(),
-                    channel = channel,
-                    config = _uiState.value.testServerConfig
-                )
-                val updated = _uiState.value.testResults.toMutableMap()
-                updated[channel.id] = result
-                _uiState.value = _uiState.value.copy(
-                    testResults = updated,
-                    snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_egress_done, channel.interfaceName)
-                )
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_egress_failed, channel.interfaceName, e.message ?: ""))
-            } finally {
-                _uiState.value = _uiState.value.copy(isTestingSingleChannel = false)
-            }
-        }
+    fun openLogsDialog() = envDelegate.openLogsDialog()
+    fun closeLogsDialog() = envDelegate.closeLogsDialog()
+    fun dismissSnackBar() {
+        _uiState.update { it.copy(snackBarMessage = null) }
     }
 
-    // ------------------------------------------------------------------ 场景方案
-
-    fun openScenarioSheet() {
-        refreshScenarioState()
-        _uiState.value = _uiState.value.copy(showScenarioSheet = true)
-    }
-
-    fun closeScenarioSheet() {
-        _uiState.value = _uiState.value.copy(showScenarioSheet = false)
-    }
-
-    fun openScenarioSaveDialog() {
-        _uiState.value = _uiState.value.copy(showScenarioSheet = false, showScenarioSaveDialog = true)
-    }
-
-    fun closeScenarioSaveDialog() {
-        _uiState.value = _uiState.value.copy(showScenarioSaveDialog = false)
-    }
-
-    /**
-     * Switches one plan on or off by hand, without touching the others. Turns manual mode on, because that
-     * is what the user just asked for.
-     */
-    fun toggleScenarioManually(id: String) {
-        val context = getApplication<Application>()
-        ScenarioStore.setManualMode(context, true)
-        val on = ScenarioStore.toggleManualId(context, id)
-        refreshScenarioState()
-        _uiState.value = _uiState.value.copy(
-            snackBarMessage = context.getString(
-                if (on) com.multiroute.R.string.scenario_switched_on
-                else com.multiroute.R.string.scenario_switched_off
-            )
-        )
-        syncRules()
-    }
-
-    /** Switches to manual mode; the conditions stop being evaluated. */
-    fun setScenarioManualMode() {
-        val context = getApplication<Application>()
-        ScenarioStore.setManualMode(context, true)
-        refreshScenarioState()
-        syncRules()
-    }
-
-    /** Back to choosing plans by their conditions. */
-    fun setScenarioAutomatic() {
-        val context = getApplication<Application>()
-        ScenarioStore.setManualMode(context, false)
-        refreshScenarioState()
-        _uiState.value = _uiState.value.copy(
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_automatic)
-        )
-        syncRules()
-    }
-
-    /** Back to automatic selection by trigger. */
-    fun clearManualScenario() {
-        setScenarioAutomatic()
-    }
-
-    fun deleteScenario(id: String) {
-        val context = getApplication<Application>()
-        ScenarioStore.delete(context, id)
-        refreshScenarioState()
-        syncRules()
-    }
-
-    /**
-     * Saves the current per-app assignments as a new profile. The routing screen keeps meaning "the
-     * default plan"; a profile only carries the apps it should override.
-     */
-    fun saveCurrentAssignmentsAsScenario(name: String, trigger: ScenarioTrigger) {
-        val context = getApplication<Application>()
-        val overrides = com.multiroute.data.RouteConfigProvider.getAllRules(context)
-        if (name.isBlank() || overrides.isEmpty()) {
-            _uiState.value = _uiState.value.copy(
-                showScenarioSaveDialog = false,
-                snackBarMessage = context.getString(com.multiroute.R.string.scenario_save_failed)
-            )
-            return
-        }
-        ScenarioStore.upsert(
-            context,
-            ScenarioProfile(
-                id = "s" + System.currentTimeMillis(),
-                name = name.trim(),
-                trigger = trigger,
-                overrides = overrides
-            )
-        )
-        refreshScenarioState()
-        _uiState.value = _uiState.value.copy(
-            showScenarioSaveDialog = false,
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_saved, name.trim())
-        )
-    }
-
-    // ------------------------------------------------------------------ 配置导入导出
-
-    private fun clipboard(): android.content.ClipboardManager? =
-        getApplication<Application>().getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                as? android.content.ClipboardManager
-
-    /** Writes a timestamped JSON export plus a stable-named copy of the same document. */
-    fun exportConfigToFile() {
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isConfigBusy = true)
-            val now = System.currentTimeMillis()
-            val json = withContext(Dispatchers.IO) {
-                ConfigTransfer.exportJson(context, now)
-            }
-            val path = com.multiroute.data.ConfigTransfer.exportPath(now)
-            val ok = withContext(Dispatchers.IO) {
-                SuHelper.writeTextAsRoot(context, path, json) &&
-                        SuHelper.writeTextAsRoot(
-                            context,
-                            "${com.multiroute.data.ConfigTransfer.EXPORT_DIR}/MultiRoute-config.json",
-                            json
-                        )
-            }
-            _uiState.value = _uiState.value.copy(
-                isConfigBusy = false,
-                configPath = path,
-                snackBarMessage = context.getString(
-                    if (ok) com.multiroute.R.string.config_exported
-                    else com.multiroute.R.string.config_export_failed,
-                    path
-                )
-            )
-        }
-    }
-
-    fun exportConfigToClipboard() {
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            val json = withContext(Dispatchers.IO) {
-                ConfigTransfer.exportJson(context, System.currentTimeMillis())
-            }
-            clipboard()?.setPrimaryClip(android.content.ClipData.newPlainText("MultiRoute config", json))
-            _uiState.value = _uiState.value.copy(
-                snackBarMessage = context.getString(com.multiroute.R.string.config_copied)
-            )
-        }
-    }
-
-    fun requestImportFromClipboard() {
-        val context = getApplication<Application>()
-        val text = clipboard()?.primaryClip
-            ?.takeIf { it.itemCount > 0 }
-            ?.getItemAt(0)
-            ?.coerceToText(context)
-            ?.toString()
-            .orEmpty()
-        stageImport(text)
-    }
-
-    fun requestImportFromFile(path: String) {
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isConfigBusy = true, configPath = path)
-            val text = withContext(Dispatchers.IO) { SuHelper.readTextAsRoot(path) }
-            _uiState.value = _uiState.value.copy(isConfigBusy = false)
-            if (text.isNullOrBlank()) {
-                _uiState.value = _uiState.value.copy(
-                    snackBarMessage = context.getString(com.multiroute.R.string.config_read_failed, path)
-                )
-            } else {
-                stageImport(text)
-            }
-        }
-    }
-
-    /** Imports a document the user picked with the system file picker (SAF grants read access). */
-    fun importConfigFromUri(uri: android.net.Uri) {
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            val text = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                }.getOrNull()
-            }
-            if (text.isNullOrBlank()) {
-                _uiState.value = _uiState.value.copy(
-                    snackBarMessage = context.getString(
-                        com.multiroute.R.string.config_read_failed, uri.toString()
-                    )
-                )
-            } else {
-                stageImport(text)
-            }
-        }
-    }
-
-    /** Holds a document until the user confirms; nothing is touched before that. */
-    private fun stageImport(json: String) {
-        if (_uiState.value.isConfigBusy) return
-        val context = getApplication<Application>()
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isConfigBusy = true, showConfigImportConfirm = false,
-                pendingImportJson = null, configImportPreview = null, configImportSections = emptySet())
-            val preview = try {
-                withContext(Dispatchers.IO) { ConfigTransfer.preview(context, json) }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                null
-            }
-            _uiState.value = _uiState.value.copy(isConfigBusy = false, pendingImportJson = if (preview != null) json else null,
-                configImportPreview = preview, configImportSections = preview?.document?.sections.orEmpty(),
-                showConfigImportConfirm = preview != null,
-                snackBarMessage = if (preview == null) context.getString(com.multiroute.R.string.config_invalid) else null)
-        }
-    }
-
-    fun toggleConfigImportSection(section: ConfigTransfer.Section) {
-        val current = _uiState.value.configImportSections
-        _uiState.value = _uiState.value.copy(configImportSections = if (section in current) current - section else current + section)
-    }
-
-    fun consumeConfigAppearanceImport() {
-        _uiState.value = _uiState.value.copy(configAppearanceImported = false)
-    }
-
-    fun cancelConfigImport() {
-        _uiState.value = _uiState.value.copy(
-            pendingImportJson = null,
-            configImportPreview = null,
-            configImportSections = emptySet(),
-            showConfigImportConfirm = false
-        )
-    }
-
-    /** Replaces the configuration with the staged document; the replaced one is backed up first. */
-    fun confirmConfigImport() {
-        val context = getApplication<Application>()
-        if (_uiState.value.isConfigBusy || _uiState.value.configImportSections.isEmpty()) return
-        val json = _uiState.value.pendingImportJson ?: return
-        val sections = _uiState.value.configImportSections
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isConfigBusy = true,
-                pendingImportJson = null
-            )
-            val result = try {
-                withContext(Dispatchers.IO) { ConfigTransfer.apply(context, json, System.currentTimeMillis(), sections) }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                _uiState.value = _uiState.value.copy(isConfigBusy = false, showConfigImportConfirm = false,
-                    snackBarMessage = context.getString(com.multiroute.R.string.config_import_failed))
-                return@launch
-            }
-            val synced = result != null && try {
-                withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                false
-            }
-            if (result != null) {
-                loadInstalledApps()
-                refreshScenarioState()
-                loadTestServerConfig()
-                refreshEnvironment()
-                com.multiroute.theme.ThemeSettings.load(context)
-            }
-            _uiState.value = if (result == null) {
-                _uiState.value.copy(
-                    isConfigBusy = false,
-                    showConfigImportConfirm = false,
-                    snackBarMessage = context.getString(com.multiroute.R.string.config_invalid)
-                )
-            } else {
-                _uiState.value.copy(
-                    isConfigBusy = false,
-                    showConfigImportConfirm = false,
-                    configAppearanceImported = ConfigTransfer.Section.APPEARANCE in sections,
-                    snackBarMessage = context.getString(
-                        com.multiroute.R.string.config_imported,
-                        result.assignments,
-                        result.scenarios,
-                        result.skipped
-                    ) + "\n" + context.getString(com.multiroute.R.string.config_backup_saved, result.backupPath) +
-                        (if (!synced) "\n" + context.getString(com.multiroute.R.string.config_sync_failed) else "") +
-                        (if (result.unavailableChannels.isNotEmpty()) "\n" + context.getString(com.multiroute.R.string.config_offline_channels, result.unavailableChannels.joinToString()) else "")
-                )
-            }
-        }
-    }
-
-    private fun syncRules() {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(getApplication()) }
-        }
-    }
-
-    /** Enters "edit this plan's overrides" mode: selections then land in the plan, not in the base. */
-    fun startEditingScenario(id: String) {
-        val context = getApplication<Application>()
-        val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
-        allApps = allApps.map { app ->
-            val override = profile.overrides[app.ruleKey]
-            if (override != null) app.copy(targetChannelId = override) else app
-        }
-        _uiState.value = _uiState.value.copy(
-            showScenarioSheet = false,
-            scenarioEditId = id,
-            isSelectionMode = true,
-            selectedRuleKeys = profile.overrides.keys,
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_editing, profile.name)
-        )
-        filterApps()
-    }
-
-    /** Leaves edit mode and puts the app list back on the base assignments. */
-    fun finishEditingScenario() {
-        val context = getApplication<Application>()
-        val base = com.multiroute.data.RouteConfigProvider.getAllRules(context)
-        allApps = allApps.map { app ->
-            app.copy(targetChannelId = base[app.ruleKey] ?: com.multiroute.model.CHANNEL_DEFAULT)
-        }
-        _uiState.value = _uiState.value.copy(
-            scenarioEditId = null,
-            isSelectionMode = false,
-            selectedRuleKeys = emptySet(),
-            showBatchAssignSheet = false
-        )
-        filterApps()
-        refreshScenarioState()
-    }
-
-    /**
-     * What to store for a plan override: the network when the channel is a Wi-Fi link, otherwise the
-     * interface. Which interface is `wlan0` swaps while the device runs, so a plan bound to the network
-     * keeps meaning the same link afterwards - the sync resolves `ssid:<name>` to whatever interface that
-     * network is on at the time.
-     */
-    private fun planOverrideValue(channelId: String): String =
-        _uiState.value.channels.firstOrNull { it.id == channelId }
-            ?.ssid?.takeIf { it.isNotBlank() }
-            ?.let { ScenarioEngine.symbolicSsid(it) }
-            ?: channelId
-
-    private fun addOverridesToScenario(id: String, ruleKeys: Set<String>, channelId: String) {
-        val context = getApplication<Application>()
-        val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
-        val overrides = profile.overrides.toMutableMap()
-        val stored = planOverrideValue(channelId)
-        ruleKeys.forEach { key -> overrides[key] = stored }
-        ScenarioStore.upsert(context, profile.copy(overrides = overrides))
-        allApps = allApps.map { if (it.ruleKey in ruleKeys) it.copy(targetChannelId = channelId) else it }
-        _uiState.value = _uiState.value.copy(
-            showBatchAssignSheet = false,
-            snackBarMessage = context.getString(
-                com.multiroute.R.string.scenario_override_added, ruleKeys.size, profile.name
-            )
-        )
-        filterApps()
-        refreshScenarioState()
-        syncRules()
-    }
-
-    /** Moves a plan up or down in the order that decides which of several matching plans wins. */
-    fun moveScenario(id: String, delta: Int) {
-        val context = getApplication<Application>()
-        val list = ScenarioStore.load(context).toMutableList()
-        val from = list.indexOfFirst { it.id == id }
-        if (from < 0) return
-        val to = (from + delta).coerceIn(0, list.size - 1)
-        if (to == from) return
-        list.add(to, list.removeAt(from))
-        // Renumber so the stored order *is* the evaluation order, spaced so a manual priority edit stays
-        // possible without colliding with the neighbours.
-        ScenarioStore.save(
-            context,
-            list.mapIndexed { index, profile -> profile.copy(priority = (index + 1) * 10) }
-        )
-        _uiState.value = _uiState.value.copy(
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_moved)
-        )
-        refreshScenarioState()
-        syncRules()
-    }
-
-    fun openScenarioDetails(id: String) {
-        _uiState.value = _uiState.value.copy(
-            showScenarioSheet = false,
-            showScenarioDetailsDialog = true,
-            scenarioDetailsId = id
-        )
-    }
-
-    fun closeScenarioDetails() {
-        _uiState.value = _uiState.value.copy(
-            showScenarioDetailsDialog = false,
-            scenarioDetailsId = null
-        )
-    }
-
-    /** Renames a plan and/or changes the condition it matches on. */
-    fun saveScenarioDetails(id: String, name: String, trigger: ScenarioTrigger) {
-        val context = getApplication<Application>()
-        val profile = ScenarioStore.load(context).firstOrNull { it.id == id } ?: return
-        if (name.isBlank()) return
-        ScenarioStore.upsert(context, profile.copy(name = name.trim(), trigger = trigger))
-        _uiState.value = _uiState.value.copy(
-            showScenarioDetailsDialog = false,
-            scenarioDetailsId = null,
-            snackBarMessage = context.getString(com.multiroute.R.string.scenario_updated, name.trim())
-        )
-        refreshScenarioState()
-        syncRules()
-    }
-
-    /** Which profile applies right now, for the UI only - the sync evaluates this itself. */
-    private fun refreshScenarioState() {
-        val context = getApplication<Application>()
-        val profiles = ScenarioStore.load(context)
-        val manualMode = ScenarioStore.isManualMode(context)
-        val manualIds = ScenarioStore.getManualIds(context)
-        val observation = ScenarioObservation.fromChannels(_uiState.value.channels)
-        val selected = if (manualMode) {
-            ScenarioEngine.selectProfiles(profiles, observation, ScenarioEngine.SelectionMode.MANUAL, manualIds)
-        } else {
-            ScenarioEngine.selectProfiles(profiles, observation, ScenarioEngine.SelectionMode.AUTOMATIC)
-        }
-        val profile = selected.firstOrNull()
-        val trigger = profile?.trigger
-        // Which active plan loses an app to a later one. Computed on rule keys here (the uid-level version
-        // lives in the engine) purely so the sheet can say so; the two use the same priority order.
-        val conflicts = mutableMapOf<String, Int>()
-        val claimed = mutableMapOf<String, String>()
-        selected.forEach { applied ->
-            applied.overrides.keys.forEach { key ->
-                claimed[key]?.let { previous -> conflicts[previous] = (conflicts[previous] ?: 0) + 1 }
-                claimed[key] = applied.id
-            }
-        }
-        _uiState.value = _uiState.value.copy(
-            scenarioProfiles = profiles,
-            manualScenarioId = manualIds.firstOrNull() ?: "",
-            scenarioManualMode = manualMode,
-            manualScenarioIds = manualIds,
-            activeScenarioIds = selected.map { it.id }.toSet(),
-            scenarioConflicts = conflicts,
-            activeScenarioId = profile?.id,
-            activeScenarioName = profile?.name,
-            activeScenarioTrigger = trigger,
-            activeScenarioSsid = trigger?.let { ScenarioEngine.matchedSsid(it, observation) },
-            activeScenarioManual = manualMode
-        )
-    }
-
-    fun dismissSnackBar() {        _uiState.value = _uiState.value.copy(snackBarMessage = null)
-    }
-
-    fun refreshEnvironment() {
-        viewModelScope.launch {
-            environmentRefreshCount++
-            _uiState.value = _uiState.value.copy(isEnvironmentRefreshing = true, environmentRefreshFailed = false)
-            try {
-                val context = getApplication<Application>()
-                val diag = withContext(Dispatchers.IO) { SuHelper.getDiagnosticInfo(context) }
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(context) }
-
-                _uiState.value = _uiState.value.copy(
-                    isRootGranted = diag.isRootGranted,
-                    isMobileDataAlwaysOn = diag.mobileDataAlwaysOn,
-                    isKeepSlaveWifiScreenOff = diag.isKeepSlaveWifiScreenOff,
-                    isDnsFollowsChannel = RouteConfigProvider.isDnsFollowsChannel(context),
-                    isAutoFailoverEnabled = RouteConfigProvider.isAutoFailoverEnabled(context),
-                    failoverHoldOffSeconds = RouteConfigProvider.getFailoverHoldOffSeconds(context),
-                    isFailoverProbeInternet = RouteConfigProvider.isFailoverProbeInternet(context),
-                    channels = activeChannels,
-                    diagnosticInfo = diag,
-                    environmentRefreshFailed = false
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(environmentRefreshFailed = true)
-                android.util.Log.e("MainViewModel", "Error refreshing environment", e)
-            } finally {
-                environmentRefreshCount--
-                _uiState.value = _uiState.value.copy(isEnvironmentRefreshing = environmentRefreshCount > 0)
-            }
-        }
-    }
-
-    fun openLogsDialog() {
-        _uiState.value = _uiState.value.copy(showLogsDialog = true, isLoadingLogs = true, logsContent = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_log_loading))
-        viewModelScope.launch {
-            try {
-                val logs = withContext(Dispatchers.IO) { SuHelper.getDiagnosticLogs(getApplication()) }
-                _uiState.value = _uiState.value.copy(isLoadingLogs = false, logsContent = logs)
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoadingLogs = false, logsContent = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_log_failed, e.message ?: ""))
-            }
-        }
-    }
-
-    fun closeLogsDialog() {
-        _uiState.value = _uiState.value.copy(showLogsDialog = false)
-    }
-
-    fun toggleDnsFollowsChannel() {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val current = _uiState.value.isDnsFollowsChannel
-            val next = !current
-            RouteConfigProvider.setDnsFollowsChannel(context, next)
-            _uiState.value = _uiState.value.copy(isDnsFollowsChannel = next)
-            // Resync rules to apply or flush DNS redirect NAT chain
-            SuHelper.syncAllRouteRules(context)
-            refreshEnvironment()
-        }
-    }
-
-    fun toggleAutoFailover() {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val current = _uiState.value.isAutoFailoverEnabled
-            val next = !current
-            RouteConfigProvider.setAutoFailoverEnabled(context, next)
-            _uiState.value = _uiState.value.copy(isAutoFailoverEnabled = next)
-            refreshEnvironment()
-        }
-    }
-
-    fun updateFailoverHoldOffSeconds(seconds: Int) {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val safeSecs = seconds.coerceIn(1, 15)
-            RouteConfigProvider.setFailoverHoldOffSeconds(context, safeSecs)
-            _uiState.value = _uiState.value.copy(failoverHoldOffSeconds = safeSecs)
-            refreshEnvironment()
-        }
-    }
-
-    fun toggleFailoverProbeInternet() {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val current = _uiState.value.isFailoverProbeInternet
-            val next = !current
-            RouteConfigProvider.setFailoverProbeInternet(context, next)
-            _uiState.value = _uiState.value.copy(isFailoverProbeInternet = next)
-            withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(context) }
-            refreshEnvironment()
-        }
-    }
-
-    fun toggleKeepSlaveWifiScreenOff() {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val current = _uiState.value.isKeepSlaveWifiScreenOff
-            val next = !current
-            com.multiroute.data.RouteConfigProvider.setKeepSlaveWifiScreenOffByUser(context, next)
-            SuHelper.setKeepSlaveWifiScreenOff(context, next)
-            _uiState.value = _uiState.value.copy(
-                isKeepSlaveWifiScreenOff = next,
-                snackBarMessage = if (next) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_keep_on) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_keep_off)
-            )
-            refreshEnvironment()
-        }
-    }
-
-    fun toggleMobileDataAlwaysOn() {
-        if (!_uiState.value.supportsCellularData) return
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val current = _uiState.value.isMobileDataAlwaysOn
-            val success = if (current) {
-                SuHelper.disableMobileDataAlwaysOn(context)
-            } else {
-                SuHelper.enableMobileDataAlwaysOn(context)
-            }
-            if (success) {
-                refreshEnvironment()
-                _uiState.value = _uiState.value.copy(
-                    snackBarMessage = if (!current) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_cellular_on) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_cellular_off)
-                )
-            }
-        }
-    }
-
-    fun runChannelTests() {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isTesting = true, testResults = emptyMap())
-            try {
-                val currentChannels = _uiState.value.channels.ifEmpty {
-                    NetworkUtils.getActiveChannels(getApplication())
-                }
-                val results = NetworkUtils.testChannelsConcurrently(
-                    context = getApplication(),
-                    channels = currentChannels,
-                    config = _uiState.value.testServerConfig
-                )
-                _uiState.value = _uiState.value.copy(
-                    testResults = results,
-                    snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_diag_done)
-                )
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_diag_failed, e.message ?: ""))
-            } finally {
-                _uiState.value = _uiState.value.copy(isTesting = false)
-            }
-            refreshEnvironment()
-        }
-    }
-
-    fun setSearchQuery(query: String) {
-        _uiState.value = _uiState.value.copy(searchQuery = query)
-        filterApps()
-    }
-
-    fun toggleShowSystemApps() {
-        _uiState.value = _uiState.value.copy(showSystemApps = !_uiState.value.showSystemApps)
-        filterApps()
-    }
-
-    fun setFilterChannelId(channelId: String?) {
-        _uiState.value = _uiState.value.copy(filterChannelId = channelId)
-        filterApps()
-    }
-
-    fun updateRouteChannel(app: AppItem, channelId: String) {
-        if (channelId != CHANNEL_DEFAULT && _uiState.value.channels.firstOrNull { it.id == channelId }?.isHotspot == true) {
-            return
-        }
-        val targetChannel = _uiState.value.channels.firstOrNull { it.id == channelId }
-        if (targetChannel?.isVpn == true && (
-            (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
-            app.packageName.contains("clash", ignoreCase = true) ||
-            app.packageName.contains("v2ray", ignoreCase = true) ||
-            app.packageName.contains("wireguard", ignoreCase = true) ||
-            app.packageName.contains("singbox", ignoreCase = true) ||
-            app.packageName.contains("nekobox", ignoreCase = true) ||
-            app.packageName.contains("shadowsocks", ignoreCase = true)
-        )) {
-            _uiState.value = _uiState.value.copy(
-                snackBarMessage = getApplication<Application>().getString(com.multiroute.R.string.channel_vpn_self_forbidden)
-            )
-            return
-        }
-        val context = getApplication<Application>()
-
-        // Same rule as the batch path: while editing a plan, a single assignment belongs to that plan.
-        _uiState.value.scenarioEditId?.let { editingId ->
-            val profile = ScenarioStore.load(context).firstOrNull { it.id == editingId }
-            if (profile != null) {
-                val overrides = profile.overrides.toMutableMap()
-                overrides[app.ruleKey] = planOverrideValue(channelId)
-                ScenarioStore.upsert(context, profile.copy(overrides = overrides))
-                allApps = allApps.map {
-                    if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
-                }
-                _uiState.value = _uiState.value.copy(
-                    selectedAppForSheet = null,
-                    snackBarMessage = context.getString(
-                        com.multiroute.R.string.scenario_override_added, 1, profile.name
-                    )
-                )
-                filterApps()
-                refreshScenarioState()
-                syncRules()
-                return
-            }
-        }
-        RouteConfigProvider.setTargetChannel(
-            context,
-            RuleTarget(app.ruleKey, app.uid),
-            channelId
-        )
-
-        allApps = allApps.map {
-            if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
-        }
-
-        if (_uiState.value.selectedAppForSheet?.ruleKey == app.ruleKey) {
-            _uiState.value = _uiState.value.copy(
-                selectedAppForSheet = _uiState.value.selectedAppForSheet?.copy(targetChannelId = channelId)
-            )
-        }
-
-        filterApps()
-
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSyncing = true)
-            val ok = SuHelper.syncAllRouteRules(context)
-            _uiState.value = _uiState.value.copy(
-                isSyncing = false,
-                snackBarMessage = if (ok) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_sync_ok) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_sync_pending)
-            )
-            refreshEnvironment()
-        }
-    }
-
-    fun forceSyncAllRules() {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            _uiState.value = _uiState.value.copy(isSyncing = true)
-            val ok = SuHelper.syncAllRouteRules(context)
-            _uiState.value = _uiState.value.copy(
-                isSyncing = false,
-                snackBarMessage = if (ok) getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_kernel_ok) else getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_sync_failed)
-            )
-            refreshEnvironment()
-        }
-    }
-
-    fun clearAllRules() {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            RouteConfigProvider.clearAllRules(context)
-            allApps = allApps.map { it.copy(targetChannelId = CHANNEL_DEFAULT) }
-            filterApps()
-            SuHelper.syncAllRouteRules(context)
-            _uiState.value = _uiState.value.copy(snackBarMessage = getApplication<android.app.Application>().getString(com.multiroute.R.string.vm_cleared))
-            refreshEnvironment()
-        }
-    }
-
-    private fun loadInstalledApps() {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoadingApps = true)
-
-            val context = getApplication<Application>()
-            val pm = context.packageManager
-            val currentRules = RouteConfigProvider.getAllRules(context)
-
-            val loaded = withContext(Dispatchers.IO) {
-                val packageMap = mutableMapOf<String, AppItem>()
-
-                try {
-                    val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                        addCategory(Intent.CATEGORY_LAUNCHER)
-                    }
-                    val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
-                    for (ri in resolveInfos) {
-                        val pkg = ri.activityInfo.packageName
-                        if (pkg == context.packageName) continue
-                        val appName = ri.loadLabel(pm).toString()
-                        val icon = runCatching { ri.loadIcon(pm) }.getOrNull()
-                        val isSystem = (ri.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                        val targetChannel = currentRules[pkg] ?: CHANNEL_DEFAULT
-                        val uid = ri.activityInfo.applicationInfo.uid
-
-                        packageMap[pkg] = AppItem(
-                            packageName = pkg,
-                            appName = appName,
-                            icon = icon,
-                            uid = uid,
-                            targetChannelId = targetChannel,
-                            isSystemApp = isSystem
-                        )
-                    }
-                } catch (_: Exception) {}
-
-                try {
-                    val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                    for (app in installed) {
-                        if (app.packageName == context.packageName) continue
-                        if (!packageMap.containsKey(app.packageName)) {
-                            val appName = runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(app.packageName)
-                            val icon = runCatching { pm.getApplicationIcon(app) }.getOrNull()
-                            val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                            val targetChannel = currentRules[app.packageName] ?: CHANNEL_DEFAULT
-
-                            packageMap[app.packageName] = AppItem(
-                                packageName = app.packageName,
-                                appName = appName,
-                                icon = icon,
-                                uid = app.uid,
-                                targetChannelId = targetChannel,
-                                isSystemApp = isSystem
-                            )
-                        }
-                    }
-                } catch (_: Exception) {}
-
-                // OEM clone spaces (Xiaomi XSpace = user 999) and work profiles: list them as their own
-                // entries so the clone can be routed independently from the primary install.
-                try {
-                    for (installs in SuHelper.listSecondaryUserInstalls()) {
-                        for ((pkg, uid) in installs.packageUids) {
-                            if (pkg == context.packageName) continue
-                            val key = com.multiroute.util.RouteRuleBuilder.ruleKey(pkg, installs.userId)
-                            if (packageMap.containsKey(key)) continue
-                            val base = packageMap[pkg]
-                            packageMap[key] = AppItem(
-                                packageName = pkg,
-                                // The numeric space id is shown instead of the user name: XSpace is "999"
-                                // internally, which is unambiguous and needs no name parsing.
-                                appName = "${base?.appName ?: pkg} (${installs.userId})",
-                                icon = base?.icon,
-                                uid = uid,
-                                targetChannelId = currentRules[key] ?: CHANNEL_DEFAULT,
-                                isSystemApp = base?.isSystemApp ?: false,
-                                userId = installs.userId
-                            )
-                        }
-                    }
-                } catch (_: Exception) {}
-
-                packageMap.values.sortedWith(
-                    compareByDescending<AppItem> { it.targetChannelId != CHANNEL_DEFAULT }
-                        .thenBy { it.isSystemApp }
-                        .thenBy { it.appName.lowercase() }
-                )
-            }
-
-            allApps = loaded
-            filterApps()
-            _uiState.value = _uiState.value.copy(isLoadingApps = false)
-        }
-    }
-
-    private fun filterApps() {
-        val query = _uiState.value.searchQuery.trim().lowercase()
-        val showSys = _uiState.value.showSystemApps
-        val filterChannel = _uiState.value.filterChannelId
-
-        val filtered = allApps.filter { app ->
-            val matchesQuery = query.isEmpty() ||
-                    app.appName.lowercase().contains(query) ||
-                    app.packageName.lowercase().contains(query) ||
-                    app.ruleKey.lowercase().contains(query)
-            val matchesSys = showSys || !app.isSystemApp
-            val matchesChannel = when (filterChannel) {
-                null -> true
-                "configured" -> app.targetChannelId != CHANNEL_DEFAULT
-                else -> app.targetChannelId == filterChannel || _uiState.value.channels.any {
-                    it.id == filterChannel && it.interfaceName == app.targetChannelId
-                }
-            }
-            matchesQuery && matchesSys && matchesChannel
-        }
-
-        val configuredCount = allApps.count { it.targetChannelId != CHANNEL_DEFAULT }
-
-        _uiState.value = _uiState.value.copy(
-            apps = filtered,
-            totalAppsCount = allApps.size,
-            configuredAppsCount = configuredCount
-        )
-    }
+    // ------------------------------------------------------------------ App Routing & Rules
+    fun enterSelectionMode(initialPackage: String? = null) = appRoutingDelegate.enterSelectionMode(initialPackage)
+    fun exitSelectionMode() = appRoutingDelegate.exitSelectionMode()
+    fun toggleSelectApp(ruleKey: String) = appRoutingDelegate.toggleSelectApp(ruleKey)
+    fun selectAllFilteredApps() = appRoutingDelegate.selectAllFilteredApps()
+    fun openBatchAssignSheet() = appRoutingDelegate.openBatchAssignSheet()
+    fun closeBatchAssignSheet() = appRoutingDelegate.closeBatchAssignSheet()
+    fun batchAssignChannel(channelId: String) = appRoutingDelegate.batchAssignChannel(channelId)
+    fun setSearchQuery(query: String) = appRoutingDelegate.setSearchQuery(query)
+    fun toggleShowSystemApps() = appRoutingDelegate.toggleShowSystemApps()
+    fun setFilterChannelId(channelId: String?) = appRoutingDelegate.setFilterChannelId(channelId)
+    fun updateRouteChannel(app: AppItem, channelId: String) = appRoutingDelegate.updateRouteChannel(app, channelId)
+    fun forceSyncAllRules() = appRoutingDelegate.forceSyncAllRules()
+    fun clearAllRules() = appRoutingDelegate.clearAllRules()
+
+    // ------------------------------------------------------------------ Scenarios
+    fun openScenarioSheet() = scenarioDelegate.openScenarioSheet()
+    fun closeScenarioSheet() = scenarioDelegate.closeScenarioSheet()
+    fun openScenarioSaveDialog() = scenarioDelegate.openScenarioSaveDialog()
+    fun closeScenarioSaveDialog() = scenarioDelegate.closeScenarioSaveDialog()
+    fun toggleScenarioManually(id: String) = scenarioDelegate.toggleScenarioManually(id)
+    fun setScenarioManualMode() = scenarioDelegate.setScenarioManualMode()
+    fun setScenarioAutomatic() = scenarioDelegate.setScenarioAutomatic()
+    fun clearManualScenario() = scenarioDelegate.clearManualScenario()
+    fun deleteScenario(id: String) = scenarioDelegate.deleteScenario(id)
+    fun saveCurrentAssignmentsAsScenario(name: String, trigger: ScenarioTrigger) =
+        scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger)
+    fun startEditingScenario(id: String) = scenarioDelegate.startEditingScenario(id)
+    fun finishEditingScenario() = scenarioDelegate.finishEditingScenario()
+    fun moveScenario(id: String, delta: Int) = scenarioDelegate.moveScenario(id, delta)
+    fun openScenarioDetails(id: String) = scenarioDelegate.openScenarioDetails(id)
+    fun closeScenarioDetails() = scenarioDelegate.closeScenarioDetails()
+    fun saveScenarioDetails(id: String, name: String, trigger: ScenarioTrigger) =
+        scenarioDelegate.saveScenarioDetails(id, name, trigger)
+
+    // ------------------------------------------------------------------ Config Transfer
+    fun exportConfigToFile() = configDelegate.exportConfigToFile()
+    fun exportConfigToClipboard() = configDelegate.exportConfigToClipboard()
+    fun requestImportFromClipboard() = configDelegate.requestImportFromClipboard()
+    fun requestImportFromFile(path: String) = configDelegate.requestImportFromFile(path)
+    fun importConfigFromUri(uri: Uri) = configDelegate.importConfigFromUri(uri)
+    fun toggleConfigImportSection(section: ConfigTransfer.Section) = configDelegate.toggleConfigImportSection(section)
+    fun consumeConfigAppearanceImport() = configDelegate.consumeConfigAppearanceImport()
+    fun cancelConfigImport() = configDelegate.cancelConfigImport()
+    fun confirmConfigImport() = configDelegate.confirmConfigImport()
+
+    // ------------------------------------------------------------------ Environment & Diagnostics
+    fun testSingleChannel(channel: NetworkChannel) = envDelegate.testSingleChannel(channel)
+    fun refreshEnvironment() = envDelegate.refreshEnvironment()
+    fun runChannelTests() = envDelegate.runChannelTests()
+    fun toggleDnsFollowsChannel() = envDelegate.toggleDnsFollowsChannel()
+    fun toggleAutoFailover() = envDelegate.toggleAutoFailover()
+    fun updateFailoverHoldOffSeconds(seconds: Int) = envDelegate.updateFailoverHoldOffSeconds(seconds)
+    fun toggleFailoverProbeInternet() = envDelegate.toggleFailoverProbeInternet()
+    fun toggleKeepSlaveWifiScreenOff() = envDelegate.toggleKeepSlaveWifiScreenOff()
+    fun toggleMobileDataAlwaysOn() = envDelegate.toggleMobileDataAlwaysOn()
 
     fun setHotspotUpstream(target: String) {
         viewModelScope.launch {
-            com.multiroute.wifi.DualWifiManager.setHotspotUpstream(target)
+            DualWifiManager.setHotspotUpstream(target)
         }
     }
 
     fun openHotspotSettings() {
         val app = getApplication<Application>()
         try {
-            val intent = Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS).apply {
+            val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             app.startActivity(intent)
         } catch (_: Exception) {
             try {
-                val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                val intent = Intent(Settings.ACTION_SETTINGS).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
                 app.startActivity(intent)

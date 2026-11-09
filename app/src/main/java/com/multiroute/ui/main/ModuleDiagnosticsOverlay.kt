@@ -67,9 +67,12 @@ private fun statusDescription(state: MainUiState): String = when (moduleIndicato
     state.diagnosticInfo, state.isEnvironmentRefreshing, state.environmentRefreshFailed
 )) {
     ModuleIndicator.CHECKING -> stringResource(R.string.ui_checking_module)
-    ModuleIndicator.UNKNOWN -> if (state.environmentRefreshFailed || state.diagnosticInfo == null)
-        stringResource(R.string.module_check_failed)
-        else SuHelper.moduleStatusLabel(LocalContext.current, state.diagnosticInfo.moduleStatus)
+    ModuleIndicator.UNKNOWN -> {
+        val diag = state.env.diagnosticInfo
+        if (state.env.environmentRefreshFailed || diag == null)
+            stringResource(R.string.module_check_failed)
+        else SuHelper.moduleStatusLabel(LocalContext.current, diag.moduleStatus)
+    }
     ModuleIndicator.READY -> stringResource(R.string.module_ready)
     ModuleIndicator.RESTART_REQUIRED, ModuleIndicator.ERROR -> state.diagnosticInfo!!.let {
         if (!it.isRootGranted) stringResource(R.string.diag_root_missing)
