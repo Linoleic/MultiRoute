@@ -250,11 +250,21 @@ object ModuleStateEvaluator {
                     detailRes = com.multiroute.R.string.module_detail_not_active,
                 )
 
-                inputs.ownerIsSystemServer == false -> ModuleState(
-                    ModuleStatus.STALE,
-                    detailRes = com.multiroute.R.string.module_detail_marker_stale,
-                    detailArgs = listOf(pidText(inputs.legacyMarkerPid)),
-                )
+                inputs.ownerIsSystemServer == false -> {
+                    val pid = inputs.legacyMarkerPid
+                    if (pid > 0) {
+                        ModuleState(
+                            ModuleStatus.STALE,
+                            detailRes = com.multiroute.R.string.module_detail_marker_stale,
+                            detailArgs = listOf(pid),
+                        )
+                    } else {
+                        ModuleState(
+                            ModuleStatus.STALE,
+                            detailRes = com.multiroute.R.string.module_detail_marker_stale_no_pid,
+                        )
+                    }
+                }
 
                 else -> ModuleState(
                     ModuleStatus.LEGACY_UNVERIFIED,
@@ -310,7 +320,4 @@ object ModuleStateEvaluator {
                     detailArgs = listOf(beacon.connectivityHooks, beacon.slaveWifiHooks + beacon.dualStaHooks),
         )
     }
-
-    /** Renders a PID for operator-facing messages; empty when the record carries no PID. */
-    private fun pidText(pid: Int?): String = if (pid != null && pid > 0) "（PID $pid）" else ""
 }

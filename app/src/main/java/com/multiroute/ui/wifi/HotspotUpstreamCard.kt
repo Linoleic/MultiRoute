@@ -115,12 +115,8 @@ fun HotspotUpstreamCard(
                 ) {
                     Text(
                         text = if (status.isHotspotEnabled) {
-                            status.hotspotBand
-                                ?: if (status.hotspotFreq > 0) stringResource(
-                                    R.string.wifi_i18n_hotspot_band_enabled,
-                                    if (status.hotspotFreq > 4900) "5G" else "2.4G"
-                                )
-                                else stringResource(R.string.hotspot_status_active)
+                            hotspotBandLabel(status.hotspotFreq, status.hotspotBand, status.hotspotBandRes)
+                                ?: stringResource(R.string.hotspot_status_active)
                         } else {
                             stringResource(R.string.hotspot_status_inactive)
                         },

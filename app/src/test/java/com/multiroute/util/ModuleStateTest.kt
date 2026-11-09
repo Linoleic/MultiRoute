@@ -167,6 +167,12 @@ class ModuleStateTest {
         val fromMarker = evaluate(rawBeacon = null, legacyPid = 4242, ownerIsSystemServer = false)
         assertEquals(ModuleStatus.STALE, fromMarker.status)
         assertEquals(com.multiroute.R.string.module_detail_marker_stale, fromMarker.detailRes)
+        assertEquals(listOf(4242), fromMarker.detailArgs)
+
+        val fromMarkerNoPid = evaluate(rawBeacon = null, legacyPid = 0, ownerIsSystemServer = false)
+        assertEquals(ModuleStatus.STALE, fromMarkerNoPid.status)
+        assertEquals(com.multiroute.R.string.module_detail_marker_stale_no_pid, fromMarkerNoPid.detailRes)
+        assertTrue(fromMarkerNoPid.detailArgs.isEmpty())
     }
 
     @Test

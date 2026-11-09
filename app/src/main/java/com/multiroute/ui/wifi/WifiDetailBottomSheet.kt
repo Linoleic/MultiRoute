@@ -32,6 +32,7 @@ fun WifiDetailBottomSheet(
     isConnecting: Boolean,
     isHotspotEnabled: Boolean = false,
     hotspotBand: String? = null,
+    @androidx.annotation.StringRes hotspotBandRes: Int? = null,
     hotspotFreq: Int = 0,
     onDismiss: () -> Unit,
     onConnectClick: () -> Unit,
@@ -147,7 +148,7 @@ fun WifiDetailBottomSheet(
                         label = stringResource(R.string.dual_wifi_hotspot_active_title),
                         value = stringResource(
                             R.string.dual_wifi_hotspot_conflict_desc,
-                            hotspotBand ?: stringResource(R.string.wifi_i18n_unknown_band)
+                            hotspotBandLabel(hotspotFreq, hotspotBand, hotspotBandRes) ?: stringResource(R.string.wifi_i18n_unknown_band)
                         ),
                         isWarning = true
                     )

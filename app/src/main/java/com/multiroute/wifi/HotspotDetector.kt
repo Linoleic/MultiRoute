@@ -29,7 +29,8 @@ object HotspotDetector {
                         isEnabled = true,
                         iface = curIface,
                         frequencyMhz = freq,
-                        bandLabel = DualWifiBandHelper.formatBand(freq, context)
+                        bandRes = DualWifiBandHelper.bandLabelRes(freq),
+                        bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) }
                     )
                 }
                 curIface = trimmed.substringAfter("Interface ").trim()
@@ -46,7 +47,8 @@ object HotspotDetector {
                 isEnabled = true,
                 iface = curIface,
                 frequencyMhz = freq,
-                bandLabel = DualWifiBandHelper.formatBand(freq, context)
+                bandRes = DualWifiBandHelper.bandLabelRes(freq),
+                bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) }
             )
         }
         return HotspotInfo(isEnabled = false)
@@ -104,7 +106,11 @@ object HotspotDetector {
             return fromDumpsys
         }
 
-        return HotspotInfo(isEnabled = true, bandLabel = context.getString(R.string.wifi_i18n_band_enabled))
+        return HotspotInfo(
+            isEnabled = true,
+            bandRes = R.string.wifi_i18n_band_enabled,
+            bandLabel = context.getString(R.string.wifi_i18n_band_enabled)
+        )
     }
 
     /**
@@ -138,7 +144,8 @@ object HotspotDetector {
                 isEnabled = true,
                 iface = iface ?: "ap0",
                 frequencyMhz = freq,
-                bandLabel = DualWifiBandHelper.formatBand(freq, context)
+                bandRes = DualWifiBandHelper.bandLabelRes(freq),
+                bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) }
             )
         } else {
             HotspotInfo(isEnabled = false)

@@ -1,13 +1,18 @@
 package com.multiroute.wifi
 
+import android.content.Context
 import android.os.Build
+import androidx.annotation.StringRes
+import com.multiroute.R
 import com.multiroute.util.HotspotHookState
 
-enum class DualWifiScheme(val id: String, val label: String) {
-    AUTO("auto", "自动"),
-    AOSP_OVERLAY("aosp_overlay", "AOSP 标准多互联网"),
-    XIAOMI_SLAVE("xiaomi_slave", "小米 / HyperOS 专用"),
-    ROOT_DIRECT("root_direct", "通用 Root 直连");
+enum class DualWifiScheme(val id: String, @param:StringRes @get:StringRes val labelRes: Int) {
+    AUTO("auto", R.string.dual_wifi_scheme_auto_title),
+    AOSP_OVERLAY("aosp_overlay", R.string.dual_wifi_scheme_aosp_title),
+    XIAOMI_SLAVE("xiaomi_slave", R.string.dual_wifi_scheme_xiaomi_title),
+    ROOT_DIRECT("root_direct", R.string.dual_wifi_scheme_root_title);
+
+    fun label(context: Context): String = context.getString(labelRes)
 
     companion object {
         fun fromId(id: String?): DualWifiScheme =
@@ -17,13 +22,15 @@ enum class DualWifiScheme(val id: String, val label: String) {
 
 enum class DualWifiDeactivationResult { STOPPED, HOTSPOT_USES_SECONDARY, FAILED }
 
-enum class RomType(val label: String) {
-    AOSP_PIXEL("AOSP / Pixel 类原生"),
-    XIAOMI_HYPEROS("小米 MIUI / HyperOS"),
-    COLOROS_OPPO("OPPO / 一加 ColorOS"),
-    ORIGINOS_VIVO("vivo / iQOO OriginOS"),
-    SAMSUNG_ONEUI("三星 One UI"),
-    GENERIC_OEM("通用 Android OEM")
+enum class RomType(@param:StringRes @get:StringRes val labelRes: Int) {
+    AOSP_PIXEL(R.string.wifi_i18n_rom_aosp),
+    XIAOMI_HYPEROS(R.string.wifi_i18n_rom_xiaomi),
+    COLOROS_OPPO(R.string.wifi_i18n_rom_coloros),
+    ORIGINOS_VIVO(R.string.wifi_i18n_rom_originos),
+    SAMSUNG_ONEUI(R.string.wifi_i18n_rom_oneui),
+    GENERIC_OEM(R.string.wifi_i18n_rom_generic);
+
+    fun label(context: Context): String = context.getString(labelRes)
 }
 
 data class DeviceRomInfo(
@@ -52,6 +59,7 @@ data class DualWifiCapability(
     ),
     val configuredScheme: DualWifiScheme = DualWifiScheme.AUTO,
     val effectiveScheme: DualWifiScheme = DualWifiScheme.AUTO,
+    @param:StringRes @get:StringRes val wifiChipsetRes: Int = 0,
     val wifiChipset: String = "",
     val overlayStatus: String = "",
     val primaryDetails: String = "",
@@ -77,28 +85,12 @@ data class WifiScanItem(
     val is6GHz: Boolean get() = frequencyMhz in 5925..7125
     val isSecure: Boolean get() = capabilities.contains("PSK") || capabilities.contains("SAE") || capabilities.contains("EAP")
 
-    val bandLabel: String get() = when {
-        frequencyMhz in 2400..2500 -> "2.4 GHz"
-        frequencyMhz in 4900..5320 -> "5 GHz (低频)"
-        frequencyMhz in 5321..5900 -> "5 GHz (高频)"
-        frequencyMhz in 5925..7125 -> "6 GHz"
-        else -> "5 GHz"
-    }
-
     val channel: Int get() = when {
         frequencyMhz in 2412..2472 -> (frequencyMhz - 2407) / 5
         frequencyMhz == 2484 -> 14
         frequencyMhz in 5160..5885 -> (frequencyMhz - 5000) / 5
         frequencyMhz in 5955..7115 -> (frequencyMhz - 5950) / 5 + 1
         else -> 0
-    }
-
-    val signalQualityText: String get() = when (level) {
-        4 -> "极佳 (满格)"
-        3 -> "良好"
-        2 -> "一般"
-        1 -> "较弱"
-        else -> "微弱"
     }
 
     /** Returns signal strength level 0..4 */
@@ -115,6 +107,7 @@ data class HotspotInfo(
     val isEnabled: Boolean = false,
     val iface: String? = null,
     val frequencyMhz: Int = 0,
+    @param:StringRes @get:StringRes val bandRes: Int? = null,
     val bandLabel: String? = null
 )
 
@@ -141,6 +134,7 @@ data class DualWifiStatus(
     val isHotspotEnabled: Boolean = false,
     val hotspotIface: String? = null,
     val hotspotFreq: Int = 0,
+    @param:StringRes @get:StringRes val hotspotBandRes: Int? = null,
     val hotspotBand: String? = null,
     val hotspotUpstreamTarget: String = "default",
     val hotspotUpstreamActive: String = "none",

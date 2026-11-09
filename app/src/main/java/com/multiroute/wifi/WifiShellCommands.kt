@@ -28,7 +28,7 @@ object WifiShellCommands {
         in 2400..2500 -> 2
         in 4900..5900 -> 5
         in 5925..7125 -> 6
-        else -> throw IllegalArgumentException("无法识别副网频段，请重新扫描")
+        else -> throw IllegalArgumentException("Unsupported secondary Wi-Fi frequency band: $frequencyMhz")
     }
 
     fun removeRequest(ssid: String): String = "cmd wifi remove-request ${quote(ssid)}"

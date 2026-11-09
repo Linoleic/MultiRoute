@@ -433,6 +433,7 @@ fun DualWifiScreen(
             isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
             isHotspotEnabled = status.isHotspotEnabled,
             hotspotBand = status.hotspotBand,
+            hotspotBandRes = status.hotspotBandRes,
             hotspotFreq = status.hotspotFreq,
             onDismiss = { selectedDetailItem = null },
             onConnectClick = { viewModel.onSelectScanItem(item) },
@@ -542,7 +543,8 @@ private fun DualWifiSupportCard(
                         statusText = stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_hardware_supported else R.string.wifi_i18n_hardware_unsupported),
                         isOk = capability.hardwareSupported,
                         details = buildList {
-                            add(stringResource(R.string.wifi_i18n_chipset, capability.wifiChipset, if (capability.romInfo.socModel.isNotEmpty()) stringResource(R.string.wifi_i18n_soc_suffix, capability.romInfo.socModel) else ""))
+                            val chipsetLabel = if (capability.wifiChipsetRes != 0) stringResource(capability.wifiChipsetRes) else capability.wifiChipset
+                            add(stringResource(R.string.wifi_i18n_chipset, chipsetLabel, if (capability.romInfo.socModel.isNotEmpty()) stringResource(R.string.wifi_i18n_soc_suffix, capability.romInfo.socModel) else ""))
                             add(stringResource(R.string.wifi_i18n_interfaces, capability.primaryIface ?: "wlan0", capability.secondaryIface ?: "wlan1"))
                             add(stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_arch_supported else R.string.wifi_i18n_arch_unsupported))
                         }
@@ -590,7 +592,7 @@ private fun DualWifiSupportCard(
                                 add(stringResource(R.string.wifi_i18n_direct_ready))
                             } else {
                                 add(stringResource(R.string.wifi_i18n_config_switch, capability.configEnabled))
-                                add(stringResource(R.string.wifi_i18n_current_state, capability.overlayStatus))
+                                add(stringResource(R.string.wifi_i18n_current_state, stringResource(if (capability.configEnabled) R.string.wifi_i18n_overlay_enabled_detail else R.string.wifi_i18n_disabled)))
                             }
                         }
                     )
@@ -1260,12 +1262,26 @@ private fun WifiScanRow(
 }
 
 @Composable
-fun scanBandLabel(frequencyMhz: Int): String = when {
-    frequencyMhz in 2400..2500 -> "2.4 GHz"
-    frequencyMhz in 4900..5320 -> stringResource(R.string.wifi_i18n_band_5_low)
-    frequencyMhz in 5321..5900 -> stringResource(R.string.wifi_i18n_band_5_high)
-    frequencyMhz in 5925..7125 -> "6 GHz"
-    else -> if (frequencyMhz > 0) stringResource(R.string.wifi_i18n_frequency_mhz, frequencyMhz) else "5 GHz"
+fun scanBandLabel(frequencyMhz: Int): String = if (frequencyMhz > 0) {
+    val resId = com.multiroute.wifi.DualWifiBandHelper.bandLabelRes(frequencyMhz)
+    if (resId == R.string.wifi_i18n_frequency_mhz) {
+        stringResource(resId, frequencyMhz)
+    } else {
+        stringResource(resId)
+    }
+} else {
+    "5 GHz"
+}
+
+@Composable
+internal fun hotspotBandLabel(freq: Int, cachedBand: String?, @androidx.annotation.StringRes bandRes: Int? = null): String? {
+    if (freq <= 0) return if (bandRes != null && bandRes != 0 && bandRes != R.string.wifi_i18n_frequency_mhz) stringResource(bandRes) else cachedBand
+    val resId = com.multiroute.wifi.DualWifiBandHelper.bandLabelRes(freq)
+    return if (resId == R.string.wifi_i18n_frequency_mhz) {
+        stringResource(resId, freq)
+    } else {
+        stringResource(resId)
+    }
 }
 
 @Composable
@@ -1278,14 +1294,6 @@ fun signalQualityLabel(level: Int): String = stringResource(when (level) {
 })
 
 @Composable
-private fun schemeLabel(scheme: com.multiroute.wifi.DualWifiScheme): String = stringResource(when (scheme) {
-    com.multiroute.wifi.DualWifiScheme.AUTO -> R.string.wifi_i18n_auto
-    com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> R.string.dual_wifi_scheme_aosp_title
-    com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE -> R.string.dual_wifi_scheme_xiaomi_title
-    com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT -> R.string.dual_wifi_scheme_root_title
-})
-
-@Composable
 private fun schemeBadge(scheme: com.multiroute.wifi.DualWifiScheme): String = stringResource(when (scheme) {
     com.multiroute.wifi.DualWifiScheme.AUTO -> R.string.wifi_i18n_auto
     com.multiroute.wifi.DualWifiScheme.AOSP_OVERLAY -> R.string.wifi_i18n_matched_aosp
@@ -1294,14 +1302,7 @@ private fun schemeBadge(scheme: com.multiroute.wifi.DualWifiScheme): String = st
 })
 
 @Composable
-private fun romLabel(type: com.multiroute.wifi.RomType): String = stringResource(when (type) {
-    com.multiroute.wifi.RomType.AOSP_PIXEL -> R.string.wifi_i18n_rom_aosp
-    com.multiroute.wifi.RomType.XIAOMI_HYPEROS -> R.string.wifi_i18n_rom_xiaomi
-    com.multiroute.wifi.RomType.COLOROS_OPPO -> R.string.wifi_i18n_rom_coloros
-    com.multiroute.wifi.RomType.ORIGINOS_VIVO -> R.string.wifi_i18n_rom_originos
-    com.multiroute.wifi.RomType.SAMSUNG_ONEUI -> R.string.wifi_i18n_rom_oneui
-    com.multiroute.wifi.RomType.GENERIC_OEM -> R.string.wifi_i18n_rom_generic
-})
+private fun romLabel(type: com.multiroute.wifi.RomType): String = stringResource(type.labelRes)
 
 @Composable
 private fun SchemeSelectorContent(

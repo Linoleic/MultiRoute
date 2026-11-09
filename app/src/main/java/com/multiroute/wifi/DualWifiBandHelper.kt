@@ -1,6 +1,7 @@
 package com.multiroute.wifi
 
 import android.content.Context
+import androidx.annotation.StringRes
 import com.multiroute.R
 
 /**
@@ -109,14 +110,27 @@ object DualWifiBandHelper {
     }
 
     /**
+     * Resolves a frequency in MHz (or <= 0 when enabled without frequency) to a string resource id.
+     */
+    @StringRes
+    fun bandLabelRes(freq: Int): Int = when (freq) {
+        in 2400..2500 -> R.string.wifi_i18n_band_24_label
+        in 4900..5320 -> R.string.wifi_i18n_band_5_low
+        in 5321..5900 -> R.string.wifi_i18n_band_5_high
+        in 5925..7125 -> R.string.wifi_i18n_band_6_label
+        else -> if (freq > 0) R.string.wifi_i18n_frequency_mhz else R.string.wifi_i18n_band_enabled
+    }
+
+    /**
      * Formats frequency into user-friendly Wi-Fi band label.
      */
-    fun formatBand(freq: Int, context: Context? = null): String = when (freq) {
-        in 2400..2500 -> "2.4 GHz"
-        in 4900..5320 -> context?.getString(R.string.wifi_i18n_band_5_low) ?: "5 GHz (低频)"
-        in 5321..5900 -> context?.getString(R.string.wifi_i18n_band_5_high) ?: "5 GHz (高频)"
-        in 5925..7125 -> "6 GHz"
-        else -> if (freq > 0) context?.getString(R.string.wifi_i18n_frequency_mhz, freq) ?: "${freq}MHz" else context?.getString(R.string.wifi_i18n_band_enabled) ?: "已开启"
+    fun formatBand(freq: Int, context: Context): String {
+        val resId = bandLabelRes(freq)
+        return if (resId == R.string.wifi_i18n_frequency_mhz) {
+            context.getString(resId, freq)
+        } else {
+            context.getString(resId)
+        }
     }
 
     /**

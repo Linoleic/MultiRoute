@@ -322,7 +322,7 @@ internal class ModuleDiagnosticsCollector(
         sb.appendLine(context.getString(R.string.diag_sec_dual_wifi))
         try {
             val wifiStatus = DualWifiManager.status.value
-            val cap = if (wifiStatus.capability.romInfo.model.isNotEmpty()) {
+            val cap = if (wifiStatus.capability.detail.isNotEmpty()) {
                 wifiStatus.capability
             } else {
                 DualWifiManager.checkCapability(context)
@@ -330,40 +330,52 @@ internal class ModuleDiagnosticsCollector(
             sb.appendLine(
                 context.getString(
                     R.string.diag_dual_wifi_hw,
-                    if (cap.hardwareSupported) "支持 (STA + STA Concurrency)" else "不支持"
+                    context.getString(
+                        if (cap.hardwareSupported) R.string.diag_dual_wifi_hw_supported
+                        else R.string.diag_dual_wifi_hw_unsupported
+                    )
                 )
             )
-            val chipset = cap.wifiChipset.ifEmpty { DualWifiManager.detectWifiChipset() }
+            val chipset = if (cap.wifiChipsetRes != 0) context.getString(cap.wifiChipsetRes) else cap.wifiChipset.ifEmpty { DualWifiManager.detectWifiChipset(context) }
             sb.appendLine(context.getString(R.string.diag_dual_wifi_chip, chipset))
             sb.appendLine(
                 context.getString(
                     R.string.diag_dual_wifi_overlay,
-                    if (cap.configEnabled) "已开启 (Overlay 生效)" else "未开启 (默认禁用)"
+                    context.getString(
+                        if (cap.configEnabled) R.string.diag_dual_wifi_overlay_on
+                        else R.string.diag_dual_wifi_overlay_off
+                    )
                 )
             )
             sb.appendLine(
                 context.getString(
                     R.string.diag_dual_wifi_mode,
-                    if (cap.modeActive) "已激活 (Multi-AP 模式 2)" else "未激活"
+                    context.getString(
+                        if (cap.modeActive) R.string.diag_dual_wifi_mode_active
+                        else R.string.diag_dual_wifi_mode_inactive
+                    )
                 )
             )
             sb.appendLine(
                 context.getString(
                     R.string.diag_dual_wifi_scheme,
-                    cap.configuredScheme.label,
-                    cap.effectiveScheme.label
+                    cap.configuredScheme.label(context),
+                    cap.effectiveScheme.label(context)
                 )
             )
 
+            val notConnectedText = context.getString(R.string.diag_wifi_not_connected)
+            val connectedFallbackText = context.getString(R.string.diag_wifi_connected)
+
             val pIface = wifiStatus.primaryIface ?: diag.wifiSsids.keys.firstOrNull() ?: "wlan0"
-            val pSsid = wifiStatus.primarySsid ?: diag.wifiSsids[pIface] ?: "(未连接)"
+            val pSsid = wifiStatus.primarySsid ?: diag.wifiSsids[pIface] ?: notConnectedText
             val pFreqStr = if (wifiStatus.primaryFreq > 0) " · ${wifiStatus.primaryFreq} MHz" else ""
             val pIpStr = if (!wifiStatus.primaryIp.isNullOrEmpty()) " · ${wifiStatus.primaryIp}" else ""
             sb.appendLine(context.getString(R.string.diag_dual_wifi_primary, "$pIface -> $pSsid$pFreqStr$pIpStr"))
 
             val sIface = wifiStatus.secondaryIface ?: "wlan1"
             val sConnected = wifiStatus.secondaryConnected
-            val sSsid = wifiStatus.secondarySsid ?: if (sConnected) "(已连接)" else "(未连接)"
+            val sSsid = wifiStatus.secondarySsid ?: if (sConnected) connectedFallbackText else notConnectedText
             val sFreqStr = if (wifiStatus.secondaryFreq > 0) " · ${wifiStatus.secondaryFreq} MHz" else ""
             val sIpStr = if (!wifiStatus.secondaryIp.isNullOrEmpty()) " · ${wifiStatus.secondaryIp}" else ""
             sb.appendLine(context.getString(R.string.diag_dual_wifi_secondary, "$sIface -> $sSsid$sFreqStr$sIpStr"))
@@ -372,11 +384,14 @@ internal class ModuleDiagnosticsCollector(
             sb.appendLine(
                 context.getString(
                     R.string.diag_dual_wifi_service,
-                    if (serviceRunning) "运行中 (常驻前台保活)" else "未运行"
+                    context.getString(
+                        if (serviceRunning) R.string.diag_dual_wifi_service_running
+                        else R.string.diag_dual_wifi_service_stopped
+                    )
                 )
             )
         } catch (e: Exception) {
-            sb.appendLine("• 读取双 Wi-Fi 状态异常: ${e.message}")
+            sb.appendLine(context.getString(R.string.diag_dual_wifi_failed, e.message ?: ""))
         }
         sb.appendLine()
 
@@ -386,17 +401,19 @@ internal class ModuleDiagnosticsCollector(
             val pDnsMode = runCatching { Settings.Global.getString(context.contentResolver, "private_dns_mode") }.getOrNull().orEmpty()
             val pDnsSpec = runCatching { Settings.Global.getString(context.contentResolver, "private_dns_specifier") }.getOrNull().orEmpty()
             val pDnsDesc = when (pDnsMode.lowercase()) {
-                "off" -> "关闭 (off)"
-                "hostname" -> "指定主机名: $pDnsSpec (strict)"
-                "opportunistic" -> "自动 / 机会性 (opportunistic)"
-                else -> if (pDnsMode.isEmpty()) "自动 (默认)" else pDnsMode
+                "off" -> context.getString(R.string.diag_private_dns_off)
+                "hostname" -> context.getString(R.string.diag_private_dns_hostname, pDnsSpec)
+                "opportunistic" -> context.getString(R.string.diag_private_dns_opportunistic)
+                else -> if (pDnsMode.isEmpty()) context.getString(R.string.diag_private_dns_auto) else pDnsMode
             }
             sb.appendLine(context.getString(R.string.diag_private_dns, pDnsDesc))
             sb.appendLine(
                 context.getString(
                     R.string.diag_dns_follow_channel,
-                    if (RouteConfigProvider.isDnsFollowsChannel(context)) "已开启 (iptables 转发至通道 DNS)"
-                    else "未开启 (跟随系统默认解析)"
+                    context.getString(
+                        if (RouteConfigProvider.isDnsFollowsChannel(context)) R.string.diag_dns_follow_on
+                        else R.string.diag_dns_follow_off
+                    )
                 )
             )
 
@@ -410,7 +427,7 @@ internal class ModuleDiagnosticsCollector(
                 }
             }
         } catch (e: Exception) {
-            sb.appendLine("• 读取 DNS 状态异常: ${e.message}")
+            sb.appendLine(context.getString(R.string.diag_dns_failed, e.message ?: ""))
         }
         sb.appendLine()
 
@@ -444,7 +461,7 @@ internal class ModuleDiagnosticsCollector(
                 routeLines.forEach { sb.appendLine("• $it") }
             }
         } catch (e: Exception) {
-            sb.appendLine("• 读取路由表异常: ${e.message}")
+            sb.appendLine(context.getString(R.string.diag_routes_failed, e.message ?: ""))
         }
         sb.appendLine()
 

@@ -3,6 +3,7 @@ package com.multiroute.wifi
 import android.content.Context
 import android.net.ConnectivityManager
 import android.os.Build
+import androidx.annotation.StringRes
 import com.multiroute.R
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.SuHelper
@@ -90,34 +91,29 @@ object DeviceCapabilityDetector {
     }
 
     /**
-     * Probes Wi-Fi chipset architecture.
+     * Resolves Wi-Fi chipset architecture to a localized string resource id.
      * Supports parameter overrides for test simulations.
      */
-    fun detectWifiChipset(lsmodOutput: String? = null): String {
+    @StringRes
+    fun detectWifiChipsetRes(lsmodOutput: String? = null): Int {
         val lsmodStr = lsmodOutput ?: runCatching {
             SuHelper.executeShellWithOutput("lsmod 2>/dev/null", timeoutSeconds = 3).joinToString(" ")
         }.getOrDefault("")
         return when {
-            lsmodStr.contains("bcmdhd4389", ignoreCase = true) -> "Broadcom BCM4389 (DBS 双射频)"
-            lsmodStr.contains("bcmdhd", ignoreCase = true) -> "Broadcom Wi-Fi (DBS 双射频)"
-            lsmodStr.contains("qca", ignoreCase = true) || lsmodStr.contains("wlan", ignoreCase = true) -> "Qualcomm FastConnect (DBS 并发)"
-            lsmodStr.contains("wmt_drv", ignoreCase = true) || lsmodStr.contains("wlan_mt", ignoreCase = true) -> "MediaTek Filogic (DBS 并发)"
-            else -> "标准双射频 Wi-Fi 芯片 (DBS 架构)"
-        }
-    }
-
-    fun detectWifiChipset(context: Context, lsmodOutput: String? = null): String {
-        val lsmodStr = lsmodOutput ?: runCatching {
-            SuHelper.executeShellWithOutput("lsmod 2>/dev/null", timeoutSeconds = 3).joinToString(" ")
-        }.getOrDefault("")
-        return context.getString(when {
             lsmodStr.contains("bcmdhd4389", ignoreCase = true) -> R.string.wifi_i18n_chip_broadcom_4389
             lsmodStr.contains("bcmdhd", ignoreCase = true) -> R.string.wifi_i18n_chip_broadcom
             lsmodStr.contains("qca", ignoreCase = true) || lsmodStr.contains("wlan", ignoreCase = true) -> R.string.wifi_i18n_chip_qualcomm
             lsmodStr.contains("wmt_drv", ignoreCase = true) || lsmodStr.contains("wlan_mt", ignoreCase = true) -> R.string.wifi_i18n_chip_mediatek
             else -> R.string.wifi_i18n_chip_generic
-        })
+        }
     }
+
+    /**
+     * Probes Wi-Fi chipset architecture.
+     * Supports parameter overrides for test simulations.
+     */
+    fun detectWifiChipset(context: Context, lsmodOutput: String? = null): String =
+        context.getString(detectWifiChipsetRes(lsmodOutput))
 
     fun parseWifiStatus(context: Context, lines: List<String>): Map<String, String> {
         val result = mutableMapOf<String, String>()
@@ -202,7 +198,8 @@ object DeviceCapabilityDetector {
         val romInfo = detectRomType()
         val configuredScheme = DualWifiScheme.fromId(com.multiroute.data.RouteConfigProvider.getDualWifiScheme(context))
         val effectiveScheme = getEffectiveScheme(configuredScheme, romInfo)
-        val wifiChipset = detectWifiChipset(context)
+        val wifiChipsetRes = detectWifiChipsetRes()
+        val wifiChipset = context.getString(wifiChipsetRes)
 
         // Determine primary and secondary interfaces
         val activeDefaultIface = runCatching {
@@ -228,6 +225,7 @@ object DeviceCapabilityDetector {
             romInfo = romInfo,
             configuredScheme = configuredScheme,
             effectiveScheme = effectiveScheme,
+            wifiChipsetRes = wifiChipsetRes,
             wifiChipset = wifiChipset,
             overlayStatus = if (configEnabled) context.getString(R.string.wifi_i18n_overlay_enabled_detail) else context.getString(R.string.wifi_i18n_disabled),
             primaryDetails = primDet,

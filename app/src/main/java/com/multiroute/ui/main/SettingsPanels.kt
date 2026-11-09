@@ -185,12 +185,7 @@ internal fun AppearanceSettingsPanel(uiState: MainUiState, viewModel: MainScreen
                 onSelect = { tag ->
                     if (language != tag) {
                         RouteConfigProvider.setLanguage(ctx, tag)
-                        if (android.os.Build.VERSION.SDK_INT >= 33) {
-                            runCatching {
-                                ctx.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales =
-                                    if (tag.isEmpty()) android.os.LocaleList.getEmptyLocaleList() else android.os.LocaleList.forLanguageTags(tag)
-                            }
-                        }
+                        com.multiroute.util.AppLocaleHelper.applyLanguage(ctx, tag)
                         host?.recreate()
                     }
                 }

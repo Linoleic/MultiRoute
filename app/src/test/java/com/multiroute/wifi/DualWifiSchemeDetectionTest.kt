@@ -1,5 +1,6 @@
 package com.multiroute.wifi
 
+import com.multiroute.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
@@ -23,14 +24,14 @@ class DualWifiSchemeDetectionTest {
             socModelOverride = "SM8550",
             miuiPropOverride = "V816.0.4.0.UNXCNXM"
         )
-        val chip = DualWifiManager.detectWifiChipset(
+        val chipRes = DualWifiManager.detectWifiChipsetRes(
             lsmodOutput = "wlan 13000000 0 - Live 0xffffff9010000000"
         )
         val scheme = DualWifiManager.getEffectiveScheme(DualWifiScheme.AUTO, rom)
 
         assertEquals(RomType.XIAOMI_HYPEROS, rom.romType)
         assertEquals(DualWifiScheme.XIAOMI_SLAVE, scheme)
-        assertTrue(chip.contains("Qualcomm FastConnect"))
+        assertEquals(R.string.wifi_i18n_chip_qualcomm, chipRes)
     }
 
     @Test
@@ -98,14 +99,14 @@ class DualWifiSchemeDetectionTest {
             apiLevel = 36,
             socModelOverride = "GS201"
         )
-        val chip = DualWifiManager.detectWifiChipset(
+        val chipRes = DualWifiManager.detectWifiChipsetRes(
             lsmodOutput = "bcmdhd4389 4235264 0 - Live 0xffffff9008000000"
         )
         val scheme = DualWifiManager.getEffectiveScheme(DualWifiScheme.AUTO, rom)
 
         assertEquals(RomType.AOSP_PIXEL, rom.romType)
         assertEquals(DualWifiScheme.AOSP_OVERLAY, scheme)
-        assertEquals("Broadcom BCM4389 (DBS 双射频)", chip)
+        assertEquals(R.string.wifi_i18n_chip_broadcom_4389, chipRes)
     }
 
     @Test
@@ -119,14 +120,14 @@ class DualWifiSchemeDetectionTest {
             apiLevel = 35,
             socModelOverride = "zuma"
         )
-        val chip = DualWifiManager.detectWifiChipset(
+        val chipRes = DualWifiManager.detectWifiChipsetRes(
             lsmodOutput = "bcmdhd 5100000 0 - Live 0xffffff9008000000"
         )
         val scheme = DualWifiManager.getEffectiveScheme(DualWifiScheme.AUTO, rom)
 
         assertEquals(RomType.AOSP_PIXEL, rom.romType)
         assertEquals(DualWifiScheme.AOSP_OVERLAY, scheme)
-        assertEquals("Broadcom Wi-Fi (DBS 双射频)", chip)
+        assertEquals(R.string.wifi_i18n_chip_broadcom, chipRes)
     }
 
     @Test
@@ -141,14 +142,14 @@ class DualWifiSchemeDetectionTest {
             socModelOverride = "SM8650",
             oplusPropOverride = "V14.0.0"
         )
-        val chip = DualWifiManager.detectWifiChipset(
+        val chipRes = DualWifiManager.detectWifiChipsetRes(
             lsmodOutput = "qca_cld3_wlan 8900000 0 - Live"
         )
         val scheme = DualWifiManager.getEffectiveScheme(DualWifiScheme.AUTO, rom)
 
         assertEquals(RomType.COLOROS_OPPO, rom.romType)
         assertEquals(DualWifiScheme.AOSP_OVERLAY, scheme)
-        assertTrue(chip.contains("Qualcomm FastConnect"))
+        assertEquals(R.string.wifi_i18n_chip_qualcomm, chipRes)
     }
 
     @Test
@@ -163,14 +164,14 @@ class DualWifiSchemeDetectionTest {
             socModelOverride = "MT6989",
             vivoPropOverride = "OriginOS 4"
         )
-        val chip = DualWifiManager.detectWifiChipset(
+        val chipRes = DualWifiManager.detectWifiChipsetRes(
             lsmodOutput = "wmt_drv 120000 0 - Live"
         )
         val scheme = DualWifiManager.getEffectiveScheme(DualWifiScheme.AUTO, rom)
 
         assertEquals(RomType.ORIGINOS_VIVO, rom.romType)
         assertEquals(DualWifiScheme.AOSP_OVERLAY, scheme)
-        assertTrue(chip.contains("MediaTek Filogic"))
+        assertEquals(R.string.wifi_i18n_chip_mediatek, chipRes)
     }
 
     @Test
@@ -402,7 +403,7 @@ class DualWifiSchemeDetectionTest {
         assertTrue(hotspot1.isEnabled)
         assertEquals("wlan2", hotspot1.iface)
         assertEquals(2437, hotspot1.frequencyMhz)
-        assertEquals("2.4 GHz", hotspot1.bandLabel)
+        assertEquals(R.string.wifi_i18n_band_24_label, hotspot1.bandRes)
 
         // Case 2: Active SoftAP on ap0 (5GHz channel 149, 5745 MHz)
         val iwOutputAp0 = listOf(
@@ -417,7 +418,7 @@ class DualWifiSchemeDetectionTest {
         assertTrue(hotspot2.isEnabled)
         assertEquals("ap0", hotspot2.iface)
         assertEquals(5745, hotspot2.frequencyMhz)
-        assertEquals("5 GHz (高频)", hotspot2.bandLabel)
+        assertEquals(R.string.wifi_i18n_band_5_high, hotspot2.bandRes)
 
         // Case 3: No active SoftAP (only managed clients)
         val iwOutputNoAp = listOf(
@@ -440,7 +441,7 @@ class DualWifiSchemeDetectionTest {
         assertTrue(hotspot4.isEnabled)
         assertEquals("wlan2", hotspot4.iface)
         assertEquals(0, hotspot4.frequencyMhz)
-        assertEquals("已开启", hotspot4.bandLabel)
+        assertEquals(R.string.wifi_i18n_band_enabled, hotspot4.bandRes)
     }
 
     @Test
@@ -475,7 +476,7 @@ class DualWifiSchemeDetectionTest {
         assertTrue(info1.isEnabled)
         assertEquals("ap0", info1.iface)
         assertEquals(5260, info1.frequencyMhz)
-        assertEquals("5 GHz (低频)", info1.bandLabel)
+        assertEquals(R.string.wifi_i18n_band_5_low, info1.bandRes)
 
         // Case 2: 2.4GHz tethered event in dumpsys
         val lines24G = listOf(
@@ -485,7 +486,7 @@ class DualWifiSchemeDetectionTest {
         val info2 = DualWifiManager.parseHotspotFromDumpsysWifi(lines24G)
         assertTrue(info2.isEnabled)
         assertEquals(2437, info2.frequencyMhz)
-        assertEquals("2.4 GHz", info2.bandLabel)
+        assertEquals(R.string.wifi_i18n_band_24_label, info2.bandRes)
 
         // Case 3: Empty or irrelevant lines
         val linesEmpty = listOf(
@@ -494,5 +495,15 @@ class DualWifiSchemeDetectionTest {
         )
         val info3 = DualWifiManager.parseHotspotFromDumpsysWifi(linesEmpty)
         assertFalse(info3.isEnabled)
+    }
+
+    @Test
+    fun testSchemeRomAndBandLabelResourcesAreMapped() {
+        assertEquals(R.string.wifi_i18n_chip_generic, DualWifiManager.detectWifiChipsetRes("unknown_drv"))
+        assertEquals(R.string.wifi_i18n_band_6_label, DualWifiManager.bandLabelRes(5955))
+        assertEquals(R.string.wifi_i18n_frequency_mhz, DualWifiManager.bandLabelRes(3600))
+        assertEquals(R.string.dual_wifi_scheme_auto_title, DualWifiScheme.AUTO.labelRes)
+        assertEquals(R.string.dual_wifi_scheme_xiaomi_title, DualWifiScheme.XIAOMI_SLAVE.labelRes)
+        assertEquals(R.string.wifi_i18n_rom_xiaomi, RomType.XIAOMI_HYPEROS.labelRes)
     }
 }

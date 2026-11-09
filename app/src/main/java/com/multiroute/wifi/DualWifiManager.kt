@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.os.Build
 import android.util.Log
+import androidx.annotation.StringRes
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.util.HotspotUpstreamPolicy
@@ -74,8 +75,9 @@ object DualWifiManager {
     fun getEffectiveScheme(configured: DualWifiScheme, rom: DeviceRomInfo): DualWifiScheme =
         DeviceCapabilityDetector.getEffectiveScheme(configured, rom)
 
-    fun detectWifiChipset(lsmodOutput: String? = null): String =
-        DeviceCapabilityDetector.detectWifiChipset(lsmodOutput)
+    @StringRes
+    fun detectWifiChipsetRes(lsmodOutput: String? = null): Int =
+        DeviceCapabilityDetector.detectWifiChipsetRes(lsmodOutput)
 
     fun detectWifiChipset(context: Context, lsmodOutput: String? = null): String =
         DeviceCapabilityDetector.detectWifiChipset(context, lsmodOutput)
@@ -100,7 +102,9 @@ object DualWifiManager {
 
     fun isBandConflicted(itemFreq: Int, primaryFreq: Int): Boolean = DualWifiBandHelper.isBandConflicted(itemFreq, primaryFreq)
     fun isBandRecommended(itemFreq: Int, primaryFreq: Int): Boolean = DualWifiBandHelper.isBandRecommended(itemFreq, primaryFreq)
-    fun formatBand(freq: Int, context: Context? = null): String = DualWifiBandHelper.formatBand(freq, context)
+    @StringRes
+    fun bandLabelRes(freq: Int): Int = DualWifiBandHelper.bandLabelRes(freq)
+    fun formatBand(freq: Int, context: Context): String = DualWifiBandHelper.formatBand(freq, context)
     fun resolveSecurityType(capabilities: String?, passphrase: String?): String = DualWifiBandHelper.resolveSecurityType(capabilities, passphrase)
     fun resolvePrimarySecondaryIfaces(ifaces: List<String>, activeDefaultIface: String? = null): Pair<String, String> =
         DualWifiBandHelper.resolvePrimarySecondaryIfaces(ifaces, activeDefaultIface)
@@ -452,6 +456,7 @@ object DualWifiManager {
                     isHotspotEnabled = hotspotInfo.isEnabled,
                     hotspotIface = hotspotInfo.iface,
                     hotspotFreq = hotspotInfo.frequencyMhz,
+                    hotspotBandRes = hotspotInfo.bandRes,
                     hotspotBand = hotspotInfo.bandLabel,
                     hotspotUpstreamTarget = hotspotTarget,
                     hotspotUpstreamActive = hotspotActive,

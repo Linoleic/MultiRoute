@@ -73,11 +73,10 @@ fun MainScreen(
     LaunchedEffect(uiState.configAppearanceImported) {
         if (uiState.configAppearanceImported) {
             viewModel.consumeConfigAppearanceImport()
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                val tag = RouteConfigProvider.getLanguage(importContext)
-                importContext.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales =
-                    if (tag.isEmpty()) android.os.LocaleList.getEmptyLocaleList() else android.os.LocaleList.forLanguageTags(tag)
-            }
+            com.multiroute.util.AppLocaleHelper.applyLanguage(
+                importContext,
+                RouteConfigProvider.getLanguage(importContext)
+            )
             (importContext as? android.app.Activity)?.recreate()
         }
     }
