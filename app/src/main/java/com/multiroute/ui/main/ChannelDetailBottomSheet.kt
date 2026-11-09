@@ -225,6 +225,19 @@ fun ChannelDetailBottomSheet(
                             )
                         )
                     }
+                    val wifiRxMbps = channel.wifiRxLinkSpeedMbps
+                    val wifiTxMbps = channel.wifiTxLinkSpeedMbps
+                    if (channel.transportType == "WLAN" && (wifiRxMbps > 0 || wifiTxMbps > 0)) {
+                        val linkRateText = when {
+                            wifiRxMbps > 0 && wifiTxMbps > 0 -> stringResource(com.multiroute.R.string.ui_link_speed, wifiRxMbps, wifiTxMbps)
+                            wifiRxMbps > 0 -> stringResource(com.multiroute.R.string.ui_link_speed_rx_only, wifiRxMbps)
+                            else -> stringResource(com.multiroute.R.string.ui_link_speed_tx_only, wifiTxMbps)
+                        }
+                        DetailPropertyRow(
+                            label = stringResource(com.multiroute.R.string.ui_wifi_link_rate),
+                            value = linkRateText
+                        )
+                    }
                     DetailPropertyRow(
                         label = if (channel.isVpn) stringResource(com.multiroute.R.string.ui_vpn_tunnel_ip_label) else stringResource(com.multiroute.R.string.ui_primary_ip),
                         value = channel.ipAddress ?: stringResource(com.multiroute.R.string.ui_none)

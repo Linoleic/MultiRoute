@@ -80,7 +80,8 @@
     <string name="ui_iface_offline_note">该网络接口当前未连接，保留此配置或切换为其他在线通道</string>
     <string name="ui_change">更改</string>
     <string name="ui_test_server">公网出口测试服务器</string>
-    <string name="ui_estimated_bandwidth">估算链路带宽</string>
+    <string name="ui_estimated_bandwidth">系统估算吞吐</string>
+    <string name="ui_wifi_link_rate">Wi-Fi 协商速率</string>
     <string name="ui_about">关于 MultiRoute</string>
     <string name="ui_metered">计费流量标识</string>
     <string name="ui_mtu">接口 MTU</string>
@@ -220,6 +221,8 @@
     <string name="ui_no_intranet_ip">无内网地址</string>
     <string name="ui_underlying_iface">底层网络接口: %1$s</string>
     <string name="ui_link_speed">下行 %1$d Mbps / 上行 %2$d Mbps</string>
+    <string name="ui_link_speed_rx_only">下行 %1$d Mbps</string>
+    <string name="ui_link_speed_tx_only">上行 %1$d Mbps</string>
     <string name="channel_subtitle">接口: %1$s%2$s · 内网: %3$s</string>
     <string name="channel_current_default"> (当前默认通道)</string>
     <string name="ui_no_ip">无IP</string>

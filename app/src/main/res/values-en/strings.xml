@@ -80,7 +80,8 @@
     <string name="ui_iface_offline_note">This interface is not connected; keep the configuration or switch to an online channel</string>
     <string name="ui_change">Change</string>
     <string name="ui_test_server">Public-IP test server</string>
-    <string name="ui_estimated_bandwidth">Estimated link bandwidth</string>
+    <string name="ui_estimated_bandwidth">System-estimated throughput</string>
+    <string name="ui_wifi_link_rate">Wi-Fi link rate</string>
     <string name="ui_about">About MultiRoute</string>
     <string name="ui_metered">Metered</string>
     <string name="ui_mtu">Interface MTU</string>
@@ -220,6 +221,8 @@
     <string name="ui_no_intranet_ip">no intranet address</string>
     <string name="ui_underlying_iface">Underlying interface: %1$s</string>
     <string name="ui_link_speed">Down %1$d Mbps / Up %2$d Mbps</string>
+    <string name="ui_link_speed_rx_only">Down %1$d Mbps</string>
+    <string name="ui_link_speed_tx_only">Up %1$d Mbps</string>
     <string name="channel_subtitle">Interface: %1$s%2$s · Intranet: %3$s</string>
     <string name="channel_current_default"> (current default)</string>
     <string name="ui_no_ip">no IP</string>

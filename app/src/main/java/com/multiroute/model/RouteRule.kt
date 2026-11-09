@@ -17,8 +17,10 @@ data class NetworkChannel(
     val dnsServers: List<String> = emptyList(),     // DNS server IP addresses
     val domains: String? = null,   // Search domain
     val mtu: Int = 0,              // Interface MTU
-    val downlinkBps: Int = 0,      // Downlink bandwidth in Kbps
-    val uplinkBps: Int = 0,        // Uplink bandwidth in Kbps
+    val downlinkBps: Int = 0,      // System-estimated downstream bandwidth in Kbps
+    val uplinkBps: Int = 0,        // System-estimated upstream bandwidth in Kbps
+    val wifiRxLinkSpeedMbps: Int = 0, // Wi-Fi negotiated PHY receive rate in Mbps
+    val wifiTxLinkSpeedMbps: Int = 0, // Wi-Fi negotiated PHY transmit rate in Mbps
     val isMetered: Boolean = false,// Whether network is metered
     val isDefault: Boolean = false,
     val isValidated: Boolean = true,

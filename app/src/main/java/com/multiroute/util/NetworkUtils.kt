@@ -64,10 +64,6 @@ object NetworkUtils {
     }
 
     /**
-     * Resolves currently connected Wi-Fi SSIDs per interface (wlan0, wlan1)
-     * using dumpsys / shell status with fallback.
-     */
-    /**
      * Detailed information about a connected Wi-Fi interface.
      */
     data class WifiConnectionDetails(
@@ -77,85 +73,31 @@ object NetworkUtils {
         val rssi: Int = 0,
         val iface: String? = null,
         val ip: String? = null,
-        val isPrimary: Boolean = false
+        val isPrimary: Boolean = false,
+        val rxLinkSpeedMbps: Int = 0,
+        val txLinkSpeedMbps: Int = 0
     )
 
+    private val WIFI_BSSID_REGEX = Regex("""BSSID:\s*([0-9a-fA-F:]{17})""")
+    private val WIFI_FREQ_REGEX = Regex("""Frequency:\s*(\d+)\s*MHz""")
+    private val WIFI_RSSI_REGEX = Regex("""(?:RSSI|SignalStrength):\s*(-?\d+)""")
+    private val WIFI_IP_REGEX = Regex("""IP:\s*/?([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})""")
+    private val WIFI_PRIMARY_REGEX = Regex("""IsPrimary:\s*(\d+)""")
+    private val WIFI_TX_SPEED_REGEX = Regex("""(?:^|,\s*)Tx Link speed:\s*(\d+)\s*Mbps""")
+    private val WIFI_RX_SPEED_REGEX = Regex("""(?:^|,\s*)Rx Link speed:\s*(\d+)\s*Mbps""")
+    private val WIFI_LEGACY_SPEED_REGEX = Regex("""(?:^|,\s*)Link speed:\s*(\d+)\s*Mbps""")
+
     /**
-     * Resolves currently connected Wi-Fi details (SSID, BSSID, frequency, RSSI, IP, role) per interface (wlan0, wlan1)
-     * using cmd wifi status with shell/dumpsys fallback.
+     * Resolves currently connected Wi-Fi details (SSID, BSSID, frequency, RSSI, IP, PHY link speed,
+     * and role) per interface (wlan0, wlan1) using cmd wifi status with dumpsys wifi fallback.
      */
     fun getConnectedWifiDetails(): Map<String, WifiConnectionDetails> {
-        val result = mutableMapOf<String, WifiConnectionDetails>()
-        // 1. Authoritative real-time source: cmd wifi status
-        try {
-            val lines = SuHelper.executeShellWithOutput("cmd wifi status", timeoutSeconds = 4)
-            var currentIface: String? = null
-            var currentSsid: String? = null
-            var currentBssid: String? = null
-            var currentFreq = 0
-            var currentRssi = 0
-            var currentIp: String? = null
-            var currentIsPrimary = false
-
-            fun saveCurrent() {
-                val iface = currentIface
-                val ssid = currentSsid
-                if (iface != null && ssid != null) {
-                    result[iface] = WifiConnectionDetails(
-                        ssid = ssid,
-                        bssid = currentBssid,
-                        frequencyMhz = currentFreq,
-                        rssi = currentRssi,
-                        iface = iface,
-                        ip = currentIp,
-                        isPrimary = currentIsPrimary || iface == "wlan0"
-                    )
-                }
-            }
-
-            lines.forEach { line ->
-                if (line.contains("iface=")) {
-                    saveCurrent()
-                    val iface = line.substringAfter("iface=").substringBefore(" ").substringBefore("}")
-                    val role = line.substringAfter("role=", "").substringBefore(" ").substringBefore("}")
-                    currentIface = iface
-                    currentSsid = null
-                    currentBssid = null
-                    currentFreq = 0
-                    currentRssi = 0
-                    currentIp = null
-                    currentIsPrimary = role.contains("PRIMARY", ignoreCase = true) || iface == "wlan0"
-                } else if (line.contains("Wifi is connected to \"")) {
-                    val ssid = line.substringAfter("Wifi is connected to \"").substringBefore("\"")
-                    if (ssid.isNotEmpty() && ssid != "<unknown ssid>") {
-                        currentSsid = ssid
-                    }
-                } else if (line.contains("WifiInfo:") && currentIface != null) {
-                    val bssidMatch = Regex("""BSSID:\s*([0-9a-fA-F:]{17})""").find(line)
-                    if (bssidMatch != null && bssidMatch.groupValues[1] != "02:00:00:00:00:00") {
-                        currentBssid = bssidMatch.groupValues[1].lowercase()
-                    }
-                    val freqMatch = Regex("""Frequency:\s*(\d+)\s*MHz""").find(line)
-                    if (freqMatch != null) {
-                        currentFreq = freqMatch.groupValues[1].toIntOrNull() ?: 0
-                    }
-                    val rssiMatch = Regex("""RSSI:\s*(-?\d+)""").find(line)
-                        ?: Regex("""SignalStrength:\s*(-?\d+)""").find(line)
-                    if (rssiMatch != null) {
-                        currentRssi = rssiMatch.groupValues[1].toIntOrNull() ?: 0
-                    }
-                    val ipMatch = Regex("""IP:\s*/?([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})""").find(line)
-                    if (ipMatch != null) {
-                        currentIp = ipMatch.groupValues[1]
-                    }
-                    val isPrimMatch = Regex("""IsPrimary:\s*(\d+)""").find(line)
-                    if (isPrimMatch != null && isPrimMatch.groupValues[1] == "1") {
-                        currentIsPrimary = true
-                    }
-                }
-            }
-            saveCurrent()
-        } catch (_: Exception) {}
+        val result = try {
+            parseWifiStatusDetails(SuHelper.executeShellWithOutput("cmd wifi status", timeoutSeconds = 4))
+                .toMutableMap()
+        } catch (_: Exception) {
+            mutableMapOf()
+        }
 
         if (result.isNotEmpty()) {
             return result
@@ -182,6 +124,83 @@ object NetworkUtils {
             }
         } catch (_: Exception) {}
 
+        return result
+    }
+
+    internal fun parseWifiStatusDetails(lines: List<String>): Map<String, WifiConnectionDetails> {
+        val result = mutableMapOf<String, WifiConnectionDetails>()
+        var currentIface: String? = null
+        var currentSsid: String? = null
+        var currentBssid: String? = null
+        var currentFreq = 0
+        var currentRssi = 0
+        var currentIp: String? = null
+        var currentIsPrimary = false
+        var currentRxLinkSpeedMbps = 0
+        var currentTxLinkSpeedMbps = 0
+
+        fun saveCurrent() {
+            val iface = currentIface
+            val ssid = currentSsid
+            if (iface != null && ssid != null) {
+                result[iface] = WifiConnectionDetails(
+                    ssid = ssid,
+                    bssid = currentBssid,
+                    frequencyMhz = currentFreq,
+                    rssi = currentRssi,
+                    iface = iface,
+                    ip = currentIp,
+                    isPrimary = currentIsPrimary || iface == "wlan0",
+                    rxLinkSpeedMbps = currentRxLinkSpeedMbps,
+                    txLinkSpeedMbps = currentTxLinkSpeedMbps
+                )
+            }
+        }
+
+        lines.forEach { line ->
+            if (line.contains("iface=")) {
+                saveCurrent()
+                val iface = line.substringAfter("iface=").substringBefore(" ").substringBefore("}")
+                val role = line.substringAfter("role=", "").substringBefore(" ").substringBefore("}")
+                currentIface = iface
+                currentSsid = null
+                currentBssid = null
+                currentFreq = 0
+                currentRssi = 0
+                currentIp = null
+                currentIsPrimary = role.contains("PRIMARY", ignoreCase = true) || iface == "wlan0"
+                currentRxLinkSpeedMbps = 0
+                currentTxLinkSpeedMbps = 0
+            } else if (line.contains("Wifi is connected to \"")) {
+                val ssid = line.substringAfter("Wifi is connected to \"").substringBefore("\"")
+                if (ssid.isNotEmpty() && ssid != "<unknown ssid>") {
+                    currentSsid = ssid
+                }
+            } else if (line.contains("WifiInfo:") && currentIface != null) {
+                val bssidMatch = WIFI_BSSID_REGEX.find(line)
+                if (bssidMatch != null && bssidMatch.groupValues[1] != "02:00:00:00:00:00") {
+                    currentBssid = bssidMatch.groupValues[1].lowercase()
+                }
+                WIFI_FREQ_REGEX.find(line)?.groupValues?.get(1)?.toIntOrNull()?.let {
+                    currentFreq = it
+                }
+                WIFI_RSSI_REGEX.find(line)?.groupValues?.get(1)?.toIntOrNull()?.let {
+                    currentRssi = it
+                }
+                WIFI_IP_REGEX.find(line)?.groupValues?.get(1)?.let {
+                    currentIp = it
+                }
+                if (WIFI_PRIMARY_REGEX.find(line)?.groupValues?.get(1) == "1") {
+                    currentIsPrimary = true
+                }
+                val rxMbps = WIFI_RX_SPEED_REGEX.find(line)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 } ?: 0
+                val txMbps = WIFI_TX_SPEED_REGEX.find(line)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 } ?: 0
+                val legacyMbps = WIFI_LEGACY_SPEED_REGEX.find(line)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 } ?: 0
+                currentRxLinkSpeedMbps = if (rxMbps > 0) rxMbps else legacyMbps
+                currentTxLinkSpeedMbps = if (txMbps > 0) txMbps else legacyMbps
+            }
+        }
+        saveCurrent()
         return result
     }
 
@@ -237,7 +256,7 @@ object NetworkUtils {
         val activeDefault = cm.activeNetwork
         val subscriptions = com.multiroute.cellular.CellularSubscriptions.read(context)
         val result = mutableListOf<NetworkChannel>()
-        val wifiSsids = getConnectedWifiSsids()
+        val wifiDetails = getConnectedWifiDetails()
         val hotspotInfo = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context) }.getOrNull()
 
         for (network in cm.allNetworks) {
@@ -267,6 +286,8 @@ object NetworkUtils {
             val shortName: String
             var wifiSsid: String? = null
             var wifiFrequency = 0
+            var wifiRxLinkSpeedMbps = 0
+            var wifiTxLinkSpeedMbps = 0
 
             when {
                 isHotspot -> {
@@ -281,11 +302,20 @@ object NetworkUtils {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
                     transportType = "WLAN"
                     val wifiInfo = caps.transportInfo as? WifiInfo
+                    val detail = wifiDetails[iface]
                     val directSsid = wifiInfo?.ssid?.trim('"')?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
-                    val detectedSsid = directSsid ?: wifiSsids[iface]
+                    val detectedSsid = directSsid ?: detail?.ssid
                     wifiSsid = detectedSsid
-                    // Frequency is not redacted for the app's own networks; 0 means "not reported".
-                    wifiFrequency = wifiInfo?.frequency ?: 0
+                    // Prefer unredacted shell details when available; fall back to WifiInfo API.
+                    wifiFrequency = (wifiInfo?.frequency?.takeIf { it > 0 } ?: detail?.frequencyMhz) ?: 0
+                    wifiRxLinkSpeedMbps = detail?.rxLinkSpeedMbps?.takeIf { it > 0 }
+                        ?: wifiInfo?.rxLinkSpeedMbps?.takeIf { it > 0 }
+                        ?: wifiInfo?.linkSpeed?.takeIf { it > 0 }
+                        ?: 0
+                    wifiTxLinkSpeedMbps = detail?.txLinkSpeedMbps?.takeIf { it > 0 }
+                        ?: wifiInfo?.txLinkSpeedMbps?.takeIf { it > 0 }
+                        ?: wifiInfo?.linkSpeed?.takeIf { it > 0 }
+                        ?: 0
                     shortName = if (detectedSsid != null) "$iface ($detectedSsid)" else iface
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> {
@@ -346,6 +376,8 @@ object NetworkUtils {
                     mtu = mtu,
                     downlinkBps = downBandwidth,
                     uplinkBps = upBandwidth,
+                    wifiRxLinkSpeedMbps = wifiRxLinkSpeedMbps,
+                    wifiTxLinkSpeedMbps = wifiTxLinkSpeedMbps,
                     isMetered = isMetered,
                     isDefault = isDefault,
                     isValidated = isValidated,
