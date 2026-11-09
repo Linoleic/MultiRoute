@@ -1,118 +1,76 @@
 package com.multiroute.util
 
 import android.content.Context
-import android.os.Build
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
-import android.util.Log
-import com.multiroute.BuildConfig
+import androidx.annotation.Keep
 import com.multiroute.data.RouteConfigProvider
-import com.multiroute.model.CHANNEL_DEFAULT
+import com.multiroute.model.ScenarioResolution
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
-data class DiagnosticInfo(
-    val isRootGranted: Boolean = false,
-    val suVersion: String = "",
-    val isModuleActive: Boolean = false,
-    /** Precise module state; [isModuleActive] is kept as the coarse "loaded in system_server" flag. */
-    val moduleStatus: ModuleStatus = ModuleStatus.NOT_ACTIVE,
-    val moduleStatusDetail: String = "",
-    val kernelRulesCount: Int = 0,
-    val kernelRules: List<String> = emptyList(),
-    val mobileDataAlwaysOn: Boolean = false,
-    val mobileDataPreferredUids: String = "",
-    val isKeepSlaveWifiScreenOff: Boolean = false,
-    val activeTables: List<String> = emptyList(),
-    val wifiSsids: Map<String, String> = emptyMap(),
-    /** uid→channel as configured in the UI. */
-    val configuredUidRules: Map<Int, String> = emptyMap(),
-    /** uid→table as it actually exists in the kernel, so the two can be compared in the UI. */
-    val kernelUidRules: Map<Int, String> = emptyMap(),
-    /** Tail of the boot-recovery log written by the generated `service.d` script. */
-    val bootRestoreLog: List<String> = emptyList()
-)
-
+/**
+ * Unified root-shell and system-integration facade for MultiRoute.
+ *
+ * Delegates shell execution to [RootShellExecutor] (pooled persistent `su` sessions), routing policy
+ * orchestration to [RouteSyncCoordinator], Xposed/kernel diagnostics to [ModuleDiagnosticsCollector],
+ * and tethering controls to [HotspotShellHelper].
+ */
 object SuHelper {
-    private const val TAG = "MultiRoute-SU"
-
-    /**
-     * Serializes [syncAllRouteRules]: applying rules is "delete all, then add the current set", so two
-     * overlapping runs would interleave and can leave a partial rule set (seen on device right after a
-     * soft reboot: one rule present, the second one only a minute later).
-     */
-    private val syncMutex = Mutex()
+    private val shell: RootShellExecutor get() = RootShellExecutor.default
+    private val routeSync by lazy { RouteSyncCoordinator(shell) }
+    private val diagnostics by lazy { ModuleDiagnosticsCollector(shell, routeSync) }
+    private val hotspot by lazy { HotspotShellHelper(shell) }
 
     /** Prevent a receiver sync from observing a partially applied configuration. */
-    internal suspend fun <T> withRouteConfigLock(block: suspend () -> T): T = syncMutex.withLock { block() }
+    internal suspend fun <T> withRouteConfigLock(block: suspend () -> T): T =
+        routeSync.withRouteConfigLock(block)
 
-    /**
-     * Budget for one full rule-application script. It contains 20-30 `ip` invocations, so it must not
-     * be judged with the 5s default used for single commands.
-     */
-    private const val RULE_SCRIPT_TIMEOUT_SECONDS = 30L
+    fun isKeepSlaveWifiScreenOff(context: Context): Boolean =
+        RouteConfigProvider.isKeepSlaveWifiScreenOff(context)
 
-    /** Pseudo PID used when a legacy flag proves the module ran but recorded no process. */
-    private const val UNKNOWN_PID = -1
+    suspend fun setKeepSlaveWifiScreenOff(context: Context, enabled: Boolean): Boolean =
+        withContext(Dispatchers.IO) {
+            RouteConfigProvider.setKeepSlaveWifiScreenOff(context, enabled)
 
-    fun isKeepSlaveWifiScreenOff(context: Context): Boolean {
-        return RouteConfigProvider.isKeepSlaveWifiScreenOff(context)
-    }
+            // 1. Transient system property for instantaneous system_server hook access
+            val propVal = if (enabled) "1" else "0"
+            executeCommand("setprop sys.multiroute.keep_slave_wifi $propVal")
 
-    suspend fun setKeepSlaveWifiScreenOff(context: Context, enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
-        RouteConfigProvider.setKeepSlaveWifiScreenOff(context, enabled)
+            // 1b. Persistent twin of the same flag. `sys.*` is wiped on reboot and RemotePreferences are
+            // unreadable until this app has been started, so without this the keep-alive silently judged
+            // itself "off" for the first ~90s of every boot (verified on device).
+            executeCommand("setprop persist.multiroute.keep_slave_wifi $propVal")
 
-        // 1. Transient system property for instantaneous system_server hook access
-        val propVal = if (enabled) "1" else "0"
-        executeCommand("setprop sys.multiroute.keep_slave_wifi $propVal")
+            // 2. Xiaomi system setting: 0 = disable auto teardown, 1 = enable auto teardown
+            val autoDisableVal = if (enabled) 0 else 1
+            val direct = runCatching {
+                Settings.System.putInt(context.contentResolver, "test_wifi_slave_auto_disable", autoDisableVal)
+            }.getOrDefault(false)
+            if (!direct) {
+                executeCommand("settings put system test_wifi_slave_auto_disable $autoDisableVal")
+            }
 
-        // 1b. Persistent twin of the same flag. `sys.*` is wiped on reboot and RemotePreferences are
-        // unreadable until this app has been started, so without this the keep-alive silently judged
-        // itself "off" for the first ~90s of every boot (verified on device).
-        executeCommand("setprop persist.multiroute.keep_slave_wifi $propVal")
-
-        // 2. Xiaomi system setting: 0 = disable auto teardown, 1 = enable auto teardown
-        val autoDisableVal = if (enabled) 0 else 1
-        val direct = runCatching {
-            Settings.System.putInt(context.contentResolver, "test_wifi_slave_auto_disable", autoDisableVal)
-        }.getOrDefault(false)
-        if (!direct) {
-            executeCommand("settings put system test_wifi_slave_auto_disable $autoDisableVal")
+            // 3. Ask the running module to install (or stop installing) the Xiaomi dual-Wi-Fi hooks right away.
+            runCatching {
+                context.sendBroadcast(Intent(ModuleStateParser.ACTION_KEEPALIVE_CHANGED))
+            }
+            true
         }
-
-        // 3. Ask the running module to install (or stop installing) the Xiaomi dual-Wi-Fi hooks right away,
-        // so enabling the switch takes effect without a reboot. It re-checks the persistent flag above, so
-        // a stray broadcast cannot turn the hooks on by itself.
-        runCatching {
-            context.sendBroadcast(android.content.Intent(ModuleStateParser.ACTION_KEEPALIVE_CHANGED))
-        }
-        true
-    }
 
     suspend fun isRootAvailable(): Boolean = withContext(Dispatchers.IO) {
-        val lines = executeShellWithOutput("id", timeoutSeconds = 3)
-        lines.firstOrNull()?.contains("uid=0") == true
+        executeShellWithOutput("id", timeoutSeconds = 3).firstOrNull()?.contains("uid=0") == true
     }
 
-    fun hasWriteSecureSettings(context: Context): Boolean {
-        return context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-    }
+    fun hasWriteSecureSettings(context: Context): Boolean =
+        context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) ==
+            PackageManager.PERMISSION_GRANTED
 
-    fun isMobileDataAlwaysOn(context: Context): Boolean {
-        return try {
-            Settings.Global.getInt(context.contentResolver, "mobile_data_always_on", 0) == 1
-        } catch (e: Exception) {
-            false
-        }
+    fun isMobileDataAlwaysOn(context: Context): Boolean = try {
+        Settings.Global.getInt(context.contentResolver, "mobile_data_always_on", 0) == 1
+    } catch (_: Exception) {
+        false
     }
 
     suspend fun enableMobileDataAlwaysOn(context: Context): Boolean = withContext(Dispatchers.IO) {
@@ -131,1158 +89,82 @@ object SuHelper {
         executeCommand("settings put global mobile_data_always_on 0")
     }
 
-    /**
-     * Checks which network interfaces currently have active default routes in their kernel routing tables.
-     * Prevents traffic blackholes when an interface is assigned but temporarily disconnected or has no route.
-     */
-    fun getInterfacesWithDefaultRoute(candidateIfaces: Collection<String>): Set<String> {
-        val safeIfaces = candidateIfaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }
-        if (safeIfaces.isEmpty()) return emptySet()
-        val cmd = safeIfaces.joinToString(" ") { iface ->
-            "ip route show table $iface 2>/dev/null | grep -m1 '^default' && echo 'ONLINE_V4:$iface'; " +
-            "ip -6 route show table $iface 2>/dev/null | grep -m1 '^default' && echo 'ONLINE_V6:$iface';"
-        }
-        val lines = executeShellWithOutput(cmd, timeoutSeconds = 3)
-        val online = mutableSetOf<String>()
-        for (line in lines) {
-            if (line.startsWith("ONLINE_V4:") || line.startsWith("ONLINE_V6:")) {
-                online.add(line.substringAfter(":").trim())
-            }
-        }
-        return online
-    }
+    fun getInterfacesWithDefaultRoute(candidateIfaces: Collection<String>): Set<String> =
+        routeSync.getInterfacesWithDefaultRoute(candidateIfaces)
 
-    /**
-     * Filters interfaces that currently have verified public Internet access.
-     * Checks Android platform validation (NET_CAPABILITY_VALIDATED) first as a zero-overhead fast-path,
-     * then uses lightweight HTTP 204 probing for unvalidated or secondary interfaces.
-     */
     suspend fun filterInterfacesWithInternet(
         context: Context,
         candidateIfaces: Collection<String>
-    ): Set<String> = withContext(Dispatchers.IO) {
-        val safeIfaces = candidateIfaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
-        if (safeIfaces.isEmpty()) return@withContext emptySet()
+    ): Set<String> = routeSync.filterInterfacesWithInternet(context, candidateIfaces)
 
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-            ?: return@withContext safeIfaces
+    fun getConnectedSubnetPrefixes(context: Context, ifaces: Collection<String>): Map<String, List<String>> =
+        routeSync.getConnectedSubnetPrefixes(context, ifaces)
 
-        val ifaceToNetworkMap = mutableMapOf<String, android.net.Network>()
-        for (network in cm.allNetworks) {
-            val lp = cm.getLinkProperties(network)
-            val iface = lp?.interfaceName
-            if (iface != null && safeIfaces.contains(iface)) {
-                ifaceToNetworkMap[iface] = network
-            }
-        }
+    fun getChannelResolvers(context: Context, ifaces: Collection<String>): Map<String, List<String>> =
+        routeSync.getChannelResolvers(context, ifaces)
 
-        val results = safeIfaces.map { iface ->
-            async {
-                val net = ifaceToNetworkMap[iface]
-                if (net == null) {
-                    iface to false
-                } else {
-                    val caps = cm.getNetworkCapabilities(net)
-                    if (caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                        iface to true
-                    } else {
-                        val hasInternet = NetworkUtils.checkNetworkInternet(net)
-                        iface to hasInternet
-                    }
-                }
-            }
-        }.awaitAll().toMap()
+    fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>): Boolean =
+        routeSync.updateBootRestoreScript(applyScript, interfaces)
 
-        results.filterValues { it }.keys
-    }
+    fun listSecondaryUserInstalls(): List<RouteRuleBuilder.SecondaryUserInstalls> =
+        routeSync.listSecondaryUserInstalls()
 
-    /**
-     * Extracts connected local subnet prefixes for given active interfaces.
-     * Uses ConnectivityManager LinkProperties routes, with shell fallback.
-     */
-    fun getConnectedSubnetPrefixes(context: Context, ifaces: Collection<String>): Map<String, List<String>> {
-        val result = mutableMapOf<String, MutableList<String>>()
-        val safeIfaces = ifaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
-        if (safeIfaces.isEmpty()) return emptyMap()
-
-        // 1. Android ConnectivityManager LinkProperties
-        try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-            if (cm != null) {
-                    @Suppress("DEPRECATION")
-                    val networks = cm.allNetworks
-                    for (network in networks) {
-                        val lp = cm.getLinkProperties(network) ?: continue
-                        val iface = lp.interfaceName ?: continue
-                        if (safeIfaces.contains(iface)) {
-                            for (route in lp.routes) {
-                                if (!route.isDefaultRoute) {
-                                    val dest = route.destination.toString()
-                                    if (RouteRuleBuilder.isValidPrefix(dest)) {
-                                        result.getOrPut(iface) { mutableListOf() }.add(dest)
-                                    }
-                                }
-                            }
-                        }
-                    }
-            }
-        } catch (_: Exception) {}
-
-        // 2. Shell fallback for any interfaces missing from ConnectivityManager
-        for (iface in safeIfaces) {
-            if (result[iface].isNullOrEmpty()) {
-                val lines = executeShellWithOutput(
-                    "ip route show dev $iface proto kernel 2>/dev/null; ip -6 route show dev $iface proto kernel 2>/dev/null",
-                    timeoutSeconds = 2
-                )
-                for (line in lines) {
-                    val prefix = line.substringBefore(" ").trim()
-                    if (RouteRuleBuilder.isValidPrefix(prefix) && !prefix.startsWith("default")) {
-                        result.getOrPut(iface) { mutableListOf() }.add(prefix)
-                    }
-                }
-            }
-        }
-
-        return result
-    }
-
-    /**
-     * DNS resolvers of the given interfaces, as the platform itself sees them (IPv4 only, because the
-     * redirect rule that consumes them is an `iptables` rule). Used to send an assigned app's queries to
-     * its own channel instead of whatever resolver the default network provides.
-     */
-    fun getChannelResolvers(context: Context, ifaces: Collection<String>): Map<String, List<String>> {
-        val safeIfaces = ifaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
-        if (safeIfaces.isEmpty()) return emptyMap()
-
-        // 1. ConnectivityManager, i.e. exactly what the platform resolves with.
-        val result = mutableMapOf<String, List<String>>()
-        try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-            if (cm != null) {
-                @Suppress("DEPRECATION")
-                for (network in cm.allNetworks) {
-                    val lp = cm.getLinkProperties(network) ?: continue
-                    val iface = lp.interfaceName ?: continue
-                    if (!safeIfaces.contains(iface)) continue
-                    val resolvers = lp.dnsServers.mapNotNull { it.hostAddress }
-                        .filter { it.isNotBlank() && !it.contains(':') }
-                    if (resolvers.isNotEmpty()) result[iface] = resolvers
-                }
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "ConnectivityManager resolver lookup failed: ${t.message}")
-        }
-        if (result.keys.containsAll(safeIfaces)) return result
-
-        // 2. Shell fallback: `dumpsys connectivity` exposes the same LinkProperties, and unlike the Java
-        // API it needs no app-visible network. Used only for the channels still missing, because the Java
-        // path returned nothing for them on a real device even though the data was present.
-        try {
-            val raw = executeShellWithOutput("/system/bin/dumpsys connectivity 2>/dev/null", timeoutSeconds = 6)
-                .joinToString(" ")
-            for (chunk in raw.split("InterfaceName: ").drop(1)) {
-                val iface = chunk.substringBefore(' ').trim()
-                if (!safeIfaces.contains(iface) || result.containsKey(iface)) continue
-                val dns = Regex("""DnsAddresses: \[([^\]]*)\]""").find(chunk)?.groupValues?.get(1).orEmpty()
-                val resolvers = dns.split(',', '/').map { it.trim() }
-                    .filter { it.matches(Regex("""\d{1,3}(\.\d{1,3}){3}""")) }
-                if (resolvers.isNotEmpty()) result[iface] = resolvers
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Shell resolver fallback failed: ${t.message}")
-        }
-        return result
-    }
-
-    /**
-     * Deploys a dynamic boot restore script to the KernelSU/Magisk `service.d` directory.
-     *
-     * The script no longer replays a static snapshot: `service.d` runs during `late_start`, before
-     * Wi-Fi/cellular routing tables exist, so it first waits for those tables to appear, applies the
-     * rules once, or exits after a bounded wait. Later link changes are handled by the app and module.
-     * The result is recorded in [RouteRuleBuilder.BOOT_LOG_PATH].
-     */
-    fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>): Boolean {
-        return try {
-            val scriptContent = RouteRuleBuilder.buildBootRestoreScript(applyScript, interfaces)
-
-            val cmd = "mkdir -p /data/adb/service.d /data/adb/multiroute && " +
-                    "cat << 'MCROUTE_EOF' > /data/adb/service.d/00-multiroute-restore.sh\n" +
-                    "$scriptContent\n" +
-                    "MCROUTE_EOF\n" +
-                    "chmod 755 /data/adb/service.d/00-multiroute-restore.sh"
-
-            val success = executeCommand(cmd)
-            if (!success) {
-                Log.w(TAG, "Boot restore script deployment returned a non-zero exit code")
-            }
-            success
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to update boot restore script: ${t.message}")
-            false
-        }
-    }
-
-    /**
-     * Enumerates OEM clone-space / work-profile installs so the UI can list and configure them
-     * separately from the primary-user installs of the same packages.
-     */
-    fun listSecondaryUserInstalls(): List<RouteRuleBuilder.SecondaryUserInstalls> {
-        val lines = executeShellWithOutput(RouteRuleBuilder.buildSecondaryUserListingQuery(), timeoutSeconds = 6)
-        if (lines.isEmpty()) {
-            Log.w(TAG, "Secondary-user listing returned nothing; clone apps will not be listed")
-            return emptyList()
-        }
-        return RouteRuleBuilder.parseSecondaryUserListing(lines)
-    }
-
-    /**
-     * UID behind a rule key (`pkg` for the primary user, `pkg@<userId>` for a clone space or work profile).
-     *
-     * The primary user goes through PackageManager; the other users come from the root package listing,
-     * which the caller can fetch once and pass in when it has several keys to resolve. Returns -1 when the
-     * package is not installed for that user, so a configuration imported from another device simply does
-     * not route apps that are missing here.
-     */
     fun resolveUidForRuleKey(
         context: Context,
         ruleKey: String,
         secondaryInstalls: List<RouteRuleBuilder.SecondaryUserInstalls>? = null
-    ): Int {
-        val (pkg, userId) = RouteRuleBuilder.parseRuleKey(ruleKey)
-        if (pkg.isEmpty()) return -1
-        return if (userId <= 0) {
-            runCatching { context.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
-        } else {
-            val installs = secondaryInstalls
-                ?: runCatching { listSecondaryUserInstalls() }.getOrDefault(emptyList())
-            installs.firstOrNull { it.userId == userId }?.packageUids?.get(pkg) ?: -1
-        }
-    }
+    ): Int = routeSync.resolveUidForRuleKey(context, ruleKey, secondaryInstalls)
 
-    /**
-     * Writes [content] to [path] with root rights.
-     *
-     * The content is written to the app's own cache first and then copied, so JSON that came from a file we
-     * did not author never has to survive shell quoting.
-     */
-    fun writeTextAsRoot(context: Context, path: String, content: String): Boolean {
-        if (path.isBlank()) return false
-        return try {
-            val staging = java.io.File(context.cacheDir, "config-transfer.json")
-            staging.writeText(content)
-            val dir = path.substringBeforeLast('/', "")
-            val cmd = if (dir.isEmpty()) {
-                "cp ${staging.absolutePath} $path && chmod 644 $path"
-            } else {
-                "sh -c 'mkdir -p $dir && cp ${staging.absolutePath} $path && chmod 644 $path'"
-            }
-            executeCommand(cmd)
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to write $path: ${t.message}")
-            false
-        }
-    }
+    fun writeTextAsRoot(context: Context, path: String, content: String): Boolean =
+        shell.writeTextAsRoot(context, path, content)
 
-    /** Reads [path] with root rights, or null when it is missing or unreadable. */
-    fun readTextAsRoot(path: String): String? {
-        if (path.isBlank()) return null
-        val lines = executeShellWithOutput("cat $path", timeoutSeconds = 8)
-        return if (lines.isEmpty()) null else lines.joinToString("\n")
-    }
+    fun readTextAsRoot(path: String): String? =
+        shell.readTextAsRoot(path)
 
-    /**
-     * Dynamically synchronizes routing rules for any interface (wlan0, wlan1, rmnet_data*, eth0, etc.)
-     * to the kernel policy routing table and system settings.
-     *
-     * Applying rules means "delete every rule at our preferences, then add the current set", so two
-     * overlapping syncs (module boot wake-up, network callback, UI action) can interleave and leave a
-     * partial rule set - observed on device as one rule right after a soft reboot and the second one a
-     * minute later. A process-wide mutex serializes them.
-     */
-    suspend fun syncAllRouteRules(context: Context): Boolean = withContext(Dispatchers.IO) {
-        syncMutex.withLock { syncAllRouteRulesInternal(context) }
-    }
+    suspend fun syncAllRouteRules(context: Context): Boolean =
+        routeSync.syncAllRouteRules(context)
 
-    /**
-     * Evaluates the scenario profiles against the current links and folds the winner into [base].
-     *
-     * The common case costs nothing: with no profiles stored the base map is returned untouched and no
-     * root command is run. SSIDs come from the channel list the platform already gives us; the root dump
-     * is only consulted when an SSID trigger needs them and the platform redacted them.
-     */
-    private suspend fun resolveScenarioProfile(
-        context: Context,
-        base: Map<Int, String>
-    ): com.multiroute.model.ScenarioResolution {
-        val profiles = com.multiroute.data.ScenarioStore.load(context)
-        if (profiles.isEmpty()) {
-            return com.multiroute.model.ScenarioResolution(effectiveRules = base)
-        }
-
-        val channels = runCatching { NetworkUtils.getActiveChannels(context) }.getOrDefault(emptyList())
-        var observation = com.multiroute.model.ScenarioObservation.fromChannels(channels)
-
-        val needsSsids = profiles.any {
-            it.enabled && it.trigger is com.multiroute.model.ScenarioTrigger.SsidMatch
-        }
-        if (needsSsids && observation.wifiSsids.isEmpty()) {
-            val fromRoot = runCatching { NetworkUtils.getConnectedWifiSsids().values.toList() }
-                .getOrDefault(emptyList())
-            observation = observation.copy(wifiSsids = fromRoot.filter { it.isNotBlank() }.distinct())
-        }
-
-        val knownChannels = channels.flatMap { listOf(it.id, it.interfaceName) }.toSet()
-        // Clone-space / work-profile overrides need the root package listing; fetch it once, only if a
-        // profile that is actually applied contains one.
-        var secondaryInstalls: List<RouteRuleBuilder.SecondaryUserInstalls>? = null
-        val resolution = ScenarioEngine.resolve(
-            base = base,
-            profiles = profiles,
-            observation = observation,
-            // Manual mode means the conditions are not evaluated at all: exactly the plans switched on by
-            // hand apply, several at once if the user wants that.
-            mode = if (com.multiroute.data.ScenarioStore.isManualMode(context)) {
-                ScenarioEngine.SelectionMode.MANUAL
-            } else {
-                ScenarioEngine.SelectionMode.AUTOMATIC
-            },
-            manualIds = com.multiroute.data.ScenarioStore.getManualIds(context),
-            overridesByUid = { profile ->
-                profile.overrides.mapNotNull { (ruleKey, channelId) ->
-                    val (pkg, userId) = RouteRuleBuilder.parseRuleKey(ruleKey)
-                    val uid = if (userId <= 0) {
-                        runCatching { context.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
-                    } else {
-                        if (secondaryInstalls == null) {
-                            secondaryInstalls = runCatching { listSecondaryUserInstalls() }
-                                .getOrDefault(emptyList())
-                        }
-                        secondaryInstalls?.firstOrNull { it.userId == userId }?.packageUids?.get(pkg) ?: -1
-                    }
-                    if (uid > 0) uid to channelId else null
-                }.toMap()
-            },
-            // When nothing is connected yet (for example while the device is still booting) an empty list
-            // must not invalidate every override - the offline check below the sync decides what is usable.
-            hasChannel = { com.multiroute.cellular.CellularTargets.isSim(it) || knownChannels.isEmpty() || it in knownChannels }
-        )
-
-        if (resolution.activeId != null) {
-            Log.i(
-                TAG,
-                "Scenario '${resolution.activeName}' active " +
-                        "(${if (resolution.appliedManually) "pinned by hand" else "matched automatically"}): " +
-                        "overrides=${resolution.overridden}, forcedDefault=${resolution.forcedDefault}, " +
-                        "ssid=${resolution.matchedSsid ?: "-"}"
-            )
-        }
-        return resolution
-    }
-
-    private suspend fun syncAllRouteRulesInternal(context: Context): Boolean {
-        // A reconnect may arrive within the display cache TTL. Resolve SIM targets from fresh topology.
-        com.multiroute.cellular.CellularSubscriptions.invalidate()
-        // Keep the persistent keep-alive flag aligned with the stored preference on every sync, so the
-        // module can honour it from the very first moment of a boot (its other two sources - the
-        // transient `sys.*` property and RemotePreferences - are unavailable at that point).
-        val keepAliveValue = if (RouteConfigProvider.isKeepSlaveWifiScreenOff(context)) "1" else "0"
-        executeCommand("setprop persist.multiroute.keep_slave_wifi $keepAliveValue")
-
-        // `uid_<n>` is the contract the injected module reads, so routing is driven purely by UID.
-        // That keeps primary installs, OEM clone spaces (Xiaomi XSpace = user 999) and work profiles
-        // uniformly routable - and lets each of them be configured to a different channel.
-        val baseUidRules = RouteConfigProvider.getUidRules(context)
-
-        // Scenario profiles are overlays on those assignments: whichever profile matches the current links
-        // (or the one the user pinned by hand) may re-route some apps, or take them out of routing
-        // entirely, without touching the base configuration. Everything below only ever sees the result,
-        // so boot recovery, the rule cache, offline skipping, the cellular bookkeeping and the DNS
-        // redirect keep working exactly as before.
-        val scenario = resolveScenarioProfile(context, baseUidRules)
-        val runtimeChannels = NetworkUtils.getActiveChannels(context)
-        val simInterfaces = runtimeChannels.filter { com.multiroute.cellular.CellularTargets.isSim(it.id) }
-            .groupBy({ it.id }, { it.interfaceName })
-        val uidRules = scenario.effectiveRules.mapNotNull { (uid, target) ->
-            com.multiroute.cellular.CellularTargets.resolve(target, simInterfaces)?.let { uid to it }
-        }.toMap()
-        // Diagnostic for "a plan did not reach the kernel": shows exactly what the sync is about to apply.
-        Log.i(
-            TAG,
-            "Effective rules: ${uidRules.size} entry/entries [" +
-                    uidRules.entries.sortedBy { it.key }.joinToString { "${it.key}=${it.value}" } +
-                    "] scenario=${scenario.activeNames.ifEmpty { listOf("-") }.joinToString("+")}"
-        )
-
-        // Publish how many scenario plans exist. The module lives in system_server and is always awake,
-        // so it is the component that can notice a link change while this app has been killed; it reads
-        // this marker, wakes us with the restore broadcast, and the plan is re-evaluated here. Written on
-        // every sync, so it also disappears again when the last plan is deleted.
-        val scenarioPlanCount = com.multiroute.data.ScenarioStore.load(context).size +
-            baseUidRules.values.count { com.multiroute.cellular.CellularTargets.isSim(it) }
-        executeCommand(
-            if (scenarioPlanCount > 0) {
-                "sh -c 'echo $scenarioPlanCount > ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}'"
-            } else {
-                "sh -c 'rm -f ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}'"
-            }
-        )
-
-        val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
-        val hotspotIface = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context).iface }.getOrNull()
-
-        for ((uid, channelId) in uidRules) {
-            if (channelId == CHANNEL_DEFAULT) continue
-            if (!RouteRuleBuilder.isValidUid(uid)) continue
-            if (!RouteRuleBuilder.isValidInterfaceName(channelId)) continue
-            // Downlink hotspot / SoftAP interfaces cannot be used as egress routes for local apps
-            if ((hotspotIface != null && channelId == hotspotIface) || channelId.startsWith("swlan") || channelId.startsWith("ap")) continue
-
-            // Prevent anti-loopback: VPN client apps must not route into VPN tunnels
-            if (channelId.startsWith("tun") || channelId.startsWith("wg") || channelId.startsWith("ppp")) {
-                val pkgName = runCatching { context.packageManager.getPackagesForUid(uid)?.firstOrNull() }.getOrNull()
-                if (pkgName != null && (
-                    pkgName.contains("clash", ignoreCase = true) ||
-                    pkgName.contains("v2ray", ignoreCase = true) ||
-                    pkgName.contains("wireguard", ignoreCase = true) ||
-                    pkgName.contains("singbox", ignoreCase = true) ||
-                    pkgName.contains("nekobox", ignoreCase = true) ||
-                    pkgName.contains("shadowsocks", ignoreCase = true)
-                )) {
-                    Log.w(TAG, "Skipping UID $uid ($pkgName) on VPN channel $channelId to prevent routing loopback")
-                    continue
-                }
-            }
-
-            channelToUidsMap.getOrPut(channelId) { mutableListOf() }.add(uid)
-        }
-
-        // 2. Validate interface route tables
-        val candidateChannels = channelToUidsMap.keys
-        if (candidateChannels.isEmpty()) {
-            val success = executeCommand(RouteRuleBuilder.buildFullSyncScript(emptyMap()),
-                timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
-            if (!success || !updateRuleCache(context, emptyMap())) return false
-            syncCellularPreferredUids(context, emptySet())
-            val removed = executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
-            notifyRouteRulesChanged(context)
-            return removed
-        }
-
-        // A rule whose table has no default route does not blackhole traffic - the kernel falls through
-        // to the next rule and the app silently keeps using the default network. Keeping such stale
-        // rules around is therefore pure confusion (observed on device while a Wi-Fi link was
-        // re-registering: rules pointed at table 1056 after its default route was gone), so the kernel
-        // is always rewritten from the channels that are usable right now.
-        val autoFailover = RouteConfigProvider.isAutoFailoverEnabled(context)
-        val probeInternet = RouteConfigProvider.isFailoverProbeInternet(context)
-        val defaultRouteChannels = getInterfacesWithDefaultRoute(candidateChannels)
-
-        val onlineChannels = if (autoFailover) {
-            if (probeInternet && defaultRouteChannels.isNotEmpty()) {
-                val validated = filterInterfacesWithInternet(context, defaultRouteChannels)
-                Log.i(TAG, "Failover check: defaultRoutes=$defaultRouteChannels, internetValidated=$validated")
-                validated
-            } else {
-                defaultRouteChannels
-            }
-        } else {
-            defaultRouteChannels
-        }
-
-        if (onlineChannels.isEmpty() && candidateChannels.isNotEmpty()) {
-            Log.w(
-                TAG,
-                "None of $candidateChannels is currently usable (offline or unvalidated); clearing their kernel rules " +
-                        "(traffic falls back to the default network in that state anyway)"
-            )
-        }
-
-        val activeChannelMap = channelToUidsMap.filterKeys { iface ->
-            val isOnline = onlineChannels.contains(iface)
-            if (!isOnline) {
-                Log.w(TAG, "Interface $iface is not usable (offline or unvalidated); skipping to prevent traffic blackholing")
-            }
-            isOnline
-        }
-
-        // 3. Collect connected local subnet prefixes for active channels (LAN bypass)
-        val connectedPrefixes = getConnectedSubnetPrefixes(context, activeChannelMap.keys)
-
-        // 3b. Resolvers of the active channels, for the DNS redirect. Android picks the resolver from the
-        // default network, so without this an assigned app can query an address that is only reachable over
-        // a different link (or keep querying a VPN tunnel). On by default; can be switched off.
-        val channelResolvers = if (RouteConfigProvider.isDnsFollowsChannel(context)) {
-            getChannelResolvers(context, activeChannelMap.keys)
-        } else {
-            emptyMap()
-        }
-        Log.i(TAG, "DNS redirect: channelResolvers=$channelResolvers for ${activeChannelMap.keys}")
-
-        // 4. Sync Linux kernel policy routing dynamically for active interfaces (dual-stack + LAN bypass)
-        val script = RouteRuleBuilder.buildFullSyncScript(
-            activeChannelMap,
-            connectedPrefixes,
-            channelResolvers = channelResolvers
-        )
-        // The script spawns one `ip` process per rule (20-30 of them). 5s is enough on an idle device
-        // but not on a busy one: right after a soft reboot the app reported "Command timed out after 5s"
-        // and the sync returned false, leaving only part of the rules applied - which is exactly the
-        // "half rule set" that was observed on device.
-        val success = executeCommand(script, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
-
-        // 5. Deploy / update Magisk/KernelSU boot-time service.d restore script
-        if (success) {
-            // Even when every target is offline, replace the previous script with current intent.
-            // Otherwise changing wlan0 -> an offline channel leaves wlan0 in the next boot's script.
-            // Keep the established partial-online behavior: restore the usable subset at boot.
-            val dynamicUids = scenario.effectiveRules.filterValues { com.multiroute.cellular.CellularTargets.isSim(it) }.keys
-            val bootChannels = activeChannelMap.ifEmpty { channelToUidsMap }.mapValues { (_, uids) ->
-                uids.filterNot { it in dynamicUids }
-            }.filterValues { it.isNotEmpty() }
-            val bootScript = RouteRuleBuilder.buildFullSyncScript(bootChannels, connectedPrefixes)
-            val bootSaved = if (bootChannels.isEmpty()) executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
-                else updateBootRestoreScript(bootScript, bootChannels.keys)
-            if (activeChannelMap.isEmpty()) {
-                if (!updateRuleCache(context, emptyMap())) return false
-                Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script updated with current targets")
-            } else {
-                // The boot script deliberately carries no DNS resolvers: they can change between boots
-                // (different network), and a stale one would break resolution. It flushes the NAT chain
-                // instead, and the app re-applies the redirect with fresh resolvers once it runs.
-                if (!updateRuleCache(context, activeChannelMap, dynamicUids)) return false
-            }
-            val cellularUids = activeChannelMap.filterKeys {
-                com.multiroute.hook.CellularDefaultNetworkPolicy.isCellular(it)
-            }.values.flatten().toSet()
-            syncCellularPreferredUids(context, cellularUids)
-            // UID membership can stay unchanged while the selected SIM changes. A setting write
-            // alone then emits no observer event, so refresh after publishing the new route cache.
-            notifyRouteRulesChanged(context)
-            return bootSaved
-        }
-
-        return success
-    }
-
-    /**
-     * Writes the platform's `mobile_data_preferred_uids` setting when it differs from [desired].
-     *
-     * The direct Settings.Secure call needs WRITE_SECURE_SETTINGS, which a normal app only holds when it
-     * has been granted explicitly, so the root shell is used as a fallback.
-     */
-    private fun syncMobileDataPreferredUids(context: Context, desired: Set<Int>) {
-        val text = RouteRuleBuilder.buildUidList(desired)
-        val current = runCatching {
-            Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids") ?: ""
-        }.getOrDefault("")
-        if (text == current) return
-        val direct = runCatching {
-            Settings.Secure.putString(context.contentResolver, "mobile_data_preferred_uids", text)
-        }.getOrDefault(false)
-        if (!direct) {
-            executeCommand("settings put secure mobile_data_preferred_uids \"$text\"")
-        }
-    }
-
-    private fun notifyRouteRulesChanged(context: Context) {
-        runCatching {
-            context.sendBroadcast(android.content.Intent(ModuleStateParser.ACTION_ROUTES_CHANGED)
-                .setPackage("android"))
-        }.onFailure { Log.w(TAG, "Could not notify system_server of route changes", it) }
-    }
-
-    /** Publish only successfully applied, online assignments; an empty file is authoritative. */
-    private fun updateRuleCache(context: Context, channelToUidsMap: Map<String, List<Int>>, dynamicUids: Set<Int> = emptySet()): Boolean {
-        val routes = channelToUidsMap.flatMap { (iface, uids) -> uids.map { it to iface } }.toMap()
-        val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
-        val text = "#boot:$boot\n#dynamic:${dynamicUids.sorted().joinToString(",")}\n" + RouteRuleBuilder.buildRuleCacheText(routes)
-        val path = RouteRuleBuilder.RULE_CACHE_PATH
-        // Root writes a sibling and renames it, so system_server cannot observe a partial snapshot.
-        val command = "(cat > $path.tmp << 'MCROUTE_CACHE_EOF'\n" + text +
-            "\nMCROUTE_CACHE_EOF\n) && chmod 644 $path.tmp && mv -f $path.tmp $path"
-        return executeCommand(command)
-    }
-
-    private fun syncCellularPreferredUids(context: Context, cellularUids: Set<Int>) {
-        val oursMerged = RouteConfigProvider.getMergedCellularUids(context)
-        val platformUids = RouteRuleBuilder.parseUidList(
-            runCatching {
-                Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids")
-            }.getOrDefault("")
-        )
-        val (desiredPlatformUids, ourContribution) =
-            RouteRuleBuilder.mergeCellularUids(platformUids, cellularUids, oursMerged)
-        syncMobileDataPreferredUids(context, desiredPlatformUids)
-        RouteConfigProvider.setMergedCellularUids(context, ourContribution)
-    }
-
-    @androidx.annotation.Keep
+    @Keep
     @JvmStatic
-    fun isModuleActiveInLSPosed(): Boolean {
-        return false
-    }
+    fun isModuleActiveInLSPosed(): Boolean = false
 
-    /**
-     * Human-readable label for a [ModuleStatus], shared by the diagnostics log and the settings UI so
-     * both stay consistent.
-     *
-     * Note: [isModuleActiveInLSPosed] above is only a legacy activation probe - it is hooked to return
-     * true whenever the module is injected into the app's own process, so it must never be used as the
-     * primary activation signal (it cannot see system_server or the hook state).
-     */
-    fun moduleStatusLabel(context: Context, status: ModuleStatus): String = when (status) {
-        ModuleStatus.ACTIVE -> context.getString(com.multiroute.R.string.module_status_active)
-        ModuleStatus.PARTIAL -> context.getString(com.multiroute.R.string.module_status_partial)
-        ModuleStatus.OUTDATED -> context.getString(com.multiroute.R.string.module_status_outdated)
-        ModuleStatus.LEGACY_UNVERIFIED -> context.getString(com.multiroute.R.string.module_status_legacy)
-        ModuleStatus.STALE -> context.getString(com.multiroute.R.string.module_status_stale)
-        ModuleStatus.NOT_ACTIVE -> context.getString(com.multiroute.R.string.module_status_not_active)
-    }
+    fun moduleStatusLabel(context: Context, status: ModuleStatus): String =
+        diagnostics.moduleStatusLabel(context, status)
 
-    /**
-     * Resolves the precise LSPosed module state, cheapest evidence first:
-     *
-     *  1. `Settings.Global[multiroute_module_state]` - the structured beacon the module publishes from
-     *     system_server. Readable by an ordinary app, so the common case costs no `su` call at all.
-     *  2. The root-readable marker file (same beacon on new builds, legacy `pid:ts` on old ones).
-     *  3. The legacy `sys.multiroute.active` property flag.
-     *
-     * The beacon carries the version code *compiled into the loaded hook code*, so a mismatch with the
-     * installed APK is reported as [ModuleStatus.OUTDATED] instead of a misleading "activated"; and it
-     * carries the installed hook counts, so "loaded but hooks missing" is distinguishable from "ready".
-     */
-    fun getModuleState(context: Context): ModuleState {
-        val installedVersionCode = runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
-        }.getOrDefault(0L)
+    fun getModuleState(context: Context): ModuleState =
+        diagnostics.getModuleState(context)
 
-        // 1) Primary: structured beacon, no root required.
-        val globalRaw = runCatching {
-            Settings.Global.getString(context.contentResolver, ModuleStateParser.STATE_KEY)
-        }.getOrNull()
-        var beacon = ModuleStateParser.parseBeacon(globalRaw)
-        var legacyPid = ModuleStateParser.parseLegacyMarkerPid(globalRaw)
+    suspend fun getDiagnosticInfo(context: Context): DiagnosticInfo =
+        diagnostics.getDiagnosticInfo(context)
 
-        // 2) System property channel: no root, no ContentResolver round trip.
-        if (beacon == null && legacyPid == null) {
-            val propRaw = readStateProperty()
-            beacon = ModuleStateParser.parseBeacon(propRaw)
-            legacyPid = ModuleStateParser.parseLegacyMarkerPid(propRaw)
-        }
-
-        // 3) Fallback: marker file. Only read when the cheap channels are empty (older module build,
-        //    or the module could not publish), so steady-state diagnostics stay su-free.
-        if (beacon == null && legacyPid == null) {
-            val markerRaw = readMarkerRaw()
-            beacon = ModuleStateParser.parseBeacon(markerRaw)
-            legacyPid = ModuleStateParser.parseLegacyMarkerPid(markerRaw)
-        }
-
-        // 4) Last resort: the legacy flag proves something ran, but says nothing about the hooks.
-        val legacyFlag = if (beacon == null && legacyPid == null) readLegacyActiveFlag() else false
-        val legacyMarkerPid = legacyPid ?: if (legacyFlag) UNKNOWN_PID else null
-
-        val pidToVerify = beacon?.systemServerPid ?: legacyPid
-        val ownerVerified = pidToVerify?.let { verifyIsSystemServer(it) }
-
-        return ModuleStateEvaluator.evaluate(
-            ModuleStateEvaluator.Inputs(
-                beacon = beacon,
-                legacyMarkerPid = legacyMarkerPid,
-                installedVersionCode = installedVersionCode,
-                installedBuildId = BuildConfig.HOOK_BUILD_ID,
-                nowElapsedMs = android.os.SystemClock.elapsedRealtime(),
-                ownerIsSystemServer = ownerVerified
-            )
-        )
-    }
-
-    /** Reads the compact property beacon without root (a plain `getprop`, ~10 ms). */
-    private fun readStateProperty(): String? = runCatching {
-        val p = Runtime.getRuntime().exec(arrayOf("getprop", ModuleStateParser.STATE_PROPERTY))
-        val line = p.inputStream.bufferedReader().use { it.readText() }.trim()
-        p.errorStream.bufferedReader().use { it.readText() }
-        p.waitFor()
-        line.ifEmpty { null }
-    }.getOrNull()
-
-    /** Reads the marker file unprivileged first, then through root; null when unreadable. */
-    private fun readMarkerRaw(): String? {
-        runCatching {
-            val f = java.io.File(ModuleStateParser.MARKER_PATH)
-            if (f.canRead()) return f.readText().trim()
-        }
-        return executeShellWithOutput("cat ${ModuleStateParser.MARKER_PATH}", timeoutSeconds = 2)
-            .firstOrNull()?.trim()
-    }
-
-    /**
-     * Verifies that [pid] really is system_server.
-     * Returns null when it cannot be determined (for example without root), so an unknown result is
-     * never turned into a false "stale" verdict.
-     */
-    private fun verifyIsSystemServer(pid: Int): Boolean? {
-        if (pid <= 0) return null
-
-        runCatching {
-            val cmdline = java.io.File("/proc/$pid/cmdline").readText().replace('\u0000', ' ')
-            return cmdline.contains("system_server")
-        }
-
-        val sentinel = ModuleStateParser.noProcessSentinel()
-        val lines = executeShellWithOutput(
-            "if [ -d /proc/$pid ]; then cat /proc/$pid/cmdline; else echo $sentinel; fi",
-            timeoutSeconds = 2
-        )
-        if (lines.isEmpty()) return null
-        if (lines.any { it.contains(sentinel) }) return false
-        return lines.any { it.contains("system_server") }
-    }
-
-    /** Legacy `sys.multiroute.active` flag; proves the module ran, nothing more. */
-    private fun readLegacyActiveFlag(): Boolean {
-        val direct = runCatching {
-            val p = Runtime.getRuntime().exec(arrayOf("getprop", "sys.multiroute.active"))
-            val line = p.inputStream.bufferedReader().use { it.readLine() }?.trim()
-            p.errorStream.bufferedReader().use { it.readText() }
-            p.waitFor()
-            line == "1"
-        }.getOrDefault(false)
-        if (direct) return true
-        return executeShellWithOutput("getprop sys.multiroute.active", timeoutSeconds = 2)
-            .firstOrNull()?.trim() == "1"
-    }
-
-    /**
-     * Gathers rich live diagnostic status of the MultiRoute framework, Linux kernel, and Android settings.
-     */
-    suspend fun getDiagnosticInfo(context: Context): DiagnosticInfo = withContext(Dispatchers.IO) {
-        var isRoot = false
-        var suVer = ""
-        val kernelRules = mutableListOf<String>()
-        val activeTables = mutableListOf<String>()
-
-        try {
-            val lines = executeShellWithOutput("id; su -v; ip rule show pref 14500; ip -6 rule show pref 14500", timeoutSeconds = 4)
-            if (lines.isNotEmpty() && lines[0].contains("uid=0")) {
-                isRoot = true
-            }
-            if (lines.size > 1) {
-                suVer = lines[1].trim()
-            }
-            for (i in 2 until lines.size) {
-                val line = lines[i].trim()
-                if (line.isNotEmpty() && line.contains("14500")) {
-                    kernelRules.add(line)
-                    val table = line.substringAfter("lookup ").substringBefore(";").trim()
-                    if (table.isNotEmpty() && !activeTables.contains(table)) {
-                        activeTables.add(table)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        val moduleState = getModuleState(context)
-        val mobileDataAlwaysOn = isMobileDataAlwaysOn(context)
-        val mobileDataPreferredUids = runCatching {
-            Settings.Secure.getString(context.contentResolver, "mobile_data_preferred_uids") ?: ""
-        }.getOrDefault("")
-
-        val wifiSsids = NetworkUtils.getConnectedWifiSsids()
-        val keepSlaveWifi = isKeepSlaveWifiScreenOff(context)
-
-        DiagnosticInfo(
-            isRootGranted = isRoot,
-            suVersion = suVer,
-            isModuleActive = moduleState.isLoadedInSystemServer,
-            moduleStatus = moduleState.status,
-            moduleStatusDetail = moduleState.detailLabel(context),
-            kernelRulesCount = kernelRules.size,
-            kernelRules = kernelRules,
-            mobileDataAlwaysOn = mobileDataAlwaysOn,
-            mobileDataPreferredUids = mobileDataPreferredUids,
-            isKeepSlaveWifiScreenOff = keepSlaveWifi,
-            activeTables = activeTables,
-            wifiSsids = wifiSsids,
-            configuredUidRules = RouteConfigProvider.getUidRules(context),
-            kernelUidRules = RouteRuleBuilder.parseKernelUidRules(kernelRules),
-            bootRestoreLog = readBootRestoreLog()
-        )
-    }
-
-    /**
-     * Tail of the boot-recovery log written by the generated `service.d` script. It is the only record of
-     * what happened before the app was allowed to run (on a locked device it is the sole restore path),
-     * and until now it could only be read over adb.
-     */
-    private fun readBootRestoreLog(maxLines: Int = 12): List<String> =
-        try {
-            // Absolute path on purpose: the su environment may resolve `tail` to busybox.
-            executeShellWithOutput("/system/bin/tail -n $maxLines ${RouteRuleBuilder.BOOT_LOG_PATH} 2>/dev/null", 4)
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-        } catch (_: Throwable) {
-            emptyList()
-        }
-
-    /**
-     * Compiles a comprehensive diagnostic log snapshot for the user to view or copy.
-     */
-    /**
-     * Human-readable reason for the active scenario plan, using the same strings the routing screen uses.
-     * Shared with the diagnostic snapshot so a report says *why* a plan applied, not just that one did.
-     */
     fun scenarioReasonText(
         context: Context,
-        resolution: com.multiroute.model.ScenarioResolution
-    ): String {
-        if (resolution.activeId == null) return ""
-        if (resolution.appliedManually) {
-            return context.getString(com.multiroute.R.string.scenario_reason_manual)
-        }
-        return when (val trigger = resolution.matchedTrigger) {
-            is com.multiroute.model.ScenarioTrigger.SsidMatch -> context.getString(
-                com.multiroute.R.string.scenario_reason_ssid,
-                resolution.matchedSsid ?: trigger.ssids.joinToString(" / ")
-            )
-            is com.multiroute.model.ScenarioTrigger.WifiLinkCount ->
-                context.getString(com.multiroute.R.string.scenario_reason_links2)
-            is com.multiroute.model.ScenarioTrigger.CellularOnly ->
-                context.getString(com.multiroute.R.string.scenario_reason_cellular)
-            is com.multiroute.model.ScenarioTrigger.Always ->
-                context.getString(com.multiroute.R.string.scenario_reason_always)
-            else -> context.getString(com.multiroute.R.string.scenario_reason_manual)
-        }
-    }
+        resolution: ScenarioResolution
+    ): String = diagnostics.scenarioReasonText(context, resolution)
 
-    suspend fun getDiagnosticLogs(context: Context): String = withContext(Dispatchers.IO) {
-        val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-        val now = timeFormat.format(Date())
+    suspend fun getDiagnosticLogs(context: Context): String =
+        diagnostics.getDiagnosticLogs(context)
 
-        val sb = StringBuilder()
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_title))
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_time, now))
-        sb.appendLine()
+    /** Executes a root command using the pooled persistent shell. */
+    fun executeCommand(cmd: String, timeoutSeconds: Long = 5, sensitive: Boolean = false): Boolean =
+        shell.executeCommand(cmd, timeoutSeconds, sensitive)
 
-        // 1. 核心权限与系统环境
-        val diag = getDiagnosticInfo(context)
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec1))
-        sb.appendLine(
-            context.getString(
-                com.multiroute.R.string.diag_device_info,
-                Build.MANUFACTURER,
-                Build.MODEL,
-                Build.VERSION.RELEASE,
-                Build.VERSION.SDK_INT,
-                Build.DISPLAY
-            )
-        )
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_root_state, if (diag.isRootGranted) context.getString(com.multiroute.R.string.diag_root_granted, diag.suVersion) else context.getString(com.multiroute.R.string.diag_root_missing)))
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_module, moduleStatusLabel(context, diag.moduleStatus)))
-        if (diag.moduleStatusDetail.isNotEmpty()) {
-            sb.appendLine("  └ ${diag.moduleStatusDetail}")
-        }
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_always_on, if (diag.mobileDataAlwaysOn) context.getString(com.multiroute.R.string.diag_on) else context.getString(com.multiroute.R.string.diag_off)))
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_keepalive, if (diag.isKeepSlaveWifiScreenOff) context.getString(com.multiroute.R.string.diag_keepalive_on) else context.getString(com.multiroute.R.string.diag_keepalive_off)))
-        if (com.multiroute.data.ScenarioStore.load(context).isNotEmpty()) {
-            val resolution = resolveScenarioProfile(context, RouteConfigProvider.getUidRules(context))
-            sb.appendLine(
-                context.getString(
-                    com.multiroute.R.string.diag_scenario,
-                    resolution.activeName
-                        ?: context.getString(com.multiroute.R.string.diag_scenario_none),
-                    scenarioReasonText(context, resolution)
-                )
-            )
-        }
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_cellular_uids, diag.mobileDataPreferredUids.ifEmpty { context.getString(com.multiroute.R.string.diag_empty) }))
-        sb.appendLine()
-
-        // 2. 双 Wi-Fi 硬件与并发状态 (STA + STA)
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_dual_wifi))
-        try {
-            val wifiStatus = com.multiroute.wifi.DualWifiManager.status.value
-            val cap = if (wifiStatus.capability.romInfo.model.isNotEmpty()) {
-                wifiStatus.capability
-            } else {
-                com.multiroute.wifi.DualWifiManager.checkCapability(context)
-            }
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_hw, if (cap.hardwareSupported) "支持 (STA + STA Concurrency)" else "不支持"))
-            val chipset = cap.wifiChipset.ifEmpty { com.multiroute.wifi.DualWifiManager.detectWifiChipset() }
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_chip, chipset))
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_overlay, if (cap.configEnabled) "已开启 (Overlay 生效)" else "未开启 (默认禁用)"))
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_mode, if (cap.modeActive) "已激活 (Multi-AP 模式 2)" else "未激活"))
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_scheme, cap.configuredScheme.label, cap.effectiveScheme.label))
-
-            val pIface = wifiStatus.primaryIface ?: diag.wifiSsids.keys.firstOrNull() ?: "wlan0"
-            val pSsid = wifiStatus.primarySsid ?: diag.wifiSsids[pIface] ?: "(未连接)"
-            val pFreqStr = if (wifiStatus.primaryFreq > 0) " · ${wifiStatus.primaryFreq} MHz" else ""
-            val pIpStr = if (!wifiStatus.primaryIp.isNullOrEmpty()) " · ${wifiStatus.primaryIp}" else ""
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_primary, "$pIface -> $pSsid$pFreqStr$pIpStr"))
-
-            val sIface = wifiStatus.secondaryIface ?: "wlan1"
-            val sConnected = wifiStatus.secondaryConnected
-            val sSsid = wifiStatus.secondarySsid ?: if (sConnected) "(已连接)" else "(未连接)"
-            val sFreqStr = if (wifiStatus.secondaryFreq > 0) " · ${wifiStatus.secondaryFreq} MHz" else ""
-            val sIpStr = if (!wifiStatus.secondaryIp.isNullOrEmpty()) " · ${wifiStatus.secondaryIp}" else ""
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_secondary, "$sIface -> $sSsid$sFreqStr$sIpStr"))
-
-            val serviceRunning = com.multiroute.wifi.DualWifiService.isRunning
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dual_wifi_service, if (serviceRunning) "运行中 (常驻前台保活)" else "未运行"))
-        } catch (e: Exception) {
-            sb.appendLine("• 读取双 Wi-Fi 状态异常: ${e.message}")
-        }
-        sb.appendLine()
-
-        // 3. 各通道 DNS 与私有 DNS 状态
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_dns))
-        try {
-            val pDnsMode = runCatching { Settings.Global.getString(context.contentResolver, "private_dns_mode") }.getOrNull().orEmpty()
-            val pDnsSpec = runCatching { Settings.Global.getString(context.contentResolver, "private_dns_specifier") }.getOrNull().orEmpty()
-            val pDnsDesc = when (pDnsMode.lowercase()) {
-                "off" -> "关闭 (off)"
-                "hostname" -> "指定主机名: $pDnsSpec (strict)"
-                "opportunistic" -> "自动 / 机会性 (opportunistic)"
-                else -> if (pDnsMode.isEmpty()) "自动 (默认)" else pDnsMode
-            }
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_private_dns, pDnsDesc))
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_dns_follow_channel, if (RouteConfigProvider.isDnsFollowsChannel(context)) "已开启 (iptables 转发至通道 DNS)" else "未开启 (跟随系统默认解析)"))
-
-            val knownIfaces = (diag.activeTables + listOf("wlan0", "wlan1", "rmnet_data0", "ccmni0")).distinct()
-            val resolvers = getChannelResolvers(context, knownIfaces)
-            if (resolvers.isEmpty()) {
-                sb.appendLine(context.getString(com.multiroute.R.string.diag_no_channel_dns))
-            } else {
-                resolvers.forEach { (iface, dnsList) ->
-                    sb.appendLine(context.getString(com.multiroute.R.string.diag_channel_dns, iface, dnsList.joinToString(", ")))
-                }
-            }
-        } catch (e: Exception) {
-            sb.appendLine("• 读取 DNS 状态异常: ${e.message}")
-        }
-        sb.appendLine()
-
-        // 4. 规则生效对照：配置的 uid→通道 与内核里的 pref 14500 规则逐条比对
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec2))
-        if (diag.configuredUidRules.isEmpty()) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_rules))
-        } else {
-            diag.configuredUidRules.entries.sortedBy { it.key }.forEach { (uid, channel) ->
-                val actual = diag.kernelUidRules[uid]
-                val verdict = when {
-                    actual == null -> context.getString(com.multiroute.R.string.diag_rule_not_effective)
-                    actual == channel -> context.getString(com.multiroute.R.string.diag_rule_effective)
-                    else -> context.getString(com.multiroute.R.string.diag_rule_effective_table, actual)
-                }
-                sb.appendLine("• uid $uid -> $channel: $verdict")
-            }
-        }
-        sb.appendLine()
-
-        // 5. 各网卡默认网关与策略路由表
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_routes))
-        try {
-            val routeLines = executeShellWithOutput("ip route show table all 2>/dev/null | grep -E 'default via|default dev'", timeoutSeconds = 3)
-            if (routeLines.isEmpty()) {
-                sb.appendLine(context.getString(com.multiroute.R.string.diag_no_routes))
-            } else {
-                routeLines.forEach { sb.appendLine("• $it") }
-            }
-        } catch (e: Exception) {
-            sb.appendLine("• 读取路由表异常: ${e.message}")
-        }
-        sb.appendLine()
-
-        // 6. 内核策略路由规则 (pref 14500 & pref 14400)
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_kernel))
-        if (diag.kernelRules.isEmpty()) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_kernel_rules))
-        } else {
-            diag.kernelRules.forEach { rule ->
-                sb.appendLine("• $rule")
-            }
-        }
-        sb.appendLine()
-
-        // 7. 当前活动的网络接口与 IP
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_ifaces))
-        try {
-            val lines = executeShellWithOutput("ip -br addr; echo '---'; ip rule show | head -n 30", timeoutSeconds = 3)
-            lines.forEach { sb.appendLine(it) }
-        } catch (e: Exception) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_ifaces_failed, e.message ?: ""))
-        }
-        sb.appendLine()
-
-        // 8. 开机恢复日志（service.d 生成，锁屏状态下它是唯一的恢复路径）
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec3, RouteRuleBuilder.BOOT_LOG_PATH))
-        if (diag.bootRestoreLog.isEmpty()) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_no_boot_log))
-        } else {
-            diag.bootRestoreLog.forEach { sb.appendLine("  $it") }
-        }
-        sb.appendLine()
-
-        // 9. 最近 Logcat 相关日志 (扩充过滤与行数至 50 行)
-        sb.appendLine(context.getString(com.multiroute.R.string.diag_sec_logcat))
-        try {
-            val lines = executeShellWithOutput("logcat -d -t 120 | grep -E 'MultiRoute|DualWifi|SlaveWifi|ConnectivityService|netd|wpa_supplicant' | tail -n 50", timeoutSeconds = 4)
-            if (lines.isEmpty()) {
-                sb.appendLine(context.getString(com.multiroute.R.string.diag_no_logcat))
-            } else {
-                lines.forEach { sb.appendLine(it) }
-            }
-        } catch (_: Exception) {
-            sb.appendLine(context.getString(com.multiroute.R.string.diag_logcat_timeout))
-        }
-
-        sb.toString()
-    }
-
-    /**
-     * Executes a command as root with safety timeout and drained buffer to avoid deadlocks.
-     */
-    fun executeCommand(cmd: String, timeoutSeconds: Long = 5, sensitive: Boolean = false): Boolean {
-        return try {
-            val pb = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true)
-            val process = pb.start()
-            val drainThread = Thread {
-                runCatching { process.inputStream.bufferedReader().use { it.readText() } }
-            }
-            drainThread.start()
-            val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                Log.e(TAG, "Command timed out after ${timeoutSeconds}s: ${if (sensitive) "[credentials omitted]" else cmd}")
-                false
-            } else {
-                drainThread.join(500)
-                process.exitValue() == 0
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to exec: ${if (sensitive) "[credentials omitted]" else cmd}", e)
-            false
-        }
-    }
-
-    /**
-     * Executes a shell command as root and reads all output lines safely with timeout.
-     */
+    /** Executes a shell command as root and returns its combined stdout/stderr lines. */
     fun executeShellWithOutput(
         cmd: String,
         timeoutSeconds: Long = 5,
         globalMountNamespace: Boolean = false
-    ): List<String> {
-        return try {
-            val args = if (globalMountNamespace) listOf("su", "-M", "-c", cmd) else listOf("su", "-c", cmd)
-            val pb = ProcessBuilder(args).redirectErrorStream(true)
-            val process = pb.start()
-            val lines = mutableListOf<String>()
-            val readThread = Thread {
-                runCatching {
-                    process.inputStream.bufferedReader().useLines { seq ->
-                        lines.addAll(seq.toList())
-                    }
-                }
-            }
-            readThread.start()
-            val finished = process.waitFor(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                Log.e(TAG, "Command with output timed out after ${timeoutSeconds}s: $cmd")
-                emptyList()
-            } else {
-                readThread.join(500)
-                lines
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to exec with output: $cmd", e)
-            emptyList()
-        }
-    }
+    ): List<String> = shell.executeShellWithOutput(cmd, timeoutSeconds, globalMountNamespace)
 
-    private const val SETTING_HOTSPOT_UPSTREAM = "multiroute_hotspot_upstream"
-    private const val ACTION_UPDATE_HOTSPOT_UPSTREAM = "com.multiroute.ACTION_UPDATE_HOTSPOT_UPSTREAM"
+    fun setHotspotUpstream(target: String): Boolean =
+        hotspot.setHotspotUpstream(target)
 
-    /**
-     * Sets the designated upstream interface/type for personal hotspot (SoftAP).
-     * @param target Interface name (e.g. "wlan1", "rmnet_data3") or "cellular", or "default" to clear.
-     */
-    fun setHotspotUpstream(target: String): Boolean {
-        val cleanTarget = HotspotUpstreamPolicy.normalize(target)
-        if (!cleanTarget.matches(Regex("[a-zA-Z0-9_.:-]+"))) return false
-        val cmd = if (cleanTarget.isEmpty() || cleanTarget.equals("default", ignoreCase = true)) {
-            "settings put global $SETTING_HOTSPOT_UPSTREAM default && setprop persist.multiroute.hotspot_upstream ''"
-        } else {
-            "settings put global $SETTING_HOTSPOT_UPSTREAM '$cleanTarget' && setprop persist.multiroute.hotspot_upstream '$cleanTarget'"
-        }
-        val success = executeCommand(cmd)
-        // Trigger live re-evaluation in NetworkStack process
-        if (success) executeCommand("am broadcast -a $ACTION_UPDATE_HOTSPOT_UPSTREAM")
-        return success
-    }
+    fun getHotspotUpstream(): String =
+        hotspot.getHotspotUpstream()
 
-    /**
-     * Reads the currently designated hotspot upstream setting.
-     */
-    fun getHotspotUpstream(): String {
-        val lines = executeShellWithOutput("settings get global $SETTING_HOTSPOT_UPSTREAM")
-        val res = lines.firstOrNull()?.trim() ?: ""
-        return if (res.isEmpty() || res == "null") "default" else res
-    }
+    fun getHotspotActiveUpstream(): String =
+        hotspot.getHotspotActiveUpstream()
 
-    /**
-     * Reads the active upstream interface currently used by personal hotspot (SoftAP).
-     * Directly parses from the system Tethering service (e.g. "rmnet_data3", "wlan0", "wlan1", or "none").
-     */
-    fun getHotspotActiveUpstream(): String {
-        val lines = executeShellWithOutput("dumpsys tethering 2>/dev/null | grep -i 'current upstream interface'")
-        val line = lines.firstOrNull() ?: return "none"
-        val match = Regex("""\[(.*?)\]""").find(line)
-        return match?.groupValues?.get(1)?.trim()?.ifEmpty { "none" } ?: "none"
-    }
-
-    /**
-     * Reads the tethering hook status beacon written by com.android.networkstack.process.
-     */
-    fun getHotspotHookStatus(): HotspotHookState {
-        // Query each package's real dataDir (DE on the Xiaomi test device), with CE/DE fallbacks.
-        // The process identity travels with each candidate; a dumpsys result is never load evidence.
-        val output = executeShellWithOutput("""
-            for pkg in com.android.networkstack.tethering com.google.android.networkstack.tethering; do
-              dir=${'$'}(/system/bin/dumpsys package "${'$'}pkg" 2>/dev/null | /system/bin/sed -n 's/^[[:space:]]*dataDir=//p' | /system/bin/head -n 1)
-              for base in "${'$'}dir" "/data/user_de/0/${'$'}pkg" "/data/user/0/${'$'}pkg"; do
-                [ -n "${'$'}base" ] || continue
-                file="${'$'}base/cache/${HotspotHookStateParser.FILE_NAME}"
-                [ -r "${'$'}file" ] || continue
-                beacon=${'$'}(/system/bin/cat "${'$'}file")
-                pid=${'$'}(printf '%s' "${'$'}beacon" | /system/bin/sed -n 's/.*;pid=\([0-9][0-9]*\);.*/\1/p')
-                case "${'$'}pid" in ''|*[!0-9]*) continue;; esac
-                cmd=${'$'}(/system/bin/cat "/proc/${'$'}pid/cmdline" 2>/dev/null | /system/bin/tr '\000' ' ')
-                case "${'$'}cmd" in com.android.networkstack*|com.google.android.networkstack*) ;;
-                  *) continue;; esac
-                echo "BEACON=${'$'}beacon"
-                echo "PID=${'$'}pid"
-                echo "STAT=${'$'}(/system/bin/cat /proc/${'$'}pid/stat 2>/dev/null)"
-              done
-            done
-            echo "LIVE=${'$'}(/system/bin/pidof com.android.networkstack.process com.google.android.networkstack.process)"
-        """.trimIndent(), timeoutSeconds = 5, globalMountNamespace = true)
-        var mismatch = false
-        output.indices.filter { output[it].startsWith("BEACON=") }.forEach { index ->
-            val pid = output.getOrNull(index + 1)?.removePrefix("PID=")?.toIntOrNull()
-            val ticks = HotspotHookStateParser.processStartTicks(output.getOrNull(index + 2)?.removePrefix("STAT="))
-            when (val state = HotspotHookStateParser.evaluate(output[index].removePrefix("BEACON="), pid, ticks, BuildConfig.HOTSPOT_HOOK_BUILD_ID)) {
-                HotspotHookState.LOADED -> return state
-                HotspotHookState.VERSION_MISMATCH -> mismatch = true
-                else -> Unit
-            }
-        }
-        if (mismatch) return HotspotHookState.VERSION_MISMATCH
-        return if (output.any { it.startsWith("LIVE=") && it.removePrefix("LIVE=").isNotBlank() })
-            HotspotHookState.NOT_LOADED else HotspotHookState.UNKNOWN
-    }
+    fun getHotspotHookStatus(): HotspotHookState =
+        hotspot.getHotspotHookStatus()
 }

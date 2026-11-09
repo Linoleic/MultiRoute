@@ -13,8 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -50,11 +48,10 @@ object NetworkUtils {
     fun getWifiFrequencies(): Map<String, Int> {
         val result = mutableMapOf<String, Int>()
         try {
-            val process = Runtime.getRuntime()
-                .exec(arrayOf("su", "-c", "dumpsys connectivity 2>/dev/null | grep -E 'InterfaceName|Frequency'"))
-            val text = process.inputStream.bufferedReader().use { it.readText() }
-            process.errorStream.bufferedReader().use { it.readText() }
-            process.waitFor()
+            val text = SuHelper.executeShellWithOutput(
+                "dumpsys connectivity 2>/dev/null | grep -E 'InterfaceName|Frequency'",
+                timeoutSeconds = 6
+            ).joinToString("\n")
             var iface: String? = null
             for (line in text.split("InterfaceName: ").drop(1)) {
                 iface = line.substringBefore(' ').trim().ifEmpty { null } ?: continue
@@ -91,10 +88,7 @@ object NetworkUtils {
         val result = mutableMapOf<String, WifiConnectionDetails>()
         // 1. Authoritative real-time source: cmd wifi status
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cmd wifi status"))
-            val lines = process.inputStream.bufferedReader().use { it.readLines() }
-            process.errorStream.bufferedReader().use { it.readText() }
-            process.waitFor()
+            val lines = SuHelper.executeShellWithOutput("cmd wifi status", timeoutSeconds = 4)
             var currentIface: String? = null
             var currentSsid: String? = null
             var currentBssid: String? = null
@@ -169,10 +163,7 @@ object NetworkUtils {
 
         // 2. Fallback: dumpsys wifi (may retain historical current SSID(s) entries)
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "dumpsys wifi | grep 'current SSID(s)'"))
-            val lines = process.inputStream.bufferedReader().use { it.readLines() }
-            process.errorStream.bufferedReader().use { it.readText() }
-            process.waitFor()
+            val lines = SuHelper.executeShellWithOutput("dumpsys wifi | grep 'current SSID(s)'", timeoutSeconds = 4)
             for (line in lines) {
                 if (line.isNotEmpty()) {
                     val regex = Regex("""\{iface=([^,]+),ssid="([^"]+)"\}""")
@@ -216,10 +207,8 @@ object NetworkUtils {
     fun getVpnDetailsFromDumpsys(): Map<String, VpnConnectionDetails> {
         val result = mutableMapOf<String, VpnConnectionDetails>()
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "dumpsys connectivity"))
-            val text = process.inputStream.bufferedReader().use { it.readText() }
-            process.errorStream.bufferedReader().use { it.readText() }
-            process.waitFor()
+            val text = SuHelper.executeShellWithOutput("dumpsys connectivity 2>/dev/null", timeoutSeconds = 6)
+                .joinToString("\n")
 
             val netIdToIface = mutableMapOf<String, String>()
             val netRegex = Regex("""NetworkAgentInfo\{network\{(\d+)\}.*?lp\{\{InterfaceName:\s*([a-zA-Z0-9_.-]+)""", RegexOption.DOT_MATCHES_ALL)
