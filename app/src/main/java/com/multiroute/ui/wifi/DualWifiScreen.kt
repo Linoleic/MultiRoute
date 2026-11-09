@@ -427,8 +427,6 @@ fun DualWifiScreen(
     selectedDetailItem?.let { item ->
         WifiDetailBottomSheet(
             item = item,
-            primarySsid = status.primarySsid,
-            primaryFreq = status.primaryFreq,
             isSecondaryConnected = status.secondaryConnected,
             isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
             isHotspotEnabled = status.isHotspotEnabled,
@@ -458,7 +456,7 @@ private fun DualWifiSupportCard(
     onToggleDetails: () -> Unit
 ) {
     val capability = status.capability
-    val dualWifiActive = capability.modeActive || status.secondaryConnected || status.isConnecting
+    val dualWifiActive = status.isDualWifiActive
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),

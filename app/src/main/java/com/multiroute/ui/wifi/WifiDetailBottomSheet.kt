@@ -10,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,8 +25,6 @@ import com.multiroute.wifi.WifiScanItem
 @Composable
 fun WifiDetailBottomSheet(
     item: WifiScanItem,
-    primarySsid: String?,
-    primaryFreq: Int,
     isSecondaryConnected: Boolean = false,
     isConnecting: Boolean,
     isHotspotEnabled: Boolean = false,
@@ -153,36 +150,6 @@ fun WifiDetailBottomSheet(
                         isWarning = true
                     )
                 }
-
-                val isSameBandConflict = remember(item.frequencyMhz, primaryFreq) {
-                    if (primaryFreq <= 0 || item.isPrimary) false
-                    else {
-                        val primLow5G = primaryFreq in 5150..5350
-                        val targetLow5G = item.frequencyMhz in 5150..5350
-                        val primHigh5G = primaryFreq in 5470..5850
-                        val targetHigh5G = item.frequencyMhz in 5470..5850
-                        val prim24 = primaryFreq in 2400..2500
-                        val target24 = item.frequencyMhz in 2400..2500
-                        val prim6G = primaryFreq in 5925..7125
-                        val target6G = item.frequencyMhz in 5925..7125
-                        (primLow5G && targetLow5G) || (primHigh5G && targetHigh5G) || (prim24 && target24) || (prim6G && target6G)
-                    }
-                }
-
-                DetailInfoRow(
-                    icon = Icons.Default.Hub,
-                    label = stringResource(R.string.dual_wifi_detail_concurrency),
-                    value = when {
-                        item.isPrimary -> stringResource(R.string.wifi_i18n_primary_network_default_egress)
-                        item.isSecondary -> stringResource(R.string.wifi_i18n_secondary_link_active)
-                        isHotspotEnabled -> stringResource(R.string.wifi_i18n_hotspot_radio_conflict)
-                        isSameBandConflict -> stringResource(R.string.wifi_i18n_same_band_conflict, primarySsid ?: stringResource(R.string.wifi_i18n_primary_network_fallback), primaryFreq)
-                        primaryFreq > 0 -> stringResource(R.string.wifi_i18n_complementary_bands, primarySsid ?: stringResource(R.string.wifi_i18n_primary_network_fallback), primaryFreq)
-                        else -> stringResource(R.string.wifi_i18n_unconnected_cannot_assess)
-                    },
-                    isHighlight = !item.isPrimary && !item.isSecondary && !isSameBandConflict && primaryFreq > 0 && !isHotspotEnabled,
-                    isWarning = isSameBandConflict || isHotspotEnabled
-                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -259,7 +226,6 @@ private fun DetailInfoRow(
     icon: ImageVector,
     label: String,
     value: String,
-    isHighlight: Boolean = false,
     isWarning: Boolean = false
 ) {
     Row(
@@ -271,11 +237,7 @@ private fun DetailInfoRow(
             imageVector = icon,
             contentDescription = null,
             modifier = Modifier.size(18.dp).padding(top = 2.dp),
-            tint = when {
-                isWarning -> MaterialTheme.colorScheme.error
-                isHighlight -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.outline
-            }
+            tint = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -286,13 +248,9 @@ private fun DetailInfoRow(
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (isHighlight || isWarning) FontWeight.SemiBold else FontWeight.Normal
+                    fontWeight = if (isWarning) FontWeight.SemiBold else FontWeight.Normal
                 ),
-                color = when {
-                    isWarning -> MaterialTheme.colorScheme.error
-                    isHighlight -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurface
-                }
+                color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
             )
         }
     }

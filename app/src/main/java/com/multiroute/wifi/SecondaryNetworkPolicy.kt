@@ -4,6 +4,9 @@ package com.multiroute.wifi
 internal object SecondaryNetworkPolicy {
     enum class Entry { CONNECT, PASSWORD, SYSTEM_SETTINGS }
 
+    fun isDualWifiEnabled(isExplicitlyDisabled: Boolean, status: DualWifiStatus): Boolean =
+        !isExplicitlyDisabled || status.isDualWifiActive
+
     suspend fun canConnect(usesXiaomiService: Boolean, savedNetworkId: suspend () -> Int?): Boolean =
         usesXiaomiService || savedNetworkId()?.let { it >= 0 } == true
 

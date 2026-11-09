@@ -326,25 +326,10 @@ object DualWifiManager {
                 savedNetworkSsids = savedNetworks.keys
             ).toMutableList()
 
-            // Smart Multi-Tiered Sorting:
-            // 1. Currently active secondary connection (STA2)
-            // 2. Currently active primary connection (STA1)
-            // 3. Recommended (Non-conflicting) bands with saved credentials
-            // 4. Recommended (Non-conflicting) bands sorted by signal strength (RSSI)
-            // 5. Conflicting bands with saved credentials
-            // 6. Conflicting bands sorted by signal strength (RSSI)
-            val primFreq = _status.value.primaryFreq
-            items.sortWith(
-                compareByDescending<WifiScanItem> { it.isSecondary }
-                    .thenByDescending { it.isPrimary }
-                    .thenByDescending { isBandRecommended(it.frequencyMhz, primFreq) && it.isSaved }
-                    .thenByDescending { isBandRecommended(it.frequencyMhz, primFreq) }
-                    .thenByDescending { it.isSaved }
-                    .thenByDescending { it.rssi }
-            )
+            val sortedItems = DualWifiScanParser.sortScanResults(items, primaryFreq)
 
-            _status.update { it.copy(isScanning = false, scanResults = items) }
-            items
+            _status.update { it.copy(isScanning = false, scanResults = sortedItems) }
+            sortedItems
         } catch (t: Throwable) {
             Log.e(TAG, "Wi-Fi scan failed", t)
             _status.update { it.copy(isScanning = false, errorMessage = context.getString(R.string.wifi_i18n_scan_failed, t.message ?: "")) }
@@ -439,7 +424,18 @@ object DualWifiManager {
             val hotspotActive = if (hotspotInfo.isEnabled) SuHelper.getHotspotActiveUpstream() else "none"
             val hookState = SuHelper.getHotspotHookStatus()
             _status.update {
+                val reconciledScanResults = DualWifiScanParser.reconcileConnectedStates(
+                    items = it.scanResults,
+                    primarySsid = primSsid,
+                    primaryBssid = primBssid,
+                    primaryFreq = primFreq,
+                    secondarySsid = secSsid,
+                    secondaryBssid = secBssid,
+                    secondaryFreq = secFreqFinal,
+                    isSecondaryConnected = secConnected
+                )
                 it.copy(
+                    scanResults = reconciledScanResults,
                     primaryIface = primIface,
                     primarySsid = primSsid,
                     primaryBssid = primBssid,
@@ -642,6 +638,7 @@ object DualWifiManager {
             if (connected) {
                 val secState = _status.value
                 connectionAccepted = secondaryConnections.publish(ticket) {
+                    RouteConfigProvider.setDualWifiDisabled(context, false)
                     if (ssid != secState.primarySsid) {
                         RouteConfigProvider.saveLastSecondaryWifi(
                             context,

@@ -466,7 +466,6 @@
     <string name="dual_wifi_detail_rssi">Signal Strength</string>
     <string name="dual_wifi_detail_security">Security Protocols</string>
     <string name="dual_wifi_detail_saved">Credentials</string>
-    <string name="dual_wifi_detail_concurrency">Dual Wi-Fi Compatibility</string>
     <string name="dual_wifi_hotspot_active_title">Personal Hotspot Active (Radio Mutex)</string>
     <string name="dual_wifi_hotspot_active_desc">Device hotspot is currently enabled%1$s. Mobile Wi-Fi chips only have 2 physical radio chains and cannot support 3 concurrent interfaces (STA + STA + SoftAP). Secondary Wi-Fi is suspended to avoid radio contention. Please turn off hotspot to use Dual Wi-Fi.</string>
     <string name="dual_wifi_hotspot_btn">Hotspot Settings</string>
@@ -571,12 +570,6 @@
     <string name="wifi_i18n_nearby_hotspot">Nearby hotspot</string>
     <string name="wifi_i18n_channel_unknown">Unknown</string>
     <string name="wifi_i18n_unknown_band">Unknown band</string>
-    <string name="wifi_i18n_primary_network_default_egress">This is the primary Wi-Fi (wlan0), the system default internet route</string>
-    <string name="wifi_i18n_secondary_link_active">This network is connected as the secondary Wi-Fi (wlan1)</string>
-    <string name="wifi_i18n_hotspot_radio_conflict">⚠️ Personal hotspot is using the radio; hardware cannot establish a secondary Wi-Fi link at the same time</string>
-    <string name="wifi_i18n_same_band_conflict">⚠️ Same physical radio band as primary Wi-Fi (%1$s, %2$d MHz); DBS chips cannot connect concurrently</string>
-    <string name="wifi_i18n_complementary_bands">✅ Complementary bands: physically separate from primary Wi-Fi (%1$s, %2$d MHz); dual Wi-Fi concurrency is supported</string>
-    <string name="wifi_i18n_unconnected_cannot_assess">Primary Wi-Fi is not connected; band compatibility cannot be assessed</string>
     <string name="wifi_i18n_hotspot_running_connect_later">Hotspot active (turn it off before connecting)</string>
     <string name="wifi_i18n_connect_one_tap_secondary">Connect as secondary Wi-Fi</string>
     <string name="wifi_i18n_connect_as_secondary">Connect as secondary Wi-Fi</string>
@@ -614,7 +607,6 @@
     <string name="wifi_i18n_rom_originos">vivo / iQOO OriginOS</string>
     <string name="wifi_i18n_rom_oneui">Samsung One UI</string>
     <string name="wifi_i18n_rom_generic">Generic Android OEM</string>
-    <string name="wifi_i18n_primary_network_fallback">primary network</string>
     <string name="wifi_i18n_ssid_not_connected">Not connected</string>
     <string name="wifi_i18n_not_connected_status">Standby (not connected)</string>
     <string name="wifi_i18n_detail_frequency_channel">%1$d MHz (channel %2$d)</string>

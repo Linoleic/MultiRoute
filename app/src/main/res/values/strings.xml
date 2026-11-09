@@ -466,7 +466,6 @@
     <string name="dual_wifi_detail_rssi">信号强度</string>
     <string name="dual_wifi_detail_security">加密与认证协议</string>
     <string name="dual_wifi_detail_saved">系统凭据</string>
-    <string name="dual_wifi_detail_concurrency">双 Wi-Fi 并发评估</string>
     <string name="dual_wifi_hotspot_active_title">个人热点运行中 (射频互斥)</string>
     <string name="dual_wifi_hotspot_active_desc">系统已开启个人热点%1$s。手机 Wi-Fi 芯片仅具备 2 条物理射频链，硬件不支持 STA + STA + SoftAP 三链路并发。副 Wi-Fi 已主动避让暂停，关闭热点后即可恢复双 Wi-Fi。</string>
     <string name="dual_wifi_hotspot_btn">热点设置</string>
@@ -571,12 +570,6 @@
     <string name="wifi_i18n_nearby_hotspot">附近可用热点</string>
     <string name="wifi_i18n_channel_unknown">未知</string>
     <string name="wifi_i18n_unknown_band">未知频段</string>
-    <string name="wifi_i18n_primary_network_default_egress">当前网络为主 Wi-Fi (wlan0)，作为系统默认互联网出口</string>
-    <string name="wifi_i18n_secondary_link_active">当前已作为副 Wi-Fi (wlan1) 建立并发物理链路</string>
-    <string name="wifi_i18n_hotspot_radio_conflict">⚠️ 个人热点正在占用物理射频链，硬件射频无法同时建立副 Wi-Fi 链路</string>
-    <string name="wifi_i18n_same_band_conflict">⚠️ 与主 Wi-Fi (%1$s, %2$dMHz) 处于相同物理射频频段，DBS 芯片不支持同时并发连接</string>
-    <string name="wifi_i18n_complementary_bands">✅ 射频互补：与主 Wi-Fi (%1$s, %2$dMHz) 物理频段独立，完全支持双 Wi-Fi 硬件并发</string>
-    <string name="wifi_i18n_unconnected_cannot_assess">未连接主 Wi-Fi，无法评估频段并发互补性</string>
     <string name="wifi_i18n_hotspot_running_connect_later">热点运行中 (关闭热点后可连)</string>
     <string name="wifi_i18n_connect_one_tap_secondary">一键连接为副 Wi-Fi</string>
     <string name="wifi_i18n_connect_as_secondary">连接为副 Wi-Fi</string>
@@ -614,7 +607,6 @@
     <string name="wifi_i18n_rom_originos">vivo / iQOO OriginOS</string>
     <string name="wifi_i18n_rom_oneui">三星 One UI</string>
     <string name="wifi_i18n_rom_generic">通用 Android OEM</string>
-    <string name="wifi_i18n_primary_network_fallback">主网络</string>
     <string name="wifi_i18n_ssid_not_connected">未连接</string>
     <string name="wifi_i18n_not_connected_status">待机中 (未连接网络)</string>
     <string name="wifi_i18n_detail_frequency_channel">%1$dMHz (信道 %2$d)</string>

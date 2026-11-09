@@ -144,4 +144,5 @@ data class DualWifiStatus(
     val errorMessage: String? = null
 ) {
     val isHotspotHookLoaded: Boolean get() = hotspotHookState == HotspotHookState.LOADED
+    val isDualWifiActive: Boolean get() = capability.modeActive || secondaryConnected || isConnecting
 }

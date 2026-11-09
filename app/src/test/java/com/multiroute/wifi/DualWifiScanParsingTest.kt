@@ -295,4 +295,29 @@ class DualWifiScanParsingTest {
         assertEquals("wlan0", prim3)
         assertEquals("wlan1", sec3)
     }
+
+    @Test
+    fun testReconcileConnectedStatesUpdatesBadgesAndOrderAfterSwitchingSecondary() {
+        val initial = listOf(
+            WifiScanItem("R3G", "40:31:3c:04:90:2d", 2462, -76, "[WPA2-PSK]", isSaved = true, isSecondary = true),
+            WifiScanItem("F5G", "40:31:3c:04:90:2e", 5280, -52, "[WPA2-PSK]", isSaved = true, isPrimary = true),
+            WifiScanItem("merciful", "40:31:3c:0e:52:f2", 5745, -49, "[WPA2-PSK]", isSaved = true)
+        )
+
+        val updated = DualWifiScanParser.reconcileConnectedStates(
+            items = initial,
+            primarySsid = "F5G",
+            primaryBssid = "40:31:3c:04:90:2e",
+            primaryFreq = 5280,
+            secondarySsid = "merciful",
+            secondaryBssid = "40:31:3c:0e:52:f2",
+            secondaryFreq = 5745,
+            isSecondaryConnected = true
+        )
+
+        assertEquals(listOf("merciful", "F5G", "R3G"), updated.map { it.ssid })
+        assertTrue(updated[0].isSecondary)
+        assertTrue(updated[1].isPrimary)
+        assertEquals(false, updated[2].isSecondary)
+    }
 }

@@ -50,4 +50,29 @@ class SecondaryNetworkPolicyTest {
     @Test fun xiaomiProvisioningDoesNotRequireASavedConfigurationLookup() = runTest {
         assertTrue(SecondaryNetworkPolicy.canConnect(true) { error("Vendor provisioning must not depend on the saved list") })
     }
+
+    @Test fun dualWifiIsDisabledOnlyWhenExplicitlyDisabledAndInactive() {
+        val inactive = DualWifiStatus(
+            capability = DualWifiCapability(modeActive = false),
+            secondaryConnected = false,
+            isConnecting = false
+        )
+        assertFalse(inactive.isDualWifiActive)
+        assertFalse(SecondaryNetworkPolicy.isDualWifiEnabled(isExplicitlyDisabled = true, status = inactive))
+        assertTrue(SecondaryNetworkPolicy.isDualWifiEnabled(isExplicitlyDisabled = false, status = inactive))
+    }
+
+    @Test fun dualWifiRemainsEnabledForSelectionWhenLiveStateIsActiveDespiteStaleDisablePref() {
+        val viaModeActive = DualWifiStatus(capability = DualWifiCapability(modeActive = true))
+        val viaConnectedSecondary = DualWifiStatus(secondaryConnected = true, secondarySsid = "R3G")
+        val viaConnecting = DualWifiStatus(isConnecting = true, connectingSsid = "merciful")
+
+        assertTrue(viaModeActive.isDualWifiActive)
+        assertTrue(viaConnectedSecondary.isDualWifiActive)
+        assertTrue(viaConnecting.isDualWifiActive)
+
+        assertTrue(SecondaryNetworkPolicy.isDualWifiEnabled(isExplicitlyDisabled = true, status = viaModeActive))
+        assertTrue(SecondaryNetworkPolicy.isDualWifiEnabled(isExplicitlyDisabled = true, status = viaConnectedSecondary))
+        assertTrue(SecondaryNetworkPolicy.isDualWifiEnabled(isExplicitlyDisabled = true, status = viaConnecting))
+    }
 }

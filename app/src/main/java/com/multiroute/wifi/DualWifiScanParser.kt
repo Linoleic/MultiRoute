@@ -307,6 +307,59 @@ object DualWifiScanParser {
         return itemsMap.values.toList()
     }
 
+    /** Sorts scanned networks with active secondary/primary first, then complementary saved networks. */
+    fun sortScanResults(items: List<WifiScanItem>, primaryFreq: Int): List<WifiScanItem> =
+        items.sortedWith(
+            compareByDescending<WifiScanItem> { it.isSecondary }
+                .thenByDescending { it.isPrimary }
+                .thenByDescending { DualWifiBandHelper.isBandRecommended(it.frequencyMhz, primaryFreq) && it.isSaved }
+                .thenByDescending { DualWifiBandHelper.isBandRecommended(it.frequencyMhz, primaryFreq) }
+                .thenByDescending { it.isSaved }
+                .thenByDescending { it.rssi }
+        )
+
+    /**
+     * Re-evaluates primary/secondary flags and ordering on cached scan items after connection state changes
+     * (e.g., switching to another secondary AP or disconnecting) without waiting for another scan.
+     */
+    fun reconcileConnectedStates(
+        items: List<WifiScanItem>,
+        primarySsid: String?,
+        primaryBssid: String?,
+        primaryFreq: Int,
+        secondarySsid: String?,
+        secondaryBssid: String?,
+        secondaryFreq: Int,
+        isSecondaryConnected: Boolean
+    ): List<WifiScanItem> {
+        if (items.isEmpty()) return items
+        var rolesChanged = false
+        val updated = items.map { item ->
+            val isPrimary = DualWifiBandHelper.matchesConnected(
+                candidateSsid = item.ssid,
+                candidateBssid = item.bssid,
+                candidateFreq = item.frequencyMhz,
+                connectedSsid = primarySsid,
+                connectedBssid = primaryBssid,
+                connectedFreq = primaryFreq
+            )
+            val isSecondary = !isPrimary && isSecondaryConnected && DualWifiBandHelper.matchesConnected(
+                candidateSsid = item.ssid,
+                candidateBssid = item.bssid,
+                candidateFreq = item.frequencyMhz,
+                connectedSsid = secondarySsid,
+                connectedBssid = secondaryBssid,
+                connectedFreq = secondaryFreq
+            )
+            if (item.isPrimary == isPrimary && item.isSecondary == isSecondary) item
+            else {
+                rolesChanged = true
+                item.copy(isPrimary = isPrimary, isSecondary = isSecondary)
+            }
+        }
+        return if (rolesChanged) sortScanResults(updated, primaryFreq) else items
+    }
+
     /**
      * Reads saved Wi-Fi networks and passwords from WifiConfigStore.xml using root.
      */
