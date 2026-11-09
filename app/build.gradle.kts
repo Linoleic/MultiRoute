@@ -129,6 +129,7 @@ fun getGitBuildId(): String {
 val hotspotHookDigest = MessageDigest.getInstance("SHA-256").apply {
     listOf(
         "hook/MultiRouteModule.kt", "hook/NetworkAgentRegistry.kt", "hook/TetheringUpstreamController.kt",
+        "hook/TetheringUpstreamHookHandler.kt",
         "util/HotspotUpstreamPolicy.kt", "util/HotspotHookState.kt"
     ).forEach { relative ->
         update(relative.toByteArray(Charsets.UTF_8))
