@@ -5,6 +5,44 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.8.0 - 2026-11-09
+
+**中文**
+
+### 新增
+
+- **通道实时速率监控与速率曲线**：在网络通道列表和通道详情弹窗新增按网卡采样的实时上下行速率显示与最近 30 秒流量曲线图，同时展示窗口峰值速率与开机以来累计流量。
+- **Wi-Fi 协商速率展示**：在 WLAN 通道详情中补充展示底层链路的上/下行物理协商速率（Mbps）。
+
+### 变更
+
+- **通道速率术语区分**：将通道详情原“估算链路带宽”调整为“系统估算吞吐”，与底层物理“Wi-Fi 协商速率”明确区分。
+- **Root 命令调度与多语言完善**：复用持久化 Root 终端池降低探测与同步开销；完善诊断报告与双 Wi-Fi 领域文案的双语本地化。
+- **Wi-Fi 详情弹窗精简**：移除扫描结果详情中的双 Wi-Fi 并发评估详情行，保留扫描列表卡片的频段兼容性摘要标签。
+
+### 修复
+
+- **双 Wi-Fi 切换副网络误判**：修复双 Wi-Fi 已处于连接中或活跃状态时，切换其他附近网络误提示“请先启用双 Wi-Fi 并激活并发模式”的问题。
+- **双 Wi-Fi 列表标签与排序同步**：修复切换或断开副 Wi-Fi 后，附近网络列表中的“副 Wi-Fi”状态徽章与置顶排序未立即更新的问题。
+
+**English**
+
+### Added
+
+- **Per-channel live traffic meter & sparkline:** Display per-interface real-time download/upload throughput and a 30-second rolling traffic sparkline in the Channels list and channel details sheet, alongside window peak rates and total traffic since boot.
+- **Wi-Fi link rate readout:** Show the negotiated physical-layer RX/TX Wi-Fi link speed (Mbps) in WLAN channel details.
+
+### Changed
+
+- **Channel bandwidth terminology:** Rename "Estimated link bandwidth" to "System-estimated throughput" in channel details to distinguish it cleanly from physical "Wi-Fi link rate".
+- **Persistent root shell pooling & localization:** Reuse pooled persistent root shells to reduce probing and sync overhead, and complete bilingual localization for diagnostics and Dual Wi-Fi status strings.
+- **Streamlined Wi-Fi details sheet:** Remove the redundant concurrency evaluation row from the Wi-Fi detail sheet while keeping summary compatibility badges on scan list cards.
+
+### Fixed
+
+- **Switching secondary Wi-Fi while active:** Fix a false "Enable Dual Wi-Fi and concurrency mode first" prompt when switching to another nearby network while Dual Wi-Fi is already active or connecting.
+- **Dual Wi-Fi list badge & ordering sync:** Immediately refresh secondary Wi-Fi badges and top ordering in the nearby networks list after switching or disconnecting the secondary AP.
+
 ## v1.7.1 - 2026-11-08
 
 **中文**
