@@ -739,4 +739,12 @@
     <string name="channels_secondary_wifi">副 Wi-Fi</string>
     <string name="channels_hotspot">热点</string>
     <string name="settings_cellular_unsupported">此设备不支持蜂窝数据网络</string>
+    <string name="traffic_section_title">实时速率与吞吐监控</string>
+    <string name="traffic_download_short">下载</string>
+    <string name="traffic_upload_short">上传</string>
+    <string name="traffic_peak_window">近 30 秒峰值</string>
+    <string name="traffic_peak_badge">峰值 %1$s</string>
+    <string name="traffic_window_label">30s</string>
+    <string name="traffic_total_since_boot">启动以来累计</string>
+    <string name="traffic_collecting">采集基线中…</string>
 </resources>

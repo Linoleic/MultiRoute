@@ -55,7 +55,9 @@ import com.multiroute.model.NetworkChannel
 import com.multiroute.model.TestServerConfig
 import com.multiroute.model.TestServerPreset
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.util.ModuleStatus
+import kotlinx.coroutines.flow.StateFlow
 import com.multiroute.util.SuHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -245,6 +247,7 @@ fun MainScreen(
                             routedApps = routedApps,
                             testResult = uiState.testResults[channel.id],
                             isTestingSingle = uiState.isTestingSingleChannel,
+                            trafficFlow = viewModel.channelTraffic,
                             testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
                             testServerUrl = uiState.testServerConfig.activeUrl,
                             onTestChannel = { viewModel.testSingleChannel(channel) },
@@ -667,6 +670,7 @@ fun ChannelsTab(
     val dualWifiStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
     val cellularState by viewModel.cellularControlState.collectAsState()
     ObserveNetworkManagement(viewModel)
+    ObserveChannelTraffic(viewModel)
     val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
 
     Column(
@@ -711,6 +715,7 @@ fun ChannelsTab(
                     ChannelDetailCard(
                         channel = channel,
                         testResult = uiState.testResults[channel.id],
+                        trafficFlow = viewModel.channelTraffic,
                         onClick = { viewModel.selectChannelForDetail(channel) }
                     )
                 }
@@ -1083,6 +1088,7 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel, showT
 fun ChannelDetailCard(
     channel: NetworkChannel,
     testResult: String?,
+    trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     onClick: () -> Unit
 ) {
     ElevatedCard(
@@ -1227,6 +1233,14 @@ fun ChannelDetailCard(
                     text = stringResource(com.multiroute.R.string.ui_tap_details),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // 实时吞吐与速率波形
+            if (trafficFlow != null) {
+                ChannelTrafficCardSection(
+                    interfaceName = channel.interfaceName,
+                    trafficFlow = trafficFlow
                 )
             }
 

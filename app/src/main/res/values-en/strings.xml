@@ -739,4 +739,12 @@
     <string name="channels_secondary_wifi">Secondary Wi-Fi</string>
     <string name="channels_hotspot">Hotspot</string>
     <string name="settings_cellular_unsupported">This device does not support cellular data</string>
+    <string name="traffic_section_title">Live throughput</string>
+    <string name="traffic_download_short">Down</string>
+    <string name="traffic_upload_short">Up</string>
+    <string name="traffic_peak_window">30s peak</string>
+    <string name="traffic_peak_badge">Peak %1$s</string>
+    <string name="traffic_window_label">30s</string>
+    <string name="traffic_total_since_boot">Since boot</string>
+    <string name="traffic_collecting">Sampling…</string>
 </resources>

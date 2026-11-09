@@ -7,6 +7,7 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.SystemClock
 import android.util.Log
 import com.multiroute.R
 import com.multiroute.cellular.CellularSubscriptions
@@ -15,30 +16,37 @@ import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.ScenarioStore
 import com.multiroute.data.TestServerManager
 import com.multiroute.model.NetworkChannel
+import com.multiroute.util.ChannelTrafficStats
+import com.multiroute.util.ChannelTrafficTracker
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.SuHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Coordinates system network monitoring, environment diagnostics, egress channel probing,
- * dual-SIM cellular control, and system-level routing preference toggles.
+ * live interface throughput sampling, dual-SIM cellular control, and routing toggles.
  */
 internal class EnvironmentAndChannelDelegate(
     private val application: Application,
     private val scope: CoroutineScope,
     private val uiStateFlow: MutableStateFlow<MainUiState>,
     private val cellularControlStateFlow: MutableStateFlow<CellularControlUiState>,
+    private val channelTrafficFlow: MutableStateFlow<Map<String, ChannelTrafficStats>>,
     private val onRefreshScenario: () -> Unit
 ) {
     private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val trafficTracker = ChannelTrafficTracker()
     private var lastNetworkChangeTime = 0L
     private var recoveryJob: Job? = null
     private var environmentRefreshCount = 0
@@ -72,6 +80,39 @@ internal class EnvironmentAndChannelDelegate(
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (_: Exception) {}
+    }
+
+    suspend fun observeChannelTraffic() {
+        trafficTracker.resetBaseline()
+        var firstDeltaPending = true
+        while (currentCoroutineContext().isActive) {
+            val startedAt = SystemClock.elapsedRealtime()
+            val snapshot = uiStateFlow.value
+            val rootKnownDenied = snapshot.env.diagnosticInfo != null && !snapshot.env.isRootGranted
+            val activeIfaces = snapshot.channelProbe.channels.map { it.interfaceName }
+
+            if (rootKnownDenied || activeIfaces.isEmpty()) {
+                trafficTracker.resetBaseline()
+                channelTrafficFlow.value = emptyMap()
+                firstDeltaPending = true
+                delay(1000L)
+                continue
+            }
+
+            val sampled = withContext(Dispatchers.IO) {
+                trafficTracker.sample(activeIfaces)
+            }
+            currentCoroutineContext().ensureActive()
+            channelTrafficFlow.value = sampled
+            val elapsed = SystemClock.elapsedRealtime() - startedAt
+            val interval = if (firstDeltaPending && sampled.isNotEmpty()) {
+                firstDeltaPending = false
+                600L
+            } else {
+                1000L
+            }
+            delay((interval - elapsed).coerceAtLeast(250L))
+        }
     }
 
     private fun handleNetworkLost() {
@@ -150,6 +191,9 @@ internal class EnvironmentAndChannelDelegate(
             }
             try {
                 val diag = withContext(Dispatchers.IO) { SuHelper.getDiagnosticInfo(application) }
+                if (diag.isRootGranted) {
+                    trafficTracker.clearProcCooldown()
+                }
                 val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(application) }
 
                 uiStateFlow.update { state ->

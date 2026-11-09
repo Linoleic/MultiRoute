@@ -12,6 +12,7 @@ import com.multiroute.data.ConfigTransfer
 import com.multiroute.model.AppItem
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.wifi.DualWifiManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,12 +42,16 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val _cellularControlState = MutableStateFlow(CellularControlUiState())
     val cellularControlState: StateFlow<CellularControlUiState> = _cellularControlState.asStateFlow()
 
+    private val _channelTraffic = MutableStateFlow<Map<String, ChannelTrafficStats>>(emptyMap())
+    val channelTraffic: StateFlow<Map<String, ChannelTrafficStats>> = _channelTraffic.asStateFlow()
+
     private val envDelegate: EnvironmentAndChannelDelegate by lazy {
         EnvironmentAndChannelDelegate(
             application = getApplication(),
             scope = viewModelScope,
             uiStateFlow = _uiState,
             cellularControlStateFlow = _cellularControlState,
+            channelTrafficFlow = _channelTraffic,
             onRefreshScenario = { scenarioDelegate.refreshScenarioState() }
         )
     }
@@ -103,6 +108,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // ------------------------------------------------------------------ Cellular Control
+    suspend fun observeChannelTraffic() = envDelegate.observeChannelTraffic()
     suspend fun refreshCellularControlState() = envDelegate.refreshCellularControlState()
     fun setCellularDetailsExpanded(expanded: Boolean) = envDelegate.setCellularDetailsExpanded(expanded)
     fun setCellularPreferredMode(mode: Int) = envDelegate.setCellularPreferredMode(mode)

@@ -25,7 +25,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.multiroute.model.AppItem
 import com.multiroute.model.NetworkChannel
+import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.util.NetworkUtils
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * 网络通道深度属性与独立出口诊断抽屉 (ChannelDetailBottomSheet)
@@ -37,6 +39,7 @@ fun ChannelDetailBottomSheet(
     routedApps: List<AppItem>,
     testResult: String?,
     isTestingSingle: Boolean,
+    trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     testServerName: String = "",
     testServerUrl: String = "",
     onTestChannel: () -> Unit,
@@ -150,6 +153,18 @@ fun ChannelDetailBottomSheet(
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            if (trafficFlow != null) {
+                Text(
+                    text = stringResource(com.multiroute.R.string.traffic_section_title),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                ChannelTrafficDetailCard(
+                    interfaceName = channel.interfaceName,
+                    trafficFlow = trafficFlow
+                )
+            }
 
             // 1. 网络链路与拓扑参数
             Text(
