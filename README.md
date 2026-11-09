@@ -1,466 +1,193 @@
 # MultiRoute
 
-[English](README.md) | [简体中文](README_CN.md)
+[English](README.md) | [简体中文](README_CN.md)<br>
+[Architecture](ARCHITECTURE.md) · [Building](BUILDING.md) · [Changelog](CHANGELOG.md)
 
-> Download installation packages from [Releases](https://github.com/Linoleic/MultiRoute/releases).
+> Download installation packages from [GitHub Releases](https://github.com/Linoleic/MultiRoute/releases) or install via the [LSPosed Module Repository](https://modules.lsposed.org/module/io.github.linoleic.multiroute).
 
 [![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Android](https://img.shields.io/badge/Android-11%2B%20%28%20verified%20on%2016%20%2F%2017%20%29-green.svg)](https://developer.android.com)
+[![Android](https://img.shields.io/badge/Android-11%2B%20%28verified%20on%2016%20%2F%2017%29-green.svg)](https://developer.android.com)
 [![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
-MultiRoute is an Android LSPosed module for per-app network routing, secondary Wi-Fi management, and personal hotspot upstream selection. Per-app routing includes controls for the non-default SIM channel and SIM-based app or scenario assignments. It uses Linux policy-routing rules and hooks in Android framework and Tethering components. Device and ROM support varies by function.
+MultiRoute is an Android LSPosed module for per-app network routing (including secondary SIM channel controls and SIM-based assignments), secondary Wi-Fi management, personal hotspot upstream selection, per-channel traffic monitoring, and wireless debugging controls. Device and ROM behavior varies by function.
 
-> **Requires root** (KernelSU / Magisk / APatch) and **LSPosed**, scoped to the **system framework**
-> (`system_server`) and the **NetworkStack tethering packages**.
-
----
-
-## Overview
-
-Android can maintain several network links, while many applications use the system default network unless they bind explicitly. Secondary Wi-Fi and tethering behavior also varies by Android version, ROM and device configuration.
-
-MultiRoute combines Android framework hooks with Linux policy-routing rules:
-
-```
-        ┌──────────────────────── MultiRoute (UI) ────────────────────────┐
-        │ App Routing · Dual Wi-Fi Manager · Hotspot Steering · Diagnostics │
-        └───────────────┬─────────────────────────────┬───────────────────┘
-                        │                             │
-        ┌───────────────▼──────────────┐   ┌──────────▼───────────────────┐
-        │  Framework layer (LSPosed)   │   │  Kernel layer (root)         │
-        │  system_server & NetworkStack│   │  Policy routing & NAT chains │
-        │  · ConnectivityService hook  │   │  · pref 14500 per-UID egress │
-        │  · Dual Wi-Fi & keepalive    │   │  · pref 14400 LAN bypass     │
-        │  · Hotspot upstream steering │   │  · IPv4 nat UDP/TCP 53 DNS   │
-        │  · Automated failover rules  │   │  · IPv4 + IPv6 dual-stack    │
-        └──────────────────────────────┘   └──────────┬───────────────────┘
-                                                      │
-        ┌─────────────────────────────────────────────▼───────────────────┐
-        │  Primary Wi-Fi  │ Secondary Wi-Fi (DBS) │  Cellular  │  Ethernet │
-        └───────┬───────────────┬───────────────────┬─────────────┬───────┘
-                │               │                   │             │
-                │ Per-App Route │ Per-App / Hotspot │ App/Hotspot │ LAN Bypass
-                ▼               ▼                   ▼             ▼
-        ┌───────────────┐┌───────────────┐ ┌─────────────────┐ ┌───────────┐
-        │ Browser/Video ││ Local/Casting │ │ Hotspot Clients │ │ NAS/Print │
-        └───────────────┘└───────────────┘ └─────────────────┘ └───────────┘
-```
-
-### Functions
-
-1. **Per-App Policy Routing**:
-   - Assign any app to a dedicated channel (Primary Wi-Fi, Secondary Wi-Fi, Cellular, Ethernet), with independent assignment support for dual/cloned app spaces.
-   - On dual-SIM devices, enable or stop the non-default data SIM from Tools and assign apps or scenario plans to an identifiable SIM.
-   - Enforced via Linux kernel policy routing (`ip rule`) without userspace VPN overhead; includes IPv4 UDP/TCP port 53 DNS rewriting, on-link LAN bypass, and automatic failover fallback on connection loss.
-
-2. **Dual Wi-Fi Activation & Management (STA + STA Concurrency)**:
-   - Provides secondary Wi-Fi connection methods and distinguishes access points by SSID, BSSID and band.
-   - Xiaomi-specific hooks attempt to maintain screen-off connections; results depend on the device, firmware and ROM.
-
-3. **Personal Hotspot Upstream Steering**:
-   - Requests that Android Tethering select Cellular, Secondary Wi-Fi, or System Default as the hotspot upstream.
-   - Upstream changes are re-evaluated asynchronously. Forwarding, NAT, IPv6 and offload remain managed by Android; behavior depends on the system.
+> **Prerequisites**: Requires **Root** (`KernelSU` / `Magisk` / `APatch`) and **LSPosed** (LibXposed API 101+), scoped to **System Framework** (`system`) and the **NetworkStack Tethering** packages.
 
 ---
 
-## Module information
+## Features
 
-| Field | Value |
-| :-- | :-- |
-| Package name | `io.github.linoleic.multiroute` |
-| Module name | MultiRoute |
-| Listing | [modules.lsposed.org/module/io.github.linoleic.multiroute](https://modules.lsposed.org/module/io.github.linoleic.multiroute) |
-| Xposed API | `minApiVersion 101`, `targetApiVersion 102` (LibXposed) |
-| Scope | System framework (`system` / `android`) and NetworkStack packages (`com.android.networkstack.tethering`, etc.) |
-| `staticScope` | `false` (the scope list ships in the APK metadata) |
-| `autoHotReload` | `true`, but the system framework cannot actually hot-reload → reboot, or restart `system_server` |
-| Root | required: KernelSU, Magisk or APatch |
-
-The APK carries `META-INF/xposed/{module.prop, scope.list, java_init.list}`, so LSPosed reads the scope and
-entry point from the package itself.
+- **Per-app policy routing**: Assign individual apps to **Primary Wi-Fi**, **Secondary Wi-Fi**, **Cellular** (including secondary SIM selection on dual-SIM devices), **Ethernet**, or **System Default** via Linux kernel policy routing without a userspace VPN. Connected LAN subnets stay routed on their own interfaces so local devices (NAS, printers, casting) remain reachable.
+- **Cloned apps & scenario plans**: Cloned spaces (e.g., Xiaomi XSpace `(999)`) and work profiles are listed as separate targets. Save named **Scenario Plans** with conditions (*Wi-Fi SSID*, *Dual Wi-Fi active*, *Cellular only*, *Always*, or *Manual*). Matching plans stack in priority order and re-evaluate on network changes even when the app UI is closed.
+- **Dual Wi-Fi management (`STA + STA`)**: Connect and switch a secondary Wi-Fi network alongside primary Wi-Fi, distinguish access points sharing an SSID by BSSID and band, and show band compatibility indicators.
+- **Personal hotspot upstream selection**: Request Android Tethering to select **Cellular**, **Secondary Wi-Fi**, or **System Default** as the hotspot uplink (for example, keeping the device on an intranet Wi-Fi while sharing cellular data over hotspot).
+- **Channel monitoring & egress probes**: Inspect per-interface download/upload rates, 30-second traffic history graphs, cumulative usage since boot, Wi-Fi link rates, and per-channel public-IP probes.
+- **Wireless debugging helper**: Manage Android 11+ Native TLS wireless debugging and Legacy TCP mode (configurable port `1024..65535`), detect connected workstation IPs, copy `adb connect` commands, and optionally attempt post-boot recovery within ten minutes after first unlock.
 
 ---
 
 ## Requirements & Compatibility
 
 | Requirement | Details |
-| :-- | :-- |
-| Root | KernelSU, Magisk or APatch (policy routing tables need root) |
-| Xposed | LSPosed (or another framework implementing LibXposed API 101+) |
-| Module scope | **System framework** (`system` / `system_server`) and **NetworkStack** (`com.android.networkstack.tethering`, etc. for hotspot upstream steering) |
-| Android | Android **11** or later; verified systems and feature coverage are listed below |
+| :--- | :--- |
+| **Root** | KernelSU / Magisk / APatch (policy routing and root shell queries require root) |
+| **Xposed Framework** | LSPosed or another framework implementing LibXposed API 101+ |
+| **Module Scope** | **System Framework** (`system` / `system_server`) and **NetworkStack** (`com.android.networkstack.tethering`, etc.) |
+| **Android Version** | Android **11** (`minSdk 30`) or later |
 
-| Android version | Status |
-| :-- | :-- |
-| **Android 17 / HyperOS (phone)** | Verified dual Wi-Fi, secondary SIM controls and SIM routing, app and clone routing, IPv4/IPv6 routing and rule recovery |
-| **Android 16 / HyperOS (tablet)** | Verified dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection and rule recovery; no cellular hardware |
-| **Android 16 / AOSP** | Verified connection, disconnection and IPv4 Internet access through saved secondary Wi-Fi networks; other features are not comprehensively verified |
-| Android 11 – 15 | ⚠️ **Not verified.** |
-| Android 7 – 10 | ❌ The APK requires Android 11 (`minSdk` 30) |
+| Verified Environments | Status |
+| :--- | :--- |
+| **Android 17 / HyperOS (Phone)** | Verified Dual Wi-Fi, secondary SIM controls and SIM-based routing, app and clone routing, IPv4/IPv6 routing, and rule recovery |
+| **Android 16 / HyperOS (Tablet)** | Verified Dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection, and rule recovery (no cellular hardware) |
+| **Android 16 / AOSP** | Verified connecting, disconnecting, and IPv4 Internet access via saved secondary Wi-Fi networks; other features not broadly verified |
+| **Android 11 – 15** | ⚠️ Not verified |
+| **Android 7 – 10** | ❌ Not supported (required framework interfaces were added in Android 11) |
 
-The table does not establish compatibility with every device running these systems. Dual Wi-Fi and hotspot support also depend on hardware, firmware and ROM; Android version alone does not establish compatibility.
-
-Secondary SIM controls and SIM-based routing have only been verified on Android 17 / HyperOS with two active SIMs. Android 11 is the APK's minimum install version; it does not imply that these cellular features are verified on every Android 11+ system.
+> Hardware, firmware, and ROM behavior vary. Dual Wi-Fi radio combinations, concurrent dual-SIM data, and hotspot upstream policies cannot be determined by Android version alone.
 
 ---
 
-## Features
+## Installation & Getting Started
 
-- **Per-app channel assignment** — pick a channel for any app; its traffic egresses through that link
-  while other apps keep using theirs.
-- **Secondary cellular controls and SIM routing** — enable or stop the non-default data SIM from
-  Tools, and assign apps or scenario plans to an identifiable SIM. The target resolves to its
-  current network after reconnection; if the SIM cannot be matched after importing on another
-  device, select the target again.
-- **Independent configuration for cloned apps** — app-clone spaces (e.g. Xiaomi XSpace, user 999) and
-  work profiles are listed as separate entries (`WeChat (999)`), so a clone and its primary install can
-  use *different* channels.
-- **Per-app DNS redirection** — assigned apps' IPv4 DNS traffic on UDP/TCP port 53 is redirected to
-  the selected channel's resolver. IPv6 DNS, Private DNS (DoT) and DNS-over-HTTPS (DoH) are not rewritten; VPN
-  behavior depends on its mode (see Known limitations).
-- **Scenario plans** — save the current assignment as a named plan with a condition (a Wi-Fi name picked
-  from the networks connected right now, two Wi-Fi links, cellular only, always, or manual only). When a plan
-  matches it overrides the apps it mentions and everything else keeps the base assignment. Matching plans
-  are layered in priority order; a later plan overrides an earlier plan for the same app. Manual mode can
-  select several plans and ignores their conditions. A plan can also put an app back on the system default.
-  The routing screen shows the active plans; plans can be renamed, reordered and re-edited,
-  and the module wakes the app when a link changes, so a plan also switches while the app itself is not
-  running.
-- **Dual-stack routing** — IPv4 and IPv6 policy-routing rules are installed. DNS redirection currently applies to IPv4 UDP/TCP port 53 only.
-- **LAN bypass** — on-link subnets are pinned to the interface that owns them, so intranet devices
-  (NAS, printers, casting) stay reachable from apps assigned elsewhere.
-- **Boot rule recovery** — a `service.d` script waits for target interfaces and applies routing rules once; app and module callbacks handle later changes. This restores routing rules, not secondary Wi-Fi connections, and timing depends on interface availability and ROM behavior.
-- **Automatic failover** — when an assigned link becomes unavailable, the module can route through the default network and reapply the assignment when the link returns. Timing depends on link detection and the configured hold-off.
-- **Personal Hotspot Upstream Selection** — asks Android Tethering to re-evaluate Cellular, Secondary Wi-Fi, or System Default asynchronously. Forwarding, NAT, IPv6 and offload are system-managed.
-- **Hotspot and VPN channel details** — identifies hotspot downlinks and VPN virtual interfaces and displays related properties. Hotspot downlinks are excluded from app-routing and scenario targets. VPN networks remain selectable; app assignment pickers restrict VPN owner UIDs and recognized VPN clients from selecting VPN channels. The actual traffic path depends on the VPN's routing policy.
-- **Built-in Dual Wi-Fi Manager** — manages secondary WLAN connections through available adaptation schemes, with multi-band SSID handling and a temporary network-restriction reset. On supported Xiaomi ROMs it activates hooks intended to maintain the link; results vary by device and ROM.
-- **Channel details** — interface, addresses, gateway, DNS, MTU, metered state, SSID and **Wi-Fi band and
-  channel**, plus a per-channel public-IP probe with presets or a custom endpoint.
-- **Appearance and language** — theme (follow system / light / dark, animated), Material You colour, and
-  per-app language (follow system / 简体中文 / English).
-- **Configuration backup and restore** — v3 JSON covers app routing (including SIM targets), scenario
-  selections, network policies, hotspot upstream preferences, non-secret dual Wi-Fi information,
-  appearance and test endpoints. Preview and restore selected categories; v1 and v2 files remain
-  supported. SIM targets use opaque device-scoped identifiers, not raw ICCIDs or phone numbers. If a
-  SIM cannot be matched after import on another device, select the target again. Network names and
-  test URLs are included; Wi-Fi passwords, UID caches and logs are excluded. Import does not start the
-  hotspot or connect secondary Wi-Fi, and dual Wi-Fi schemes are checked against the destination
-  manufacturer.
-- **Module status** — reports whether hooks are installed, whether `system_server` is
-  still running an older build, or whether the status record is stale.
-- **System diagnostics** — diagnostic dialog supports one-tap copy, SAF file export, and system sharing, covering dual Wi-Fi status, route tables and gateways, upstream DNS and Private DNS (DoT), rule status, and filtered logcat output.
-- **No VPN** — traffic is routed in the kernel; no userspace TCP/IP stack overhead.
+1. **Install the APK**: Download `MultiRoute-<VersionCode>-<VersionName>.apk` from [Releases](https://github.com/Linoleic/MultiRoute/releases), or install from LSPosed Manager's module repository (`io.github.linoleic.multiroute`). Both methods support update checks via [`xposed_update.json`](xposed_update.json).
+2. **Enable in LSPosed**: Open **LSPosed Manager → Modules → MultiRoute**, enable the module, and check its scope (`system` and NetworkStack Tethering packages). Supported managers pre-select this list from the embedded `scope.list` metadata.
+3. **Reboot**: Reboot the device, or restart the system server (`su -c 'setprop ctl.restart zygote'`).
+4. **Verify status**: Open MultiRoute, grant Root permission, and tap the **module status icon** on the toolbar. It should report **Activated (hooks ready)**.
+   - To route apps over Cellular while Wi-Fi is connected, enable **Mobile data always on** in Developer Options (or your ROM's equivalent setting).
 
----
+<details>
+<summary>Upgrading from 1.1.x (Package ID change)</summary>
 
-## Dual Wi-Fi Management & Device Compatibility
+From v1.2 onward, the package ID changed from `com.multiroute` to `io.github.linoleic.multiroute` to match the Xposed Module Repository ownership namespace:
+1. Uninstall `1.1.x` first (assignments do not migrate automatically).
+2. Install the current APK, enable the new entry in LSPosed Manager, configure its scope, and remove the old uninstalled entry.
 
-Android can maintain multiple links, but many apps use the active default network unless they bind explicitly. Secondary Wi-Fi availability and screen-off behavior vary by Wi-Fi hardware, firmware and ROM.
+</details>
 
-The Dual Wi-Fi Assistant provides concurrency detection and secondary-link connection and disconnection, with the following connection schemes.
+<details>
+<summary>Uninstalling / Cleaning Up</summary>
 
-### 1. Connection Schemes
+1. Inside the app: set Hotspot Upstream back to **System Default**, disconnect any managed Secondary Wi-Fi, and run **App routing → menu → Clear all app routing rules**.
+2. If Dual Wi-Fi was used, revert any device/overlay changes that were applied before using MultiRoute and remove `/data/adb/service.d/01-multiroute-dualwifi.sh` if present.
+3. Disable MultiRoute in LSPosed Manager, uninstall the APK, and reboot.
+- If the app cannot be opened before removal, see [manual cleanup commands](ARCHITECTURE.md#5-manual-cleanup-commands).
 
-| Scheme | Mechanism | Target & Notes |
-| :--- | :--- | :--- |
-| **Auto**<br>`AUTO` | Selects a connection scheme based on the manufacturer, ROM and detected capabilities. | Default option. |
-| **Xiaomi / HyperOS Dedicated**<br>`XIAOMI_SLAVE` | Coordinates with Xiaomi's `SlaveWifiService` / `DualStaImpl` and uses LSPosed hooks to attempt to keep the secondary link active. | Xiaomi / Redmi / POCO ROMs; screen-off behavior depends on the device and ROM. |
-| **AOSP Multi-Internet**<br>`AOSP_OVERLAY` | Applies an overlay that forces Google's `config_wifiMultiStaMultiInternetConcurrencyEnabled` resource and requests Multi-Internet mode 2. | Candidate for AOSP-based systems; overlay resource names and behavior vary by ROM. Not broadly verified. |
-| **Root direct**<br>`ROOT_DIRECT` | Uses the current `set-multi-internet-mode 2` activation path. It does not bypass Wi-Fi hardware or firmware concurrency limits. | Candidate for ROMs where this system command supports the requested mode; not broadly verified. |
-
-AOSP and generic Multi-Internet schemes connect only to networks already saved by the system. Save a new access point in system Wi-Fi settings before connecting. Saved networks use the system configuration; MultiRoute does not send credentials in its connection request. Unsaved networks offer an action to open system Wi-Fi settings.
-
-### 2. Hardware & Device Requirements
-
-* **AOSP Multi-Internet scheme**: Android 13 (API 33) or later is required for the AOSP mechanism described above. This is not a general minimum for every MultiRoute function or connection scheme.
-* **Wi-Fi concurrency**: behavior depends on the device's Wi-Fi hardware, firmware, system configuration and ROM. Root access alone cannot add unsupported radio concurrency.
-* **Device compatibility**: ROM families in the scheme table are examples, not a guarantee for every model. See the compatibility table for verified systems and feature coverage.
-
-### 3. Connection Notes
-
-1. **Radio combinations**:
-   * Supported band and channel combinations vary by Wi-Fi hardware, firmware and ROM. Complementary bands may be supported, but are not guaranteed on every device;
-   * Treat the Wi-Fi list's "Recommended" and "Band Conflict" labels as guidance. Actual concurrency depends on the device's supported combinations.
-2. **Distinguishing Same-SSID Networks**:
-   * Access points sharing an SSID are listed separately by BSSID and band, with primary and secondary connection states shown.
-3. **Resetting Temporary Network Restrictions**:
-   * The "Reset Network Temporary Restrictions" action clears user-disabled network markers, resets root request approval and removes all requests created through `cmd wifi add-request`, including those made by other shell tools. It does not guarantee removal of every BSSID or firmware penalty; use it only when this broader reset is intended.
-
----
-
-## Personal Hotspot Upstream Steering
-
-Android Tethering manages hotspot forwarding and upstream selection. MultiRoute adds a control that asks Tethering to re-evaluate the selected upstream when supported networks or preferences change.
-
-MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` in the NetworkStack / Tethering APEX runtime and requests that Android Tethering select the configured upstream for a personal hotspot (SoftAP):
-
-```
-                      ┌───────────────────────┐
-                      │  Laptops / Tablets    │
-                      └───────────┬───────────┘
-                                  │ (Wi-Fi client)
-                      ┌───────────▼───────────┐
-                      │ Personal Hotspot (AP) │
-                      │  (ap0 / swlan0 / ...) │
-                      └───────────┬───────────┘
-                                  │
-                 ┌────────────────┼────────────────┐
-                 │                │                │
-          ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-          │   Default   │  │   Cellular   │  │  Secondary  │
-          │   Network   │  │ (Cellular)   │  │    Wi-Fi    │
-          └─────────────┘  └─────────────┘  └─────────────┘
-```
-
-### 1. Functions
-- **Upstream selection request**: Choose **Cellular**, **Secondary Wi-Fi**, or **System Default** and ask Android Tethering to re-evaluate its upstream.
-- **Practical Use Cases**:
-  - **Separate network use**: Keep the host device on an intranet Wi-Fi while requesting cellular as the hotspot upstream, subject to Android Tethering and carrier policy.
-  - **Dual Wi-Fi Relay**: Where the system permits it, connect primary Wi-Fi to a local network, secondary Wi-Fi to a remote AP, and request the secondary link as the hotspot upstream.
-  - **Dedicated Mobile Data Tethering**: Request cellular as the hotspot upstream while the host phone uses Wi-Fi, subject to system and carrier policy.
-- **Asynchronous Re-evaluation**: Target changes request a new Tethering upstream selection; timing and client connectivity depend on Android and the device.
-- **Fallback and Reselection**: The module requests reselection when target networks change. Actual fallback behavior depends on Tethering's available networks and policy.
-- **System-managed Forwarding**: Android manages forwarding, NAT, IPv6 and offload. A loaded Hook does not prove hardware acceleration is active.
-- **Offline Pre-configuration**: Upstream preferences can be configured before turning on the hotspot; Tethering evaluates them when the AP starts.
-
----
-
-The main screen has App routing, Channels, Tools and Settings destinations. Tools contains secondary cellular, dual Wi-Fi, hotspot management, wireless debugging and runtime logs. The App routing menu provides rule reapplication and clearing. Settings contains network and routing options, appearance, language and configuration backup. The toolbar status icon opens module diagnostics. Channels shows online links, exit tests and management shortcuts for inactive or establishing channels. Wide windows use a navigation rail and list-detail panes; narrow windows use bottom navigation and settings displayed directly under section headings.
-
-## Wireless debugging helper
-
-The wireless debugging entry in Tools supports two operating modes:
-- **Native TLS Mode:** Based on Android 11+ wireless debugging, using dynamic random ports and pairing code authentication. Synchronizes directly with the system Developer Options "Wireless debugging" switch.
-- **Legacy TCP Mode:** Based on the classic `adbd` daemon mechanism, supporting customizable fixed listening ports (defaults to `5555`, validated in `1024..65535`). First connection prompts for standard system USB debugging (RSA key fingerprint) authorization on the screen; subsequent connections use the fixed port without requiring pairing codes, suitable for IDEs and automated scripts.
-
-Reads debugging status, active ports, and local candidate IPv4 addresses, generates one-click connection commands adapted to the active mode and port, and supports runtime hot-switching of mode and port (automatically restarting the `adbd` daemon).
-
-Optional boot recovery remembers the selected primary Wi-Fi name, operating mode, and custom port when enabled, and attempts to restore wireless debugging on that network within ten minutes after first unlock. It does not continuously restore debugging after everyday network disconnections. Disabling debugging in the app also disables boot recovery. Recovery settings are excluded from backup and configuration exports. Vendor background restrictions may affect execution; the result is shown in the card details.
-
-## Installation
-
-1. Install the APK from the [releases page](https://github.com/Linoleic/MultiRoute/releases) — the asset
-   is named `MultiRoute-<VersionCode>-<VersionName>.apk` — or install it straight from the LSPosed
-   manager's module list, since the module is in the
-   [official repository](https://modules.lsposed.org/module/io.github.linoleic.multiroute). Either way the
-   manager can offer updates in place, from the manifest the module declares.
-2. Open **LSPosed Manager → Modules → MultiRoute**, enable it and verify the scopes (ensure **System Framework** and the **NetworkStack Tethering** packages such as `com.android.networkstack.tethering` are selected). The APK ships with `META-INF/xposed/scope.list` and package metadata so supported managers will select these automatically.
-3. Reboot, or restart the system server: `su -c 'setprop ctl.restart zygote'`.
-4. Open MultiRoute and grant root. Open the **toolbar module status icon**; the diagnostics panel should report *activated (hooks ready)*.
-   If it reports *loaded older build*, restart the system server once more.
-5. For routing apps over cellular while Wi-Fi is connected, enable **Mobile data always on**
-   (developer options) or the ROM's own "keep cellular active" setting.
-
-### Upgrading from 1.1.x
-
-The application id changed from `com.multiroute` to `io.github.linoleic.multiroute`, because the module
-repository only accepts a package namespace the author can prove ownership of. Android treats that as a
-different app:
-
-1. Uninstall the old version first — assignments are **not** carried over.
-2. Install the new APK, then enable **the new package** in LSPosed Manager and configure its scope.
-   It appears as a new module entry; the old, now-uninstalled one can be removed.
-
-`tools/probe` (the measurement helper app) is intentionally left as `com.multiroute.probe`.
-
-### Uninstalling / cleaning up
-
-1. In the app, return Hotspot Upstream to **System Default** and disconnect the managed secondary Wi-Fi
-   if used. Then select **App routing → Clear all app routing rules**. This removes the kernel routing rules,
-   the generated routing boot script and the rule cache.
-2. If dual Wi-Fi was activated, restore the settings and overlays that were in place before using MultiRoute
-   and remove its `/data/adb/service.d/01-multiroute-dualwifi.sh` script. Then disable the module in LSPosed Manager
-   and reboot. Clearing app routing rules does not restore these device-specific settings.
-3. If the app could not run before you removed it (for example the device was wiped), the leftovers can
-   be removed manually. The commands below remove this module's routing rules; they do not restore device-specific
-   dual-Wi-Fi settings. Priorities `14400` and `14500` are removed in full; check for conflicts with other routing tools before using these commands.
-
-```bash
-su -c 'rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/system/multiroute_rules_cache'
-su -c 'while ip rule del pref 14500 2>/dev/null; do :; done; while ip rule del pref 14400 2>/dev/null; do :; done'
-su -c 'while ip -6 rule del pref 14500 2>/dev/null; do :; done; while ip -6 rule del pref 14400 2>/dev/null; do :; done'
-su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat -F MULTIROUTE_DNS 2>/dev/null; iptables -t nat -X MULTIROUTE_DNS 2>/dev/null'
-```
+</details>
 
 ---
 
 ## Usage
 
-| Tab | What you do |
-| :-- | :-- |
-| **App routing** | Tap an app and choose a channel; a long press enters multi-select for batch assignment; clone apps listed independently; scenario profiles for automated switching based on network conditions. |
-| **Channels** | Inspect active links (interface, IP, gateway, DNS, MTU, SSID, Wi-Fi band and channel); management shortcuts for inactive and establishing channels; hotspot downlink and VPN tunnel identification; per-channel egress probes. |
-| **Settings and tools** | Network and routing options, appearance, language and config backup/restore in Settings; module/root status, rule statistics and refresh in the toolbar diagnostics panel; network management, wireless debugging and logs in Tools. Rule reapplication and clearing are in the App routing menu. |
+MultiRoute provides four main destinations (**App routing**, **Channels**, **Tools**, and **Settings**), using bottom navigation on narrow screens and a navigation rail with list-detail panes on wide screens:
+
+### 1. App Routing
+- **Single-app assignment**: Tap an app (or its `(999)` clone / work profile entry) and select a target channel.
+- **Batch assignment**: Long-press an item to enter multi-select mode and assign or reset multiple apps together.
+- **Scenario plans**: Save assignments as named plans with trigger conditions (*Wi-Fi network*, *Dual Wi-Fi online*, *Cellular only*, *Always*, or *Manual*). Matching plans override mentioned apps in priority order and re-evaluate when links change, even while MultiRoute is not in the foreground.
+- **Rule actions**: Use the toolbar menu to reapply rules or clear all app routing rules.
+
+### 2. Channels
+- **Channel list & traffic meter**: View active links (`Primary Wi-Fi`, `Secondary Wi-Fi`, `Cellular`, `VPN`, `Hotspot` downlinks, `Ethernet`) along with current RX/TX rates, a 30-second rate history graph, window peak speeds, and cumulative traffic since boot.
+- **Channel details**: Tap a channel card to inspect interface name, IP addresses, gateway, DNS servers, MTU, metered status, **System-estimated throughput**, and (for WLAN links) **Wi-Fi link rate** (negotiated RX/TX Mbps) plus band and channel.
+- **Public-IP probe**: Run an on-demand test through a specific channel using HTTPS presets or a custom endpoint.
+- **Secondary SIM & inactive links**: Inactive or establishing links (such as the non-default data SIM on supported dual-SIM devices) expose management actions directly in the Channels tab or Tools.
+
+### 3. Tools
+- **Dual Wi-Fi Manager**:
+  - Choose a connection scheme (**Auto** is the default; Xiaomi/HyperOS devices use `SlaveWifiService` coordination and keepalive hooks, while Android 13+ AOSP/other ROMs provide Overlay and Root options).
+  - System Multi-Internet schemes only connect to networks already saved in Android Wi-Fi settings; MultiRoute does not store or send Wi-Fi passwords in those requests. Access points with the same SSID are listed separately by BSSID and band.
+- **Personal Hotspot Upstream**: Select **Cellular**, **Secondary Wi-Fi**, or **System Default** (including before turning on Hotspot) and view the reported active upstream on the status card. Forwarding, NAT, IPv6, and offload remain managed by Android Tethering.
+- **Wireless Debugging Helper**: Switch between **Native TLS** (Android 11+ dynamic port and pairing) and **Legacy TCP** (`1024..65535`, default `5555`), check connected workstation IPs, copy the `adb connect` command, and optionally enable post-unlock boot recovery on a chosen primary Wi-Fi.
+- **Runtime logs & module status**: Open the toolbar status icon to verify hook readiness and build parity, or open **Tools → Runtime logs** to check per-UID rule status, boot logs, and exportable diagnostic snapshots.
+
+### 4. Settings & Backup
+- Configure **Auto-Failover** (fall back to the default network when an assigned link drops, with optional HTTP 204 connectivity checks), **Per-App DNS Redirection**, failover hold-off timers, **Theme / Material You**, and **App Language** (`Follow system` / `简体中文` / `English`).
+- **Backup & Restore (v3 JSON)**: Preview and restore selected categories (app routing, SIM targets, scenario plans, network policies, hotspot preference, non-secret Dual Wi-Fi settings, appearance, and probe servers). Compatible with v1/v2 backups; Wi-Fi passwords, UID caches, logs, and boot ADB recovery settings are excluded.
 
 ---
 
-## How it works
+## FAQ & Troubleshooting
 
-**Kernel layer (root).** Each network interface has its own routing table maintained by Android's
-`netd`. MultiRoute installs:
+<details>
+<summary><strong>Module shows "Not activated" or "Loaded older build"</strong></summary>
 
-- `ip rule add uidrange <uid>-<uid> lookup <iface> pref 14500` — one rule per assigned UID, for IPv4
-  and IPv6;
-- `ip rule add to <on-link prefix> lookup <iface> pref 14400` — LAN bypass, generated from each
-  channel's own connected prefixes.
+- **Not activated**: Confirm MultiRoute is enabled in LSPosed Manager with **System Framework (`system`)** and **NetworkStack Tethering** scopes selected, then reboot.
+- **Loaded older build**: Android's `system_server` cannot hot-reload framework code after an app update. Reboot, or run `su -c 'setprop ctl.restart zygote'`, then check the status icon again.
 
-**DNS.** MultiRoute redirects assigned UIDs' **IPv4 UDP/TCP port 53** traffic to the selected channel's
-resolver through a dedicated `MULTIROUTE_DNS` chain in the IPv4 `nat` table. IPv6 DNS, Private DNS
-(DoT, port 853) and DoH are not rewritten. With a VPN active, DNS and application traffic behavior depends on the VPN mode
-and policy; see Known limitations.
+</details>
 
-**Framework layer (LSPosed).** Hooks inside `system_server` keep the *app-visible* network state
-consistent with the assignment (`ConnectivityService.getDefaultNetworkForUid`,
-`getActiveNetworkForUidInternal`, `getMobileDataPreferredUids`); the Xiaomi Dedicated scheme activates hooks that attempt to keep the secondary Wi-Fi link active while the screen is off.
+<details>
+<summary><strong>An assignment has no effect</strong></summary>
 
-**Boot recovery.** A generated `service.d` script waits for interfaces for up to 36 intervals of five
-seconds. When target channels are available, it applies routing rules once and exits. It restores routing
-rules; it does not establish secondary Wi-Fi connections. Later network changes are handled by app and
-module callbacks. On a locked device the script may run before the app, but recovery timing depends on
-interface availability and ROM behavior; it is not guaranteed to complete immediately after boot.
+1. Open **Tools → Runtime logs** and check the **Rule effectiveness** section to see whether the UID shows **in effect** or was skipped (for example, if the target interface currently lacks a default route).
+2. When routing apps over Cellular while Wi-Fi is connected, enable **Mobile data always on** in Developer Options.
+3. If a **VPN** is active, check the DNS & VPN notes below; VPN routing policy can override or capture traffic depending on its configuration.
 
-**Rule cache.** The module maintains a UID→interface cache for framework hooks. The cache does not
-establish network links or guarantee that routing rules are restored at a fixed point in boot.
+</details>
 
----
+<details>
+<summary><strong>Rules disappear after reboot</strong></summary>
 
-## Module status
+Check section 3 (`/data/adb/multiroute/last_boot_sync.log`) in **Tools → Runtime logs**, and confirm your root manager executes `/data/adb/service.d/` scripts on this ROM. Boot recovery restores routing rules when interfaces become available; it does not connect Secondary Wi-Fi.
 
-The diagnostics panel opened from the toolbar status icon shows one of:
+</details>
 
-| Status | Meaning |
-| :-- | :-- |
-| Activated (hooks ready) | Hooks installed, loaded build matches the installed APK |
-| Loaded, hooks missing | Injection worked but `ConnectivityService` hooks were not installed |
-| Loaded older build | `system_server` still runs a previous build — restart required |
-| Loaded (legacy marker) | Module is present but reports no hook detail (older module build) |
-| Status record expired | The recorded owner process is no longer `system_server` |
-| Not activated | Module disabled, scope not configured, or not injected |
+<details>
+<summary><strong>Secondary Wi-Fi is missing or fails to connect</strong></summary>
 
----
+1. Check detected hardware capability in **Tools → Dual Wi-Fi Manager** and keep Connection Scheme set to **Auto** unless testing a specific method (the AOSP overlay option requires Android 13+). Root access cannot add dual-STA concurrency if hardware or firmware lacks support.
+2. Save the target Wi-Fi network in system Wi-Fi settings before selecting it as Secondary Wi-Fi.
+3. If two access points share the same band on a hardware configuration that rejects same-band pairing, try an access point on a complementary band (e.g., 2.4 GHz + 5 GHz).
 
-## Troubleshooting
+</details>
 
-- **Module shows "not activated"** — enable it in LSPosed Manager and ensure module scope is checked,
-  then reboot or restart system server.
-- **Module shows "loaded older build" after an update** — expected: the framework cannot hot-reload.
-  Reboot, or `su -c 'setprop ctl.restart zygote'`.
-- **An assignment has no effect** — check **Tools → Runtime logs** (supports clipboard copy, file export, or system share): section *rule effectiveness* shows every configured UID with *in effect* or *not in effect*. A channel whose interface has no default route at that moment is skipped, and the log says so.
-- **Rules disappeared after a reboot** — check the boot-recovery log in the same snapshot
-  (section 3, `/data/adb/multiroute/last_boot_sync.log`). Also confirm KernelSU/Magisk/APatch executes
-  `service.d` scripts on this ROM.
-- **Secondary Wi-Fi channel is missing** — check the reported capabilities in **Tools → Dual Wi-Fi Manager** and select an available scheme. Android 13+ is required for the AOSP Multi-Internet scheme; requirements for other schemes vary by ROM and device.
-- **DNS does not behave as expected** — only IPv4 UDP/TCP port 53 is redirected. IPv6 DNS, **Private DNS (DoT)**,
-  and DoH are not rewritten; VPN behavior also depends on its mode.
-- **Assignment seems to do nothing while a VPN is active** — see the VPN note under *Known limitations*.
-- **Wi-Fi band is not shown** — the device did not report a frequency for that link; both the platform
-  and the `dumpsys` fallback returned nothing.
-- **Public-IP probe times out** — switch the preset in Settings to a reachable endpoint or set a custom
-  URL.
+<details>
+<summary><strong>DNS behavior or VPN interaction differs from expectations</strong></summary>
+
+MultiRoute redirects **IPv4 UDP/TCP port 53** to the selected channel's DNS server. **IPv6 DNS**, **Private DNS (DoT, port 853)**, and **DoH** are not rewritten. With an active VPN (`tun0`), DNS and traffic handling depend on the VPN's own mode and policy. App assignment pickers restrict VPN owner UIDs and recognized VPN clients from selecting VPN channels to reduce routing loops.
+
+</details>
+
+<details>
+<summary><strong>Wi-Fi band is not shown, or Public-IP probe times out</strong></summary>
+
+- **Band not shown**: Neither Android's platform API nor the `dumpsys` fallback reported frequency data for that interface.
+- **Probe timeout**: The channel may lack Internet reachability or access to the selected endpoint; switch presets or configure another reachable URL in **Settings**.
+
+</details>
+
+<details>
+<summary><strong>Known limitations</strong></summary>
+
+- Routing rules install both IPv4 and IPv6 kernel tables without a userspace VPN, while DNS redirection applies to IPv4 port 53 only.
+- Cloned-app lookup uses root package listing, displays numeric space IDs (e.g., `(999)`), and covers ROMs where clones run as real Android users.
+- Secondary cellular controls require two active SIMs, manage only the non-default data SIM without changing the default data SIM or auto-starting at boot, and depend on device/carrier dual-data support plus ROM handling of `mobile_data_preferred_uids`.
+- Outside supported Xiaomi hooks, secondary Wi-Fi screen-off recovery relies on a foreground service monitor and cannot override hardware or firmware Doze behavior.
+
+</details>
 
 ---
 
-## Privacy
+## Related Documentation
 
-MultiRoute has no telemetry, analytics, crash-reporting or advertising backend and does not require an account. User-triggered egress probes and optional connectivity checks contact their configured endpoint; that server can observe the source IP address. Diagnostic logs and exported configuration can contain network names and test URLs, so store or share those files with care. Dependencies include AndroidX/Compose and the LibXposed API.
-
-- **Local storage.** Configuration lives in app-private storage, with running rules in the kernel and a UID→interface cache for hooks. The Xiaomi scheme may read or store Wi-Fi credentials locally; configuration exports omit Wi-Fi passwords. Android system backup or device migration may copy app data depending on system settings.
-- **Outbound requests are strictly transparent and user-controlled:**
-  - **The egress probe on the Channels screen** only queries when manually started by you;
-  - **The "Internet connectivity validation" under Auto-Failover** (configurable in Settings): when a channel connects or recovers, it optionally sends a single lightweight HTTP 204 request (a few hundred bytes, 0-byte body) through that channel to verify real Internet access, preventing routing stalls on captive portals, ISP dropouts, or local-only networks. It never polls continuously in the background and carries no device identifiers, app lists, or rule contents;
-  - If you do not run the egress probe and keep Internet validation turned off, these optional checks do not make requests.
-- **Root access supports system operations.** `su` is used for routing rules and boot scripts, dual-Wi-Fi and hotspot configuration, reading saved Wi-Fi configuration on supported schemes, releasing this module's connection requests, and collecting system diagnostics.
-- **The app list is read, never reported.** `QUERY_ALL_PACKAGES` exists so the app can list installed apps
-  (and their clone-space instances) for assignment.
-
----
-
-## Known limitations
-
-- **DNS and VPN behavior**: MultiRoute redirects only IPv4 UDP/TCP port 53; IPv6 DNS, DoT and DoH are not rewritten. Depending on VPN mode and UID rules, DNS or app traffic may use the selected link or remain in the tunnel. Check the VPN's own behavior before relying on a particular path.
-- **The platform's per-UID network selection is below MultiRoute** (`15040`-range), so a channel
-  assignment does override that.
-- **Hotspot and VPN targets**: Hotspot AP interfaces (e.g. `ap0`, `swlan0`) are excluded from App Routing and Scenario target pickers. VPN virtual interfaces (e.g. `tun0`) remain selectable, with restrictions in app assignment pickers for VPN owner UIDs and recognized VPN clients. These picker checks do not guarantee loop prevention for every imported configuration or scenario; results depend on the VPN's policy.
-- **Cloned-app lookup needs the root package listing.** The numeric space id is shown instead of the
-  space name; only ROMs whose clone spaces are real Android users are covered.
-- **Secondary Wi-Fi and screen-off behavior**: Xiaomi-specific hooks attempt to keep the secondary link active on supported Xiaomi ROMs. On other platforms the foreground service monitors the connection and attempts recovery; it cannot guarantee that hardware or firmware keeps the link up during screen-off or Doze.
-- **Secondary SIM controls and cellular routing** — The control requires exactly two active SIMs and only manages the non-default data SIM. It does not switch the default data SIM or start automatically at boot. Whether both SIMs can provide data concurrently depends on the device, ROM and carrier; SIM routing also relies on the ROM honouring `mobile_data_preferred_uids`.
-- **Which interface sits on which band can change while the app is running** — that is exactly what the
-  Wi-Fi band row is for.
-- **Cleartext HTTP is permitted for the egress probe.** Built-in presets use HTTPS, but a custom endpoint
-  may be plain HTTP (for example a router page such as `http://192.168.1.1/ip`), which is why
-  `usesCleartextTraffic` remains enabled.
-- **Android 7 – 10 are not supported.** The APK requires Android 11 (`minSdk` 30) and those releases do
-  not have the framework interfaces the module hooks.
-- Verification so far covers a limited set of devices and ROM versions (see the compatibility table);
-  other ROMs may differ.
-
----
-
-## Building
-
-```bash
-# Debug / release APK
-./gradlew assembleDebug
-./gradlew assembleRelease
-
-# Unit tests (pure logic)
-./gradlew testDebugUnitTest
-```
-
-- JDK 17, Android SDK Platform 36; `minSdk` 30 (Android 11).
-- Signing is optional: copy `keystore.properties.example` to `keystore.properties` and fill it in.
-  Without it, release builds fall back to debug signing (with a warning).
-- Artifact: `app/build/outputs/apk/release/app-release.apk`.
-- `tools/probe` is a separate test app used to measure per-UID egress on a device; it is not part of the
-  module.
-
-### Versioning and releases
-
-`versionName` comes from the most recent reachable git tag; a dirty working tree adds `-local`.
-
-`versionCode` is `10000` plus the greatest usable commit count from `origin/master` and `HEAD`; if neither count is available, the count defaults to `1`. Local commits can therefore affect it, and forks are not guaranteed to match the upstream value.
-
-Releases are published by pushing a tag named **`<versionCode>-<versionName>`** — the format the Xposed
-module repository indexes. The
-[release workflow](.github/workflows/release.yml) then builds, signs, verifies that the APK matches
-`xposed_update.json`, and publishes the release with the APK renamed to
-`MultiRoute-<VersionCode>-<VersionName>.apk`. A tag that does not match the built version fails the run
-with the exact retag command.
-
-Override both values for your own numbering:
-
-```bash
-./gradlew assembleRelease -PmultiRouteVersionName=1.1.0-fork -PmultiRouteVersionCode=19999
-```
-
-A self-built APK is signed with your own key rather than the project's, so Android refuses to install it
-on top of a published release — uninstall the released version first, or sign with the same key.
-
----
+- [Architecture & Technical Reference](ARCHITECTURE.md) ([简体中文](ARCHITECTURE_CN.md))
+- [Building & Releasing](BUILDING.md) ([简体中文](BUILDING_CN.md))
+- [Changelog](CHANGELOG.md)
 
 ## Disclaimer
 
-This is a **root** networking module: it modifies kernel routing rules and injects into the system
-framework. Use it at your own risk. Sending traffic over cellular may incur **carrier charges**, and
-routing apps differently may conflict with your carrier's terms — you are responsible for how you use
-it. Keep a way to recover (recovery boot / disable the module) before experimenting.
+This is a **root** networking module that modifies kernel routing rules and injects into the system framework. Use it at your own risk. Sending traffic over cellular or sharing mobile data over hotspot may incur carrier charges and may conflict with carrier terms. Keep a way to recover (recovery boot or disabling the module) before experimenting.
 
----
+## Privacy
 
-## License
+- **No telemetry**: MultiRoute has no analytics, crash-reporting, telemetry, or advertising backend and does not require an account.
+- **Local storage & app list**: Configuration is stored in app-private storage (backups exclude Wi-Fi passwords, logs, and boot ADB recovery settings); `QUERY_ALL_PACKAGES` is used only to list installed apps and clone spaces locally.
+- **User-controlled outbound requests**: Channels public-IP probes run only when initiated manually. Optional connectivity validation under Auto-Failover sends a single HTTP 204 request only when a channel connects or recovers (with no continuous background polling and no device IDs, app lists, or rules) and makes no requests when turned off.
+- **Root usage**: `su` is used for routing/DNS rules, boot scripts, Dual Wi-Fi / Hotspot / ADB operations, interface traffic counters, and diagnostic snapshots (see [Architecture](ARCHITECTURE.md#privacy--network-activity) for details).
 
-[GNU General Public License v3.0](LICENSE).
+## License & Acknowledgements
 
-## Acknowledgements
-
-- [LibXposed API](https://github.com/libxposed) and [LSPosed](https://github.com/LSPosed/LSPosed) for the
-  framework interfaces this module builds on.
-- Jetpack Compose and Material 3 for the UI.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md).
+Licensed under [GNU General Public License v3.0](LICENSE). Built with [LibXposed API](https://github.com/libxposed), [LSPosed](https://github.com/LSPosed/LSPosed), Jetpack Compose, and Material 3.

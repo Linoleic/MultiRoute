@@ -1,413 +1,193 @@
 # MultiRoute
 
-[English](README.md) | [简体中文](README_CN.md)
+[English](README.md) | [简体中文](README_CN.md)<br>
+[技术架构与原理](ARCHITECTURE_CN.md) · [编译与发布](BUILDING_CN.md) · [更新日志](CHANGELOG.md)
 
-> 安装包请从 [Releases](https://github.com/Linoleic/MultiRoute/releases) 下载。
+> 可从 [GitHub Releases](https://github.com/Linoleic/MultiRoute/releases) 下载安装包，或在 **LSPosed 管理器** 的[模块仓库](https://modules.lsposed.org/module/io.github.linoleic.multiroute)直接下载与更新。
 
 [![build](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml/badge.svg)](https://github.com/Linoleic/MultiRoute/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Linoleic/MultiRoute?label=release)](https://github.com/Linoleic/MultiRoute/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Android](https://img.shields.io/badge/Android-11%2B%20%28%20verified%20on%2016%20%2F%2017%20%29-green.svg)](https://developer.android.com)
+[![Android](https://img.shields.io/badge/Android-11%2B%20%28%E5%B7%B2%E9%AA%8C%E8%AF%81%2016%20%2F%2017%29-green.svg)](https://developer.android.com)
 [![LSPosed](https://img.shields.io/badge/LSPosed-module%20page-orange.svg)](https://modules.lsposed.org/module/io.github.linoleic.multiroute)
 [![LibXposed API](https://img.shields.io/badge/LibXposed-min%20101%20%C2%B7%20target%20102-orange.svg)](https://github.com/libxposed)
 
-MultiRoute 是一个 Android LSPosed 模块，提供分应用策略路由（含副卡通道控制与按 SIM 分流）、副 Wi-Fi 连接管理和个人热点上游选择。它使用 Linux 策略路由规则及 Android 框架和 Tethering hook。不同功能对设备与 ROM 的要求不同。
+MultiRoute 是一个 Android LSPosed 模块，提供分应用策略路由（含副卡通道控制与按 SIM 分流）、副 Wi-Fi 连接管理、个人热点上游选择、通道速率监控及无线调试辅助。不同功能对设备与 ROM 的支持情况有所差异。
 
-> **需要 Root**（KernelSU / Magisk / APatch）与 **LSPosed**，作用域包含系统框架（`system_server`）及网络堆栈（Tethering APEX）。
-
----
-
-## 概述
-
-Android 可以同时维护多条网络链路，但许多应用默认使用系统默认网络，除非应用显式绑定网络。副 Wi-Fi 和热点上游行为还取决于 Android 版本、ROM 与设备配置。
-
-MultiRoute 结合 Android 框架 hook 与 Linux 策略路由规则实现这些功能：
-
-```
-        ┌──────────────────────── MultiRoute 界面 ─────────────────────────┐
-        │  分应用通道指派 · 双 Wi-Fi 激活与管理 · 热点出口定向 · 出口 IP 诊断 │
-        └───────────────┬─────────────────────────────┬───────────────────┘
-                        │                             │
-        ┌───────────────▼──────────────┐   ┌──────────▼───────────────────┐
-        │      框架层（LSPosed）        │   │       内核层（Root）          │
-        │  注入 system_server 及网络栈 │   │     策略路由与 NAT 链         │
-        │  · ConnectivityService 调度  │   │  · pref 14500 按 UID 出口     │
-        │  · 双 Wi-Fi 助手与防休眠保活 │   │  · pref 14400 局域网直连放行   │
-        │  · Tethering 上游网络重定向  │   │  · IPv4 nat 链 53 端口 DNS │
-        │  · 场景方案与故障自动降级    │   │  · IPv4 与 IPv6 双栈策略      │
-        └──────────────────────────────┘   └──────────┬───────────────────┘
-                                                      │
-        ┌─────────────────────────────────────────────▼───────────────────┐
-        │   主 Wi-Fi    │   副 Wi-Fi (DBS)  │   移动蜂窝   │   以太网 / 其他   │
-        └───────┬───────────────┬───────────────────┬─────────────┬───────┘
-                │               │                   │             │
-                │ 本机应用分流   │ 本机分流/热点出口  │ 本机/热点   │ 局域网直连
-                ▼               ▼                   ▼             ▼
-        ┌───────────────┐┌───────────────┐ ┌─────────────────┐ ┌───────────┐
-        │ 浏览器 / 视频 ││ 局域网 / 投屏 │ │ 热点设备 (PC/平板)│ │ NAS / 打印│
-        └───────────────┘└───────────────┘ └─────────────────┘ └───────────┘
-```
-
-### 功能概述
-
-1. **分应用策略路由**：
-   - 为每个应用独立指定网络通道（主 Wi-Fi、副 Wi-Fi、移动蜂窝或以太网），支持应用分身（如双开微信）独立走不同通道。
-   - 双卡设备可在「工具」页启用或停用非默认数据卡通道，并将应用或场景指派到可识别的 SIM。
-   - 基于 Linux 内核策略路由（`ip rule`），不使用用户态 VPN 转发；支持 IPv4 UDP/TCP 53 端口 DNS 改写、局域网直连网段放行与链路不可用时的回退。
-
-2. **双 Wi-Fi 激活与管理**：
-   - 提供副 Wi-Fi 连接方式，按 SSID、BSSID 和频段区分接入点。
-   - 小米方案通过 hook 尝试维持息屏连接；实际效果取决于设备、固件和 ROM。
-
-3. **个人热点上游选择**：
-   - 请求 Android Tethering 将个人热点上游选为蜂窝网络、副 Wi-Fi 或系统默认网络。
-   - 上游变更由系统异步重选；转发、NAT、IPv6 和卸载由 Android 管理，具体行为取决于系统。
+> **运行前提**：需要 **Root**（`KernelSU` / `Magisk` / `APatch`）与 **LSPosed**（LibXposed API 101+），作用域需包含**系统框架**（`system`）及 **NetworkStack Tethering** 组件。
 
 ---
 
-## 模块信息
+## 功能简介
 
-| 项目 | 值 |
-| :-- | :-- |
-| 包名 | `io.github.linoleic.multiroute` |
-| 模块名 | MultiRoute |
-| 官方收录 | [modules.lsposed.org/module/io.github.linoleic.multiroute](https://modules.lsposed.org/module/io.github.linoleic.multiroute) |
-| Xposed API | `minApiVersion 101`、`targetApiVersion 102`（LibXposed） |
-| 作用域 | 系统框架（`system` / `android`）及网络堆栈（`com.android.networkstack.tethering`、`com.google.android.networkstack.tethering`、`com.android.networkstack`、`com.google.android.networkstack`） |
-| `staticScope` | `false`（作用域清单随 APK 元数据下发） |
-| `autoHotReload` | `true`，但系统框架实际上无法热重载 → 需重启，或重启 `system_server` |
-| Root | 必需：KernelSU / Magisk / APatch |
-
-APK 内已包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`，作用域与入口由包自身声明，
-管理器无需手工配置作用域清单。
+- **分应用策略路由**：通过 Linux 内核策略路由为应用分别指定 **主 Wi-Fi**、**副 Wi-Fi**、**移动蜂窝**（双卡支持按 SIM 指定）、**以太网**或**系统默认网络**，不使用用户态 VPN；各网卡直连网段保留放行，局域网设备（如 NAS、打印机、投屏）可正常访问。
+- **分身独立指派与场景方案**：应用分身（如小米 XSpace `(999)`）与工作资料会作为独立条目列出。可将当前分配保存为带条件（指定 Wi-Fi、双 Wi-Fi 在线、仅蜂窝、始终、仅手动）的场景方案；命中方案按优先级叠加，网络变化时由系统唤醒重新评估。
+- **双 Wi-Fi 管理 (`STA + STA`)**：在主 Wi-Fi 之外建立并切换第二路 Wi-Fi 连接，按 BSSID 与频段区分同名接入点，并显示频段并发提示标签。
+- **个人热点上游选择**：请求 Android Tethering 将个人热点的上游网络选为 **蜂窝网络**、**副 Wi-Fi** 或 **系统默认网络**（例如设备连接内网 Wi-Fi 时由热点共享蜂窝网络）。
+- **通道速率监控与出口探测**：查看各网卡实时下载/上传速率、近 30 秒速率曲线、窗口峰值、开机以来累计流量及 Wi-Fi 协商速率，并支持单通道公网出口 IP 探测。
+- **无线调试辅助**：支持 Android 11+ 原生 TLS 模式与传统 TCP 自定义端口模式（`1024..65535`），检测已连接电脑 IP，生成 `adb connect` 连接命令，并支持可选的开机解锁后十分钟内自动恢复。
 
 ---
 
 ## 运行环境与兼容性
 
 | 项目 | 要求 |
-| :-- | :-- |
-| Root | KernelSU / Magisk / APatch（操作策略路由表需要 root） |
-| Xposed 框架 | LSPosed（或实现了 LibXposed API 101+ 的框架） |
-| 模块作用域 | 勾选**系统框架**（`system` / `system_server`）与 **Tethering 网络栈**（`com.android.networkstack.tethering` 等，用于热点上游调度） |
-| Android | 最低 Android **11**；已验证的系统与功能范围见下表 |
+| :--- | :--- |
+| **Root** | KernelSU / Magisk / APatch（策略路由表与底层命令需要 Root） |
+| **Xposed 框架** | LSPosed 或实现 LibXposed API 101+ 的兼容框架 |
+| **模块作用域** | **系统框架**（`system` / `system_server`）及 **NetworkStack Tethering** 组件 |
+| **Android 版本** | Android **11**（`minSdk 30`）及以上 |
 
-| Android 版本 | 状态 |
-| :-- | :-- |
-| **Android 17 / HyperOS（手机）** | 已验证双 Wi-Fi、副卡启停与 SIM 分流、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
-| **Android 16 / HyperOS（平板）** | 已验证双 Wi-Fi、应用与分身分流、IPv4/IPv6 路由、DNS 改写及规则恢复；设备无蜂窝网络 |
-| **Android 16 / AOSP** | 已验证已保存副 Wi-Fi 的连接、断开与 IPv4 上网；其他功能尚未全面验证 |
-| Android 11 – 15 | ⚠️ **未验证** |
-| Android 7 – 10 | ❌ APK 要求 Android 11（`minSdk` 30） |
+| 已验证环境 | 状态 |
+| :--- | :--- |
+| **Android 17 / HyperOS（手机）** | 已验证双 Wi-Fi、副卡启停与按 SIM 分流、应用与分身分流、IPv4/IPv6 路由及规则恢复 |
+| **Android 16 / HyperOS（平板）** | 已验证双 Wi-Fi、应用与分身分流、IPv4/IPv6 路由、DNS 改写及规则恢复（无蜂窝硬件） |
+| **Android 16 / AOSP** | 已验证已保存副 Wi-Fi 的连接、断开与 IPv4 联网；其余功能未作全面验证 |
+| **Android 11 – 15** | ⚠️ 未验证 |
+| **Android 7 – 10** | ❌ 不支持（APK 最低要求 Android 11 / SDK 30） |
 
-上表不代表同类系统的所有设备均兼容。双 Wi-Fi 与热点功能还取决于硬件、固件和 ROM，不能仅根据 Android 版本判断兼容性。
-
-副卡启停与按 SIM 分流目前仅在 Android 17 / HyperOS 双卡环境验证。Android 11 是 APK 的最低安装版本，不代表副卡功能已在所有 Android 11 及以上系统验证。
+> 硬件、固件与 ROM 对功能有直接影响：双 Wi-Fi 射频组合、双卡并发数据与热点上游行为不能仅凭 Android 版本判断兼容性。
 
 ---
 
-## 主要特性
+## 安装与使用准备
 
-- **分应用通道指派**：为任意应用指定通道，其流量从该链路出口，其他应用不受影响。
-- **副卡蜂窝通道与 SIM 分流**：可在工具页启用或停用非默认数据卡通道，并将应用或场景指派到可识别的 SIM。网络重建后会重新解析该 SIM 对应的当前通道；导入到其他设备时，无法匹配的 SIM 需要重新选择。
-- **分身独立配置**：应用分身空间（如小米 XSpace，用户 999）与工作资料会作为**独立条目**列出
-  （`微信 (999)`），因此分身与主安装可以走**不同**通道。
-- **分应用 DNS 改写**：被指派应用的 IPv4 传统 DNS（UDP/TCP 53 端口）会改写到所选通道的解析器。Private DNS（DoT）与 DNS-over-HTTPS（DoH）不改写；VPN 下的行为取决于其模式（见「已知限制」）。
-- **场景方案**：把当前指派保存为「名称 + 触发条件」的方案（Wi-Fi 名称从当前已连接网络点选、双 Wi-Fi 在线、
-  仅蜂窝、始终、仅手动）。命中时只覆盖方案涉及的应用，其余保持基础指派。多个命中方案按优先级依次叠加，
-  同一应用由后叠加的方案覆盖；手动模式可同时选择多个方案并忽略触发条件。方案还能把某应用移回「系统默认」。分流规则页顶栏显示当前生效方案；方案可改名、调整顺序、
-  重新编辑覆盖应用；链路变化时由模块唤醒应用重新评估，因此**应用未运行时方案同样会切换**。
-- **双栈路由**：同时安装 IPv4 与 IPv6 策略路由规则。DNS 改写目前仅适用于 IPv4 UDP/TCP 53 端口。
-- **局域网直连放行**：各网卡直连网段固定从属主网卡出口，内网设备（NAS、打印机、投屏）在应用被
-  指派到其他通道时依然可达。
-- **开机规则恢复**：`service.d` 脚本等待目标接口，并尝试应用一次路由规则；后续变化由应用和模块回调处理。此机制恢复路由规则，不会建立副 Wi-Fi 连接；时间取决于接口和 ROM 状态。
-- **自动容灾回退**：被指派链路不可用时，模块可将流量改走系统默认网络，并在链路恢复后重新应用指派；切换时间取决于链路检测与防抖设置。
-- **个人热点上游选择**：请求 Android Tethering 异步重选蜂窝、副 Wi-Fi 或系统默认网络。转发、NAT、IPv6 和卸载由系统管理。
-- **热点与 VPN 通道信息**：识别热点下行与 VPN 虚拟接口并展示相关属性。热点下行接口从应用分流和场景目标中排除。VPN 保留为可选目标，分应用选择器会限制 VPN 所属 UID 与识别出的常见 VPN 客户端选择 VPN 通道；实际流量路径受 VPN 策略影响。
-- **内置双 Wi-Fi 助手**：提供多种副 WLAN 连接方案、同名 SSID 跨频段处理与临时网络限制重置。在受支持的 Xiaomi ROM 上会启用尝试维持副网的 hook；效果取决于设备与 ROM。
-- **通道详情**：接口、地址、网关、DNS、MTU、计费状态、SSID，以及 **Wi-Fi 频段与信道**；并可做按通道的公网出口探测（内置预设 + 自定义地址）。
-- **外观与语言**：主题（跟随系统 / 浅色 / 深色，带渐变过渡）、动态取色，以及按应用语言（跟随系统 / 简体中文 / English）。
-- **配置备份与恢复**：v3 JSON 包含应用分流（含 SIM 目标）、场景选择、网络策略、热点出口偏好、双 Wi-Fi 非敏感信息、外观与测速节点；可预览并按类别恢复，兼容 v1/v2 文件。SIM 目标使用设备内不透明标识，不导出原始 ICCID 或电话号码；跨设备导入时，无法匹配的 SIM 需要重新选择。文件包含 Wi-Fi 网络名称和测速地址，不含 Wi-Fi 密码、UID 缓存或运行日志；导入不会自动开启热点或连接副 Wi-Fi，双 Wi-Fi 方案会检查目标设备的厂商兼容性。
-- **模块状态自检**：明确区分「hook 已就绪」「`system_server` 仍在跑旧版本」「状态记录已过期」等具体状态。
-- **系统运行诊断**：诊断日志弹窗支持复制、SAF 文件导出与系统分享；涵盖双 Wi-Fi 状态、路由表与网关、上游 DNS 与 Private DNS (DoT)、规则生效状态及过滤后的 logcat。
-- **不使用 VPN**：在内核层分流，没有用户态 TCP/IP 栈开销。
+1. **安装 APK**：从 [Releases](https://github.com/Linoleic/MultiRoute/releases) 下载 `MultiRoute-<VersionCode>-<VersionName>.apk`，或直接在 LSPosed 管理器的仓库列表（`io.github.linoleic.multiroute`）中安装；两者均通过 [`xposed_update.json`](xposed_update.json) 提供更新检查。
+2. **启用模块与作用域**：进入 **LSPosed 管理器 → 模块 → MultiRoute**，启用模块并核对作用域（`system` 与 NetworkStack Tethering 包）。APK 内已包含 `scope.list`，支持的管理器通常会自动勾选。
+3. **重启系统**：重启设备，或重启系统服务（`su -c 'setprop ctl.restart zygote'`）。
+4. **确认激活状态**：打开 MultiRoute 并授予 Root 权限，点击顶栏**模块状态图标**，确认显示为 **「已激活（hook 就绪）」**。
+   - 若需要在连接 Wi-Fi 时同时让部分应用走移动数据，请在开发者选项中开启**「移动数据始终保持连接」**。
 
----
+<details>
+<summary>从 1.1.x 升级说明（包名变更）</summary>
 
-## 双 Wi-Fi 助手与机型适配
+自 v1.2 起，模块包名由 `com.multiroute` 改为 `io.github.linoleic.multiroute` 以符合模块仓库包名校验要求：
+1. 先卸载旧版 `1.1.x`（原有指派规则不会自动迁移）。
+2. 安装新版 APK 后，在 LSPosed 管理器中启用新条目并检查作用域，再删除已卸载的旧条目。
 
-Android 可以维护多条网络链路，但许多应用默认使用活动的系统网络，除非显式绑定。副 Wi-Fi 可用性和息屏行为取决于 Wi-Fi 硬件、固件与 ROM。
+</details>
 
-MultiRoute 的双 Wi-Fi 助手提供并发能力检测、副网连接和断开操作，可选择以下连接方案。
+<details>
+<summary>卸载与清理</summary>
 
-### 1. 连接方案
+1. 先在应用内将热点上游切回**「系统默认」**，断开由应用连接的副 Wi-Fi，再执行 **分流规则 → 右上角菜单 → 清空所有应用分流规则**。
+2. 若启用过双 Wi-Fi，按需要恢复系统并发设置/Overlay，并删除 `/data/adb/service.d/01-multiroute-dualwifi.sh`（若存在）。
+3. 在 LSPosed 管理器中停用模块、卸载应用并重启。
+- 若卸载前应用已无法运行，可参考 [手工清理命令](ARCHITECTURE_CN.md#5-手工清理命令)。
 
-| 适配方案 | 技术原理 | 适用场景与说明 |
-| :--- | :--- | :--- |
-| **自动**<br>`AUTO` | 根据厂商、ROM 和检测到的能力选择连接方案。 | 默认选项。 |
-| **小米 / HyperOS 专用方案**<br>`XIAOMI_SLAVE` | 协同小米 `SlaveWifiService` / `DualStaImpl`，并使用 LSPosed hook 尝试维持副网连接。 | 小米 / Redmi / POCO ROM；息屏行为取决于设备与 ROM。 |
-| **AOSP Multi-Internet**<br>`AOSP_OVERLAY` | 应用 Overlay 强制启用 Google 的 `config_wifiMultiStaMultiInternetConcurrencyEnabled` 资源，并请求 Multi-Internet 模式 2。 | 面向 AOSP 衍生系统的候选方案；资源名称和行为因 ROM 而异，尚未广泛验证。 |
-| **Root 直连**<br>`ROOT_DIRECT` | 当前激活路径调用 `set-multi-internet-mode 2`。Root 不会绕过 Wi-Fi 硬件或固件的并发限制。 | 仅适用于支持该系统命令和模式的 ROM，尚未广泛验证。 |
-
-AOSP / 通用 Multi-Internet 方案仅连接系统已保存的网络。首次连接某个 AP 前，请先在系统 Wi-Fi 设置中保存该网络。已保存网络使用系统配置；MultiRoute 的连接请求不携带凭据。未保存网络的提示提供打开系统 Wi-Fi 设置的入口。
-
-### 2. 系统与硬件要求
-
-* **AOSP Multi-Internet 方案**：该方案要求 Android 13 (API 33) 或更高版本；这不是 MultiRoute 所有功能或连接方案的通用最低版本。
-* **Wi-Fi 并发**：实际能力取决于 Wi-Fi 硬件、固件、系统配置和 ROM。Root 权限不能增加硬件不支持的射频并发能力。
-* **机型兼容性**：方案表中的 ROM 家族仅供参考，不代表该系列全部机型均可使用；已验证的系统与功能范围见兼容性表。
-
-### 3. 连接注意事项
-
-1. **射频组合**：
-   * Wi-Fi 硬件、固件与 ROM 支持的频段和信道组合各不相同；互补频段可能可用，但不能保证适用于每台设备；
-   * 将列表中的「推荐并发」和「同频冲突」标签作为提示。实际并发能力取决于设备报告的组合支持。
-2. **同名 Wi-Fi（SSID）区分**：
-   * 对于广播相同 SSID 的接入点，列表按 BSSID 与频段分别显示，并标记主、副 Wi-Fi 的连接状态。
-3. **清理网络临时限制**：
-   * 「清理网络临时限制」会清除用户禁用网络标记、重设 Root 请求许可，并移除所有通过 `cmd wifi add-request` 创建的请求，包括其他 shell 工具发起的请求。它不保证解除所有 BSSID 或固件惩罚；仅在确实需要此范围的重置时使用。
+</details>
 
 ---
 
-## 个人热点上游选择
+## 使用说明
 
-Android 系统网络共享（Tethering）默认将热点客户端流量通过当前系统默认网络转发。当设备同时连接 Wi-Fi 与移动数据或启用双 Wi-Fi 时，无法在系统设置中为热点单独指定出口链路。
+应用包含 **分流规则**、**网络通道**、**工具** 和 **设置** 四个页面；窄屏使用底部导航，宽屏使用侧边导航栏与双栏视图：
 
-MultiRoute Hook NetworkStack / Tethering APEX 运行时的 `UpstreamNetworkMonitor.getCurrentPreferredUpstream`，并请求 Android Tethering 重新选择个人热点（SoftAP）的上游网络：
+### 1. 分流规则（App Routing）
+- **单应用与分身指派**：点击任意应用（分身如 `微信 (999)` 会单独列出）选择目标通道。
+- **批量指派**：长按列表项进入多选模式，可同时修改或清除多个应用的配置。
+- **场景方案**：保存带有条件（*指定 Wi-Fi*、*双 Wi-Fi 在线*、*仅蜂窝*、*始终* 或 *仅手动*）的分配组合。多个匹配方案按优先级叠加；链路切换时由模块触发重算，应用未在前台时也会自动切换。
+- **规则操作**：右上角菜单提供「重新应用规则」与「清空所有应用分流规则」。
 
-```
-                      ┌───────────────────────┐
-                      │ 笔记本 / 平板 / 随身设备 │
-                      └───────────┬───────────┘
-                                  │ (Wi-Fi 接入)
-                      ┌───────────▼───────────┐
-                      │    手机个人热点 (SoftAP) │
-                      │  (ap0 / swlan0 / wlan2)│
-                      └───────────┬───────────┘
-                                  │
-                 ┌────────────────┼────────────────┐
-                 │                │                │
-          ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-          │  系统默认网络 │  │   蜂窝网络   │  │   副 Wi-Fi   │
-          │   (Default)  │  │  (Cellular) │  │  (Secondary)│
-          └─────────────┘  └─────────────┘  └─────────────┘
-```
+### 2. 网络通道（Channels）
+- **通道列表与实时速率**：查看当前链路（主 Wi-Fi、副 Wi-Fi、蜂窝、VPN、热点下行、以太网等），以及实时下载/上传速率、近 30 秒速率曲线、窗口峰值速率与开机以来累计流量。
+- **通道详情**：点击通道卡片可查看接口名、IP 地址、网关、DNS、MTU、计费标识、**系统估算吞吐**，WLAN 通道还会展示 **Wi-Fi 协商速率**（物理下行/上行 Mbps）以及频段与信道。
+- **公网出口探测**：手动通过指定通道向内置 HTTPS 预设或自定义地址发起公网 IP 探测。
+- **副卡通道与未激活通道**：双卡设备上的非默认数据卡等通道提供快捷管理入口，可在网络通道页或工具页启停。
 
-### 1. 功能说明
-- **指定上游出口**：可将热点上游绑定至「蜂窝网络」、「副 Wi-Fi」或「系统默认网络」。
-- **应用场景**：
-  - **分开使用网络**：主机连接内网 Wi-Fi 时，可请求热点使用蜂窝网络；结果仍受 Android Tethering 和运营商策略影响。
-  - **双 Wi-Fi 中继**：在系统支持的情况下，主 Wi-Fi 连接第一路网络、副 Wi-Fi 连接第二路网络，并请求热点使用副网作为上游。
-  - **专用流量卡分流**：手机使用 Wi-Fi 时，可请求热点使用蜂窝数据；结果仍受系统和运营商策略影响。
-- **异步重选**：目标变化时请求 Tethering 重新选择上游；生效时间和客户端连接取决于 Android 与设备实现。
-- **故障回退与重选**：目标网络变化时模块请求重新选择；实际回退行为取决于 Tethering 可用网络及其策略。
-- **系统管理转发**：转发、NAT、IPv6 和卸载由 Android 管理。Hook 已加载不代表硬件加速已生效。
-- **离线预设**：可在热点未开启时设置目标；热点启动时由 Tethering 读取并评估。
+### 3. 工具（Tools）
+- **双 Wi-Fi 助手**：
+  - 连接方案默认为**自动 (`AUTO`)**：小米 / HyperOS 设备使用 `SlaveWifiService` 协同与保活 hook；Android 13+ AOSP/其他 ROM 提供 Overlay 与 Root 路径。
+  - 系统 Multi-Internet 方案仅连接已在系统 Wi-Fi 设置中保存的网络，MultiRoute 不在这些请求中发送密码。同名 SSID 会按 BSSID 与频段分条显示。
+- **个人热点上游**：选择 **蜂窝网络**、**副 Wi-Fi** 或 **系统默认网络**（可在热点关闭时预设），并在卡片中查看当前热点频段与上报的上游状态。转发、NAT、IPv6 与卸载由 Android Tethering 管理。
+- **无线调试辅助**：在**原生 TLS 模式**（系统随机端口与配对）和**传统 TCP 模式**（自定义端口 `1024..65535`，默认 `5555`）间切换，查看已连接电脑 IP 与 `adb connect` 命令，并可按需开启解锁后开机恢复。
+- **运行日志与模块状态**：顶栏状态图标用于检查 hook 就绪与版本一致性；**工具 → 运行日志** 可查看各 UID 规则生效状态、开机恢复日志，以及导出或分享诊断快照。
+
+### 4. 设置与备份（Settings）
+- 配置**自动容灾回退**（目标链路断开时回退默认网络，可选开启 HTTP 204 连通性检查）、**分应用 DNS 改写**、防抖间隔、**主题 / 动态取色**与**应用语言**（跟随系统 / 简体中文 / English）。
+- **配置备份与恢复（v3 JSON）**：支持导出与导入预览及分类勾选恢复（包含应用分流、SIM 目标、场景方案、网络策略、热点偏好、双 Wi-Fi 非敏感设置、外观与测速地址），兼容 v1/v2 文件；不包含 Wi-Fi 密码、UID 缓存、运行日志与无线调试开机恢复设置。
 
 ---
 
-主界面提供分流规则、网络通道、工具和设置四个入口。工具页提供副卡数据通道、双 Wi-Fi、热点管理、无线调试和运行日志，顶栏状态图标打开运行诊断，规则重新应用与清空位于分流规则页菜单；网络与分流设置、外观语言和配置备份位于设置页。网络通道页展示在线通道和出口测试，并提供待激活、正在建立通道的管理入口。宽窗口使用导航栏及分类—详情双栏；窄窗口使用底部导航，设置内容按小标题分组直接展示。
+## 常见问题（FAQ）
 
-## 无线调试辅助
+<details>
+<summary><strong>模块状态显示「未激活」或更新后显示「已加载旧版本」</strong></summary>
 
-工具页的无线调试入口支持两种工作模式：
-- **原生 TLS 模式**：基于 Android 11+ 原生无线调试机制，使用动态随机端口与配对码（Pairing Code）认证。与系统开发者选项中的「无线调试」开关完全同源联动。
-- **传统 TCP 模式**：基于经典 `adbd` 守护进程机制，支持自定义固定监听端口（默认 `5555`，支持 `1024..65535` 范围及合法性校验）。首次连接时手机弹出系统 USB 调试（RSA 密钥指纹）授权弹窗，后续连接端口固定，无需配对码，便于自动化脚本与 IDE 直连。
+- **未激活**：确认已在 LSPosed 管理器中启用 MultiRoute 并勾选**系统框架 (`system`)** 与 **NetworkStack Tethering** 作用域，然后重启设备。
+- **已加载旧版本**：系统框架进程 `system_server` 在应用更新后无法热重载。重启设备或执行 `su -c 'setprop ctl.restart zygote'` 后再重新查看状态图标。
 
-支持读取系统调试状态、连接端口和候选 IPv4 地址，一键复制对应模式与端口的连接命令，并在调试运行期间热切换工作模式或修改端口（自动重启 `adbd` 服务重载）。
+</details>
 
-可选的“开机后恢复”记住启用时的主 Wi-Fi 网络名称、工作模式与自定义端口，并在首次解锁后十分钟内，在该网络上尝试恢复对应模式的无线调试。它不提供日常断网后的持续恢复。应用内关闭无线调试会同时关闭开机恢复；恢复配置不参与备份或配置导出。厂商后台限制可能影响任务执行，结果可在卡片详情中查看。
+<details>
+<summary><strong>指派规则后看起来没有生效</strong></summary>
 
-## 安装
+1. 打开 **工具 → 运行日志**，检查 **「规则生效对照」** 一节，确认目标 UID 显示为**已生效**或查看被跳过的具体原因（例如接口当时没有默认路由）。
+2. 连着 Wi-Fi 使用蜂窝分流时，需在开发者选项中开启**「移动数据始终保持连接」**。
+3. 若同时开启了 **VPN**，实际路径可能受 VPN 自身规则影响，可参考下方 DNS 与 VPN 说明。
 
-1. 从 [Releases](https://github.com/Linoleic/MultiRoute/releases) 安装 APK，资产名为
-   `MultiRoute-<VersionCode>-<VersionName>.apk`；也可以直接在 **LSPosed 管理器的模块列表**里安装 ——
-   模块已收录进[官方仓库](https://modules.lsposed.org/module/io.github.linoleic.multiroute)。
-   两种方式都能在管理器内提示更新（依据模块声明的更新清单）。
-2. 打开 **LSPosed 管理器 → 模块 → MultiRoute**，启用并检查作用域（勾选**系统框架**及 **Tethering 网络栈** `com.android.networkstack.tethering` 等）。APK 已内置包含上述作用域的 `scope.list` 与清单元数据，支持的管理器通常会自动选中对应作用域。
-3. 重启设备，或重启系统服务：`su -c 'setprop ctl.restart zygote'`。
-4. 打开 MultiRoute 并授予 root。点击**顶栏模块状态图标**，诊断面板应显示「已激活（hook 就绪）」。若显示「已加载旧版本」，
-   再重启一次系统服务。
-5. 如需在连接 Wi-Fi 时同时用蜂窝分流，请开启系统/开发者选项中的「移动数据始终保持连接」。
+</details>
 
-### 从 1.1.x 升级
+<details>
+<summary><strong>重启手机后分流规则丢失</strong></summary>
 
-包名由 `com.multiroute` 改为 `io.github.linoleic.multiroute`（模块仓库只接受"作者能证明所有权"的包名
-命名空间）。Android 会把它视为**另一个应用**：
+在 **工具 → 运行日志** 中查看第 3 节（`/data/adb/multiroute/last_boot_sync.log`），并确认所用 Root 管理器（`KernelSU` / `Magisk` / `APatch`）会在该 ROM 上执行 `/data/adb/service.d/` 脚本。开机脚本只恢复路由规则，不会自动连接副 Wi-Fi。
 
-1. 先卸载旧版本 —— 分流配置**不会**迁移。
-2. 安装新 APK 后，在 LSPosed 管理器中启用**新包名**这个条目并设置作用域。它会作为一个新模块
-   条目出现；旧的（已卸载）条目可以删掉。
+</details>
 
-`tools/probe`（用于真机测量的辅助 App）有意保留为 `com.multiroute.probe`。
+<details>
+<summary><strong>看不到副 Wi-Fi 通道或连接失败</strong></summary>
 
-### 卸载与清理
+1. 在 **工具 → 双 Wi-Fi 激活与管理** 中查看检测到的能力，连接方案通常保持**自动**（AOSP Multi-Internet 方案要求 Android 13+）。若硬件或固件不支持双 STA，Root 权限无法强制开启并发。
+2. 首次作为副 Wi-Fi 连接前，先在系统 Wi-Fi 设置中连接并保存该网络。
+3. 若当前芯片不支持两个同频段热点同时连接，可换用互补频段的热点（例如 2.4 GHz + 5 GHz）。
 
-1. 若使用过热点出口选择，先在应用内切回「系统默认」；断开应用管理的副 Wi-Fi，再执行 **分流规则 → 清空所有应用分流规则**，清掉内核路由规则、生成的路由开机脚本与规则缓存。
-2. 若激活过双 Wi-Fi，先恢复使用前的设备设置与 overlay，并移除本模块生成的 `/data/adb/service.d/01-multiroute-dualwifi.sh` 脚本，再在 LSPosed 管理器中停用模块并重启。清空应用分流规则不会恢复这些设备特定设置。
-3. 若在卸载前应用已无法运行（例如设备被双清），可手工清理残留。以下命令不会恢复双 Wi-Fi 设置，并会按优先级整体删除 `14400`、`14500` 规则；执行前请检查是否与其他路由工具共用这些优先级：
+</details>
 
-```bash
-su -c 'rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/system/multiroute_rules_cache'
-su -c 'while ip rule del pref 14500 2>/dev/null; do :; done; while ip rule del pref 14400 2>/dev/null; do :; done'
-su -c 'while ip -6 rule del pref 14500 2>/dev/null; do :; done; while ip -6 rule del pref 14400 2>/dev/null; do :; done'
-su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat -F MULTIROUTE_DNS 2>/dev/null; iptables -t nat -X MULTIROUTE_DNS 2>/dev/null'
-```
+<details>
+<summary><strong>DNS 行为不符合预期或受 VPN 影响</strong></summary>
 
----
+MultiRoute 仅重定向 **IPv4 UDP/TCP 53 端口** 请求到所选通道的 DNS；**IPv6 DNS**、**Private DNS（DoT，853 端口）** 与 **DoH** 不作改写。存在活跃 VPN（`tun0`）时，DNS 与流量的实际路径取决于 VPN 的模式和分流策略；应用内选择器会限制 VPN 所属 UID 及常见 VPN 客户端选入 VPN 通道以降低回环风险。
 
-## 使用
+</details>
 
-| 页面 | 作用 |
-| :-- | :-- |
-| **分流规则** | 点应用选通道；长按多选批量指派；分身以独立条目列出；支持根据网络与连接条件切换的「场景方案」。 |
-| **网络通道** | 查看各链路状态（接口、IP、网关、DNS、MTU、SSID、频段信道）；提供待激活、正在建立通道的管理入口；支持热点下行与 VPN 虚拟接口识别与属性展示；支持单通道公网出口探测。 |
-| **设置与工具** | 设置页提供网络与分流选项、外观语言和配置备份还原；顶栏状态图标提供模块与 Root 状态、规则统计和刷新操作；工具页提供网络管理、无线调试及运行日志。规则重新应用与清空位于分流规则页菜单。 |
+<details>
+<summary><strong>Wi-Fi 频段不显示或公网出口测试超时</strong></summary>
 
----
+- **频段不显示**：系统接口和 `dumpsys` 均未返回该接口的频点信息。
+- **测试超时**：该通道可能无外网连接或无法访问当前预设节点，可在**设置**中更换可达的测试服务器。
 
-## 工作原理
+</details>
 
-**内核层（Root）**：每个网卡在 Android 的 `netd` 中都有独立路由表，MultiRoute 安装：
+<details>
+<summary><strong>已知限制有哪些？</strong></summary>
 
-- `ip rule add uidrange <uid>-<uid> lookup <iface> pref 14500` —— 每个被指派的 UID 一条，IPv4/IPv6 各一份；
-- `ip rule add to <直连网段> lookup <iface> pref 14400` —— 局域网放行，网段由各通道实际的直连前缀生成。
+- 在内核层处理 IPv4/IPv6 双栈策略路由且不经过用户态 VPN，但 DNS 改写目前仅支持 IPv4 53 端口。
+- 分身应用列表依赖 Root 查询包列表，界面显示数字空间号（如 `(999)`），仅覆盖以真实 Android 多用户实现分身的 ROM。
+- 副卡通道控制要求系统存在两张已激活 SIM，仅控制非默认数据卡，不会修改默认数据卡或开机自动启用；实际并发能力取决于硬件与运营商，按 SIM 分流依赖 ROM 对 `mobile_data_preferred_uids` 的支持。
+- 除受支持的小米专项 hook 外，其余系统的副 Wi-Fi 息屏重连依赖前台服务监控，硬件或系统 Doze 策略仍可能断开副路连接。
 
-**DNS**：MultiRoute 将被指派 UID 的 **IPv4 UDP/TCP 53** 流量改写到所选通道的解析器
-（IPv4 `nat` 表的 `MULTIROUTE_DNS` 链）。IPv6 DNS、Private DNS（DoT，853）与 DoH 不改写。VPN 开启时 DNS
-和应用流量的实际路径取决于 VPN 模式与策略；见「已知限制」。
-
-**框架层（LSPosed）**：`system_server` 内的 hook 让**应用可见的网络状态**与指派结果保持一致
-（`ConnectivityService.getDefaultNetworkForUid`、`getActiveNetworkForUidInternal`、
-`getMobileDataPreferredUids`）；小米专用方案会启用尝试在息屏时维持副 WLAN 链路的 hook。
-
-**开机恢复**：生成的 `service.d` 脚本最多等待 36 轮、每轮 5 秒。目标通道可用时，脚本应用一次路由规则后退出；它恢复路由规则，不会建立副 Wi-Fi 连接。后续网络变化由应用和模块回调处理。设备锁屏时脚本可能先于应用运行，但恢复时间取决于接口和 ROM 状态，不能保证开机后立即完成。
-
-**规则缓存**：模块维护 UID→接口 映射供框架 hook 使用。缓存本身不会建立网络连接，也不能保证路由规则在开机某个固定时刻恢复。
+</details>
 
 ---
 
-## 模块状态
+## 相关文档
 
-点击顶栏模块状态图标，诊断面板会显示以下之一：
-
-| 状态 | 含义 |
-| :-- | :-- |
-| 已激活（hook 就绪） | hook 已安装，且 `system_server` 加载的版本与已安装 APK 一致 |
-| 已加载，hook 缺失 | 注入成功，但 `ConnectivityService` 的 hook 未装上 |
-| 已加载旧版本 | `system_server` 仍运行旧构建 —— 需要软重启 |
-| 已加载（旧版标记） | 模块在，但不上报 hook 细节（旧模块构建） |
-| 状态记录已过期 | 记录里的属主进程已不是 `system_server` |
-| 未激活 | 模块未启用、作用域未勾选，或未注入成功 |
-
----
-
-## 常见问题
-
-- **提示「模块未激活」**：在 LSPosed 管理器中启用并勾选模块作用域，然后重启系统服务。
-- **更新后显示「已加载旧版本」**：这是预期行为——框架无法热重载。重启，或
-  `su -c 'setprop ctl.restart zygote'`。
-- **指派似乎没生效**：打开 **工具 → 运行日志**（支持复制、导出文件或系统分享），查看「规则生效对照」一节：每个已配置 UID 都会标明「已生效 / 未生效」。某通道当时没有默认路由时会被自动跳过，日志里也会写出来。
-- **重启后规则丢失**：在同一份快照的第 3 节查看开机恢复日志
-  （`/data/adb/multiroute/last_boot_sync.log`），并确认该 ROM 会执行 KernelSU/Magisk/APatch 的
-  `service.d` 脚本。
-- **看不到副 Wi-Fi 通道**：在「工具 → 双 Wi-Fi 激活与管理」中查看检测到的能力并选择可用方案。Android 13+ 是 AOSP Multi-Internet 方案的要求；其他方案的条件取决于 ROM 和设备。
-- **DNS 表现不符合预期**：只改写 IPv4 UDP/TCP 53 端口。IPv6 DNS、**Private DNS（DoT）** 与 DoH 不会
-  改写；VPN 下的表现也取决于其模式。
-- **VPN 活跃时指派似乎无效**：见「已知限制」里的 VPN 说明。
-- **Wi-Fi 频段不显示**：该链路既没有被平台上报频率，`dumpsys` 兜底也没取到。
-- **公网出口测试超时**：在设置页换成当前网络可达的预设节点，或自定义探测地址。
-
----
-
-## 隐私
-
-MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账号。用户发起的出口探测和可选连通性检查会连接配置的目标服务器，该服务器可以看到请求来源 IP。诊断日志和导出的配置可能含有网络名称与测速地址，请自行保管和决定是否分享。依赖包括 AndroidX/Compose 与 LibXposed API。
-
-- **本地保存**：分流配置保存在应用私有目录，内核中保存运行规则，并为 hook 保留 UID→接口 缓存。小米连接方案可能在本地读取或保存 Wi-Fi 凭据，配置导出不包含 Wi-Fi 密码；Android 系统备份或设备迁移是否复制应用数据，取决于系统设置。
-- **对外请求完全透明且可控**：
-  - **网络通道页的出口探测**仅由你主动触发，访问你选择的公网 IP 接口；
-  - **通道离线降级中的「外网连通性校验」**（可在设置中随时开启/关闭）：仅在通道连接或恢复时，通过该通道向轻量 204 探针（如 `generate_204`）发送单次 HTTP 请求（几百字节，0 字节响应体）检验是否真正具备外网通信能力，防止处于待认证 Wi-Fi（Captive Portal）、路由器欠费或局域网无外网状态时误判通道可用。绝不进行无休止后台死循环轮询，不携带任何设备标识、应用列表或规则内容；
-  - 若不运行出口探测且关闭外网连通性校验，这些可选检查不会发起请求。
-- **Root 用于系统操作**：`su` 用于路由规则和开机脚本、双 Wi-Fi 与热点设置、读取系统已保存的 Wi-Fi 配置（适用方案）、释放本模块发起的连接请求以及收集系统诊断信息。
-- **应用列表只读，不外传**：`QUERY_ALL_PACKAGES` 仅用于列出已安装应用（及其分身空间实例）以便指派。
-
----
-
-## 已知限制
-
-- **DNS 与 VPN 行为**：MultiRoute 只改写 IPv4 UDP/TCP 53 端口；IPv6 DNS、DoT 和 DoH 不改写。根据 VPN 模式和 UID 规则，DNS 或应用流量可能走指定链路，也可能留在隧道中。依赖特定路径时，请检查所用 VPN 的行为。
-- **平台自己的按 UID 网络选择低于 MultiRoute**（`15040` 一带），所以通道分配会覆盖它。
-- **热点与 VPN 目标**：热点 AP 下行接口（如 `ap0`、`swlan0`）从应用分流和场景目标中排除。VPN 虚拟接口（如 `tun0`）保留为可选目标，分应用选择器会限制 VPN 所属 UID 与识别出的常见 VPN 客户端。这些选择器检查不保证所有导入配置和场景都能避免路由回环；实际效果取决于 VPN 策略。
-- **分身识别依赖 root 包列表**：界面显示数字空间号而非空间名称；仅覆盖"分身空间是真实 Android
-  用户"的 ROM。
-- **副 Wi-Fi 与息屏行为**：小米专用 hook 会尝试在受支持的 Xiaomi ROM 上维持副网连接。其他平台由前台服务监控连接并尝试恢复；无法保证硬件或固件在息屏或 Doze 时保持链路。
-- **副卡通道与蜂窝分流**：控制入口要求系统识别到恰好两张活动 SIM，只控制非默认数据卡，不切换默认数据卡，也不会在开机时自动启用。两卡能否同时联网取决于设备、ROM 与运营商；按 SIM 分流还取决于 ROM 是否遵循 `mobile_data_preferred_uids`。
-- **同一网卡所处频段会在运行中变化**——这正是「Wi-Fi 频段」那一行的用途。
-- **出口探测允许明文 HTTP**：内置预设均为 HTTPS，但自定义地址可能是明文（例如路由器页面
-  `http://192.168.1.1/ip`），因此 `usesCleartextTraffic` 保持开启。
-- **Android 7 – 10 不支持。** APK 要求 Android 11（`minSdk` 30），这些版本缺少模块所 hook 的框架接口。
-- 目前验证覆盖的机型与系统版本有限（见兼容性表），其他 ROM 可能存在差异。
-
----
-
-## 源码构建
-
-```bash
-# Debug / Release APK
-./gradlew assembleDebug
-./gradlew assembleRelease
-
-# 单元测试（纯逻辑）
-./gradlew testDebugUnitTest
-```
-
-- 环境：JDK 17、Android SDK Platform 36；`minSdk` 30（Android 11）。
-- 签名可选：复制 `keystore.properties.example` 为 `keystore.properties` 并填入凭证；未配置时会输出
-  警告并降级为 debug 签名，保证 CI 与外部开发者可直接编译。
-- 产物：`app/build/outputs/apk/release/app-release.apk`。
-- `tools/probe` 是独立的测试应用，用于在真机上测量按 UID 的出口，不属于模块本体。
-
-### 版本号与发布
-
-`versionName` 取自最近可达的 git 标签；工作区有未提交改动时会加上 `-local`。
-
-`versionCode` 为 `10000` 加上 `origin/master` 与 `HEAD` 可用提交数中的较大值；两者都不可用时计数默认为 `1`。本地提交数可能影响结果，fork 也不保证与上游编号相同。
-
-发布方式是推送一个形如 **`<versionCode>-<versionName>`** 的标签——这正是 Xposed 模块仓库索引所用的格式。
-[发版工作流](.github/workflows/release.yml) 会自动构建、签名、校验 APK 与 `xposed_update.json` 是否一致，
-并发布为 `MultiRoute-<VersionCode>-<VersionName>.apk`。若标签与构建出的版本不符，工作流会直接失败并给出
-正确的改标签命令。
-
-需要自己的编号时可覆盖两者：
-
-```bash
-./gradlew assembleRelease -PmultiRouteVersionName=1.1.0-fork -PmultiRouteVersionCode=19999
-```
-
-注意：自建包用的是你自己的签名（与官方发布包不同），Android 会拒绝覆盖安装——请先卸载已发布的版本，或
-使用同一签名密钥。
-
----
+- [技术架构与原理](ARCHITECTURE_CN.md)（[English](ARCHITECTURE.md)）
+- [编译与发布指南](BUILDING_CN.md)（[English](BUILDING.md)）
+- [更新日志](CHANGELOG.md)
 
 ## 免责声明
 
-本项目是 **root** 网络模块：会修改内核路由规则并注入系统框架，请自行评估风险。通过蜂窝传输可能产生
-**运营商流量费用**，分流方式也可能与运营商条款冲突，后果由使用者自负。实验前请先确保有恢复手段
-（recovery 引导 / 停用模块）。
+这是一个 **root** 网络模块，会修改内核路由规则并注入系统框架，请自行评估使用风险。通过蜂窝网络传输或热点分享数据可能产生运营商流量费用，或与运营商服务条款存在冲突，后果由使用者自行承担。测试前请保留恢复方式（如进入恢复模式或停用模块）。
 
----
+## 隐私
 
-## 开源协议
+- **无统计收集**：不包含统计、埋点、崩溃上报或广告后端，不需要账号登录。
+- **本地存储与应用列表**：配置保存在应用私有目录（导出备份不包含 Wi-Fi 密码、运行日志与无线调试开机恢复设置）；`QUERY_ALL_PACKAGES` 仅用于在本地列出已安装应用与分身条目以便指派。
+- **可控的对外请求**：公网出口探测仅在用户手动触发时请求目标服务器；自动容灾回退的可选「外网连通性校验」仅在通道连接或恢复时发送单次 HTTP 204 请求（无持续后台轮询，不携带设备标识、应用列表或规则），关闭后不会发起这些请求。
+- **Root 权限用途**：`su` 仅用于安装路由/DNS 规则、生成开机脚本、控制双 Wi-Fi / 热点 / 无线调试、读取接口流量统计及采集系统诊断信息（详见[技术架构与原理](ARCHITECTURE_CN.md#隐私与数据流向)）。
 
-本项目采用 [GNU General Public License v3.0 (GPL-3.0)](LICENSE) 协议开源。
+## 开源协议与致谢
 
-## 更新日志
-
-见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 致谢
-
-- [LibXposed API](https://github.com/libxposed) 与 [LSPosed](https://github.com/LSPosed/LSPosed)：
-  模块所依赖的框架接口。
-- Jetpack Compose 与 Material 3：界面实现。
+本项目基于 [GNU General Public License v3.0 (GPL-3.0)](LICENSE) 开源。依赖 [LibXposed API](https://github.com/libxposed)、[LSPosed](https://github.com/LSPosed/LSPosed)、Jetpack Compose 与 Material 3。
