@@ -5,6 +5,30 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.8.1-beta.1 - 2026-11-11
+
+**中文**
+
+### 修复
+
+- 切回分流页时刷新应用分身列表，并校验跨用户 UID。
+- 识别没有默认路由的分段路由 VPN，避免局域网旁路规则抢占 VPN 流量。在兼容的系统上，显式指向 VPN 的分身可加入系统 VPN。
+
+### 验证范围
+
+- 已在 Android 17 验证分身经 VPN 联网、重连后恢复和规则撤销，并在 Android 16 验证双 Wi-Fi 分流。ColorOS 16 待验证。VPN 重连后，备用分流规则可能在切回应用时才更新。
+
+**English**
+
+### Fixed
+
+- Refresh cloned apps when returning to the routing screen and validate cross-user UIDs.
+- Recognize split-route VPNs without a default route and prevent LAN bypass rules from intercepting VPN traffic. On compatible systems, cloned apps explicitly assigned to a VPN can join the system VPN.
+
+### Validation
+
+- Verified cloned-app VPN connectivity, reconnect, and rule removal on Android 17, and dual Wi-Fi routing on Android 16. ColorOS 16 remains unverified. Fallback routing rules may update only after reopening the app following a VPN reconnect.
+
 ## v1.8.0 - 2026-11-09
 
 **中文**

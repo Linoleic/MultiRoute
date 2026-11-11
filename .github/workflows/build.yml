@@ -122,6 +122,9 @@ jobs:
             exit 1
           fi
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "$APK_CODE" != "$MANIFEST_CODE" ]; then
+            case "${GITHUB_REF_NAME:-}" in
+              *-beta*|*-rc*|*-alpha*|*-preview*) exit 0 ;;
+            esac
             echo "::error title=Update manifest::tag ${GITHUB_REF_NAME:-} is not the release xposed_update.json describes ($MANIFEST_CODE vs $APK_CODE)"
             exit 1
           fi

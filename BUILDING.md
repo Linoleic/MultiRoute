@@ -80,3 +80,5 @@ Official releases run in [`.github/workflows/release.yml`](.github/workflows/rel
    ```
 3. Push an annotated tag named **`<versionCode>-<versionName>`** (for example `10173-1.8.0`).
 4. The workflow builds and signs the APK, checks signing certificate parity, verifies APK size <= 20 MB and metadata parity across APK, tag, and `xposed_update.json`, publishes `MultiRoute-<VersionCode>-<VersionName>.apk` on GitHub Releases, and mirrors to `Xposed-Modules-Repo/io.github.linoleic.multiroute` when `LSPOSED_REPO_TOKEN` is set.
+
+For an alpha, beta, RC, or preview tag, keep `xposed_update.json` on the current stable version. Use the full pre-release version in the changelog heading and tag. The workflow publishes it as a pre-release on the main GitHub repository.

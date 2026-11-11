@@ -80,3 +80,5 @@
    ```
 3. 推送格式为 **`<versionCode>-<versionName>`** 的附注标签（例如 `10173-1.8.0`）。
 4. 工作流会编译并使用仓库密钥签名，校验签名指纹、APK 体积（<= 20 MB）以及 APK / 标签 / `xposed_update.json` 的一致性，将 `MultiRoute-<VersionCode>-<VersionName>.apk` 发布至 GitHub Releases，并在配置 `LSPOSED_REPO_TOKEN` 时镜像至 `Xposed-Modules-Repo/io.github.linoleic.multiroute`。
+
+发布 alpha、beta、RC 或 preview 时，`xposed_update.json` 继续指向当前稳定版。更新日志标题和标签使用完整预发布版本号。工作流会在 GitHub 主仓库发布预发布。
