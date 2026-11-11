@@ -62,7 +62,7 @@ APK 内包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`（入�
 每张网络接口在 Android `netd` 中均有独立路由表。MultiRoute 在内核层安装路由规则，不使用用户态 VPN 转发：
 
 - `ip rule add uidrange <uid>-<uid> lookup <iface> pref 14500`：为每个被指派的应用 UID 安装 IPv4 与 IPv6 策略路由规则。系统原生的按 UID 网络选择规则位于 `15040` 优先级附近，因此 `pref 14500` 会优先命中。
-- `ip rule add to <直连网段> lookup <iface> pref 14400`：根据各通道实际的直连前缀生成，使被分流到其他通道的应用仍可直接访问局域网设备。
+- `ip rule add uidrange <uid>-<uid> to <直连网段> lookup <iface> pref 14400`：为显式分配到物理通道的应用保留局域网直连。直连前缀仅从物理通道收集。
 
 ### 2. 分应用 DNS 改写（`iptables`）
 

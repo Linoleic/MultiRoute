@@ -66,7 +66,7 @@ object RouteRuleBuilder {
      * Validates whether an Android UID is in valid user app range.
      */
     fun isValidUid(uid: Int): Boolean {
-        return uid in 10000..Int.MAX_VALUE
+        return uid >= 10000 && uid % 100000 >= 10000
     }
 
     /**
@@ -88,10 +88,13 @@ object RouteRuleBuilder {
      * Also retains RFC1918 and link-local ranges as fallbacks.
      */
     fun buildLanBypassCommands(
-        connectedPrefixes: Map<String, List<String>> = emptyMap(),
-        lanBypassPref: Int = LAN_BYPASS_PREF
+        connectedPrefixes: Map<String, List<String>>,
+        lanBypassPref: Int,
+        uid: Int
     ): List<String> {
+        if (!isValidUid(uid)) return emptyList()
         val commands = mutableListOf<String>()
+        val selector = "uidrange $uid-$uid"
 
         // 1. Channel-specific direct on-link subnet bypass rules (IPv4 & IPv6)
         val sortedIfaces = connectedPrefixes.keys.sorted()
@@ -101,22 +104,22 @@ object RouteRuleBuilder {
             for (prefix in prefixes) {
                 if (isValidPrefix(prefix)) {
                     if (prefix.contains(":")) {
-                        commands.add("$IP_BIN -6 rule add to $prefix lookup $iface pref $lanBypassPref;")
+                        commands.add("$IP_BIN -6 rule add $selector to $prefix lookup $iface pref $lanBypassPref;")
                     } else {
-                        commands.add("$IP_BIN rule add to $prefix lookup $iface pref $lanBypassPref;")
+                        commands.add("$IP_BIN rule add $selector to $prefix lookup $iface pref $lanBypassPref;")
                     }
                 }
             }
         }
 
-        // 2. Global RFC1918 IPv4 private subnets via 'main' table
-        commands.add("$IP_BIN rule add to 192.168.0.0/16 lookup main pref $lanBypassPref;")
-        commands.add("$IP_BIN rule add to 10.0.0.0/8 lookup main pref $lanBypassPref;")
-        commands.add("$IP_BIN rule add to 172.16.0.0/12 lookup main pref $lanBypassPref;")
-        commands.add("$IP_BIN rule add to 169.254.0.0/16 lookup main pref $lanBypassPref;")
+        // Private-subnet fallbacks for this physically routed UID.
+        commands.add("$IP_BIN rule add $selector to 192.168.0.0/16 lookup main pref $lanBypassPref;")
+        commands.add("$IP_BIN rule add $selector to 10.0.0.0/8 lookup main pref $lanBypassPref;")
+        commands.add("$IP_BIN rule add $selector to 172.16.0.0/12 lookup main pref $lanBypassPref;")
+        commands.add("$IP_BIN rule add $selector to 169.254.0.0/16 lookup main pref $lanBypassPref;")
 
         // 3. IPv6 link-local bypass
-        commands.add("$IP_BIN -6 rule add to fe80::/10 lookup local pref $lanBypassPref;")
+        commands.add("$IP_BIN -6 rule add $selector to fe80::/10 lookup local pref $lanBypassPref;")
 
         return commands
     }
@@ -155,14 +158,23 @@ object RouteRuleBuilder {
         connectedPrefixes: Map<String, List<String>> = emptyMap(),
         pref: Int = DEFAULT_RULE_PREF,
         lanBypassPref: Int = LAN_BYPASS_PREF,
-        channelResolvers: Map<String, List<String>> = emptyMap()
+        channelResolvers: Map<String, List<String>> = emptyMap(),
+        vpnInterfaces: Set<String> = emptySet()
     ): String {
         val commands = mutableListOf<String>()
         commands.addAll(buildCleanupCommands(listOf(pref, lanBypassPref)))
 
         val uidCmds = buildUidRoutingCommands(channelToUidsMap, pref)
         if (uidCmds.isNotEmpty()) {
-            commands.addAll(buildLanBypassCommands(connectedPrefixes, lanBypassPref))
+            val physicalPrefixes = connectedPrefixes.filterKeys {
+                it !in vpnInterfaces && !isTunnelInterface(it)
+            }
+            val physicalUids = channelToUidsMap.filterKeys {
+                isValidInterfaceName(it) && it !in vpnInterfaces && !isTunnelInterface(it)
+            }.values.flatten().distinct().sorted()
+            for (uid in physicalUids) {
+                commands.addAll(buildLanBypassCommands(physicalPrefixes, lanBypassPref, uid))
+            }
             commands.addAll(uidCmds)
         }
         // DNS redirection is applied together with the routing rules so both are atomic and both are
@@ -170,6 +182,19 @@ object RouteRuleBuilder {
         commands.addAll(buildDnsRedirectCommands(resolveUidResolvers(channelToUidsMap, channelResolvers)))
 
         return commands.joinToString(" ")
+    }
+
+    fun isTunnelInterface(iface: String): Boolean =
+        iface.startsWith("tun") || iface.startsWith("tap") ||
+            iface.startsWith("wg") || iface.startsWith("ppp")
+
+    internal fun buildRouteReadinessProbe(iface: String, splitVpn: Boolean): String {
+        val routeArgs = if (splitVpn) "type unicast dev $iface" else ""
+        val match = if (splitVpn) "." else "^default([[:space:]]|$)"
+        return listOf("-4", "-6").joinToString(" || ") { family ->
+            "/system/bin/ip $family route show table $iface $routeArgs 2>/dev/null | " +
+                "/system/bin/grep -Eq '$match'"
+        }
     }
 
     /** Maps every assigned UID to the resolvers of the channel it was assigned to. */
@@ -251,7 +276,8 @@ object RouteRuleBuilder {
         interfaces: Collection<String>,
         logPath: String = BOOT_LOG_PATH,
         waitAttempts: Int = 36,
-        waitIntervalSeconds: Int = 5
+        waitIntervalSeconds: Int = 5,
+        vpnInterfaces: Set<String> = emptySet()
     ): String {
         val safeIfaces = interfaces.filter { isValidInterfaceName(it) }.distinct().sorted()
         val logDir = logPath.substringBeforeLast('/', "/data/adb/multiroute")
@@ -285,11 +311,12 @@ log() {
   echo "[@@(/system/bin/date '+%Y-%m-%d %H:%M:%S')] @@*" >> "@@LOG_PATH@@"
 }
 
-# A channel is only usable once netd created its routing table with a default route.
+# VPN channels can have split routes instead of a default route.
 is_ready() {
-  /system/bin/ip route show table "@@1" 2>/dev/null | /system/bin/grep -qm1 '^default' && return 0
-  /system/bin/ip -6 route show table "@@1" 2>/dev/null | /system/bin/grep -qm1 '^default' && return 0
-  return 1
+  case "@@1" in
+@@READY_CASES@@
+    *) return 1 ;;
+  esac
 }
 
 # Readiness mask of all channels, e.g. "10" = first ready, second not ready yet.
@@ -335,6 +362,9 @@ exit 0
         return template
             .trimIndent()
             .replace("@@BODY@@", indentedBody)
+            .replace("@@READY_CASES@@", safeIfaces.joinToString("\n") { iface ->
+                "    $iface) ${buildRouteReadinessProbe(iface, iface in vpnInterfaces)} ;;"
+            })
             .replace("@@IFACES@@", safeIfaces.joinToString(" "))
             .replace("@@WAIT_ATTEMPTS@@", waitAttempts.toString())
             .replace("@@WAIT_INTERVAL@@", waitIntervalSeconds.toString())
@@ -359,7 +389,7 @@ exit 0
             if (name.isEmpty()) continue
             if (wanted.isNotEmpty() && !wanted.contains(name)) continue
             val uid = line.substringAfter("uid:", "").trim().toIntOrNull() ?: continue
-            if (uid >= 10000) result[name] = uid
+            if (isValidUid(uid)) result[name] = uid
         }
         return result
     }
@@ -394,7 +424,7 @@ exit 0
 
         fun flush() {
             if (userId > 0) {
-                val uids = parsePackageUidOutput(block)
+                val uids = parsePackageUidOutput(block).filterValues { it / 100000 == userId }
                 if (uids.isNotEmpty()) result.add(SecondaryUserInstalls(userId, uids))
             }
             block = mutableListOf()

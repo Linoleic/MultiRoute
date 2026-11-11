@@ -31,9 +31,12 @@ class MultiRouteModule : XposedModule() {
     private val connectivityHandler: ConnectivityRoutingHookHandler by lazy {
         ConnectivityRoutingHookHandler(
             xposed = this,
-            onHooksInstalled = { source -> beaconPublisher.publish(source, "hooks") }
+            onHooksInstalled = { source -> beaconPublisher.publish(source, "hooks") },
+            onConnectivityClassResolved = { loader -> vpnUidHook.install(loader) }
         )
     }
+
+    private val vpnUidHook by lazy { VpnUidRoutingHook(this) }
 
     private val dualWifiHandler: XiaomiDualWifiHookHandler by lazy {
         XiaomiDualWifiHookHandler(
@@ -51,6 +54,7 @@ class MultiRouteModule : XposedModule() {
             xposed = this,
             onPublishReady = { beaconPublisher.publish("bootRestoreWatchdog", "ready") },
             onRefreshCellularDefaults = { connectivityHandler.refreshCellularDefaults() },
+            onRefreshVpnUids = { vpnUidHook.refresh() },
             onKeepAliveChanged = { dualWifiHandler.onKeepAliveChanged() },
             onConnectSlaveWifi = { netId, bssid -> dualWifiHandler.connectSlaveWifi(netId, bssid) },
             onDisconnectSlaveWifi = { dualWifiHandler.disconnectSlaveWifi() }

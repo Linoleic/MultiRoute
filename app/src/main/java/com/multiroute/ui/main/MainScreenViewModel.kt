@@ -98,9 +98,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     init {
         envDelegate.loadTestServerConfig()
         envDelegate.refreshEnvironment()
-        appRoutingDelegate.loadInstalledApps()
         envDelegate.registerNetworkCallbacks()
     }
+
+    fun refreshInstalledApps() = appRoutingDelegate.loadInstalledApps()
 
     override fun onCleared() {
         super.onCleared()

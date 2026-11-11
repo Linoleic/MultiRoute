@@ -29,6 +29,7 @@ internal class BootRestoreWatchdog(
     private val xposed: XposedInterface,
     private val onPublishReady: () -> Unit,
     private val onRefreshCellularDefaults: () -> Unit,
+    private val onRefreshVpnUids: () -> Unit,
     private val onKeepAliveChanged: () -> Unit,
     private val onConnectSlaveWifi: (netId: Int, bssid: String?) -> Unit,
     private val onDisconnectSlaveWifi: () -> Unit
@@ -156,7 +157,10 @@ internal class BootRestoreWatchdog(
                     }
 
                     when (intent?.action) {
-                        ModuleStateParser.ACTION_ROUTES_CHANGED -> onRefreshCellularDefaults()
+                        ModuleStateParser.ACTION_ROUTES_CHANGED -> {
+                            onRefreshCellularDefaults()
+                            onRefreshVpnUids()
+                        }
                         ModuleStateParser.ACTION_KEEPALIVE_CHANGED -> onKeepAliveChanged()
                         ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI -> {
                             val netId = intent.getIntExtra(ModuleStateParser.EXTRA_NET_ID, -1)
@@ -242,6 +246,7 @@ internal class BootRestoreWatchdog(
     private fun onLinkChanged() {
         // Network identities can change without a UID or subscription change, including without plans.
         onRefreshCellularDefaults()
+        onRefreshVpnUids()
         val now = System.currentTimeMillis()
         if (now - lastScenarioWakeAt < 3000L) return
         lastScenarioWakeAt = now

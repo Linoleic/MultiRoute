@@ -46,6 +46,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.repeatOnLifecycle
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
@@ -68,6 +70,9 @@ fun MainScreen(
     viewModel: MainScreenViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshInstalledApps()
+    }
     var showDiagnostics by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current

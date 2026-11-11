@@ -62,7 +62,7 @@ The APK includes `META-INF/xposed/{module.prop, scope.list, java_init.list}` (`c
 Each network interface has its own routing table maintained by Android's `netd`. MultiRoute installs rules in the kernel without userspace VPN tunneling:
 
 - `ip rule add uidrange <uid>-<uid> lookup <iface> pref 14500` — installed per assigned UID for IPv4 and IPv6. Because the platform's per-UID network selection rules sit in the `15040` range, `pref 14500` takes precedence over them.
-- `ip rule add to <on-link prefix> lookup <iface> pref 14400` — LAN bypass rules generated from each channel's connected prefixes so intranet devices remain reachable from apps routed elsewhere.
+- `ip rule add uidrange <uid>-<uid> to <on-link prefix> lookup <iface> pref 14400` — LAN bypass rules for apps explicitly assigned to physical channels. Only physical channels contribute on-link prefixes.
 
 ### 2. Per-App DNS Redirection (`iptables`)
 

@@ -7,6 +7,8 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
 import com.multiroute.model.CHANNEL_DEFAULT
+import com.multiroute.util.RouteRuleBuilder
+import com.multiroute.util.SuHelper
 
 /**
  * A rule target: the display key (`pkg` for the primary user, `pkg@<userId>` for an OEM clone space
@@ -300,7 +302,9 @@ class RouteConfigProvider : ContentProvider() {
                     if (target.uid > 0) editor.remove("uid_${target.uid}")
                 } else {
                     editor.putString(target.key, sanitizedChannel)
-                    if (target.uid > 0) editor.putString("uid_${target.uid}", sanitizedChannel)
+                    if (RouteRuleBuilder.isValidUid(target.uid)) {
+                        editor.putString("uid_${target.uid}", sanitizedChannel)
+                    }
                 }
             }
             editor.apply()
@@ -375,13 +379,10 @@ class RouteConfigProvider : ContentProvider() {
                 if (!isValidRuleKey(ruleKey)) return null
                 val channelId = extras?.getString(KEY_CHANNEL_ID, CHANNEL_DEFAULT) ?: CHANNEL_DEFAULT
                 if (!isValidChannelId(channelId)) return null
-                // Legacy entry point: only the primary-user UID can be resolved here; the app itself
-                // resolves clone-space UIDs and writes them via setTargetChannel(RuleTarget).
-                val (pkg, userId) = com.multiroute.util.RouteRuleBuilder.parseRuleKey(ruleKey)
-                val uid = if (userId == 0) {
-                    runCatching { ctx.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
-                } else {
-                    -1
+                val uid = SuHelper.resolveUidForRuleKey(ctx, ruleKey)
+                if (!RouteRuleBuilder.isValidUid(uid)) {
+                    bundle.putBoolean("success", false)
+                    return bundle
                 }
                 setTargetChannel(ctx, RuleTarget(ruleKey, uid), channelId)
                 bundle.putBoolean("success", true)

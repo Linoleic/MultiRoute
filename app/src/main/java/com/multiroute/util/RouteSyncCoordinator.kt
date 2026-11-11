@@ -51,24 +51,22 @@ internal class RouteSyncCoordinator(
     suspend fun <T> withRouteConfigLock(block: suspend () -> T): T = syncMutex.withLock { block() }
 
     /**
-     * Checks which network interfaces currently have active default routes in their kernel routing tables.
+     * Checks default routes for physical channels and unicast routes for identified VPNs.
      * Prevents traffic blackholes when an interface is assigned but temporarily disconnected or has no route.
      */
-    fun getInterfacesWithDefaultRoute(candidateIfaces: Collection<String>): Set<String> {
+    fun getInterfacesWithDefaultRoute(
+        candidateIfaces: Collection<String>,
+        vpnInterfaces: Set<String> = emptySet()
+    ): Set<String> {
         val safeIfaces = candidateIfaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }
         if (safeIfaces.isEmpty()) return emptySet()
         val cmd = safeIfaces.joinToString(" ") { iface ->
-            "ip route show table $iface 2>/dev/null | grep -m1 '^default' && echo 'ONLINE_V4:$iface'; " +
-                "ip -6 route show table $iface 2>/dev/null | grep -m1 '^default' && echo 'ONLINE_V6:$iface';"
+            "if ${RouteRuleBuilder.buildRouteReadinessProbe(iface, iface in vpnInterfaces)}; " +
+                "then echo 'ONLINE:$iface'; fi;"
         }
         val lines = shell.executeShellWithOutput(cmd, timeoutSeconds = 3)
-        val online = mutableSetOf<String>()
-        for (line in lines) {
-            if (line.startsWith("ONLINE_V4:") || line.startsWith("ONLINE_V6:")) {
-                online.add(line.substringAfter(":").trim())
-            }
-        }
-        return online
+        return lines.filter { it.startsWith("ONLINE:") }
+            .map { it.substringAfter(":").trim() }.filter { it in safeIfaces }.toSet()
     }
 
     /**
@@ -121,7 +119,9 @@ internal class RouteSyncCoordinator(
      */
     fun getConnectedSubnetPrefixes(context: Context, ifaces: Collection<String>): Map<String, List<String>> {
         val result = mutableMapOf<String, MutableList<String>>()
-        val safeIfaces = ifaces.filter { RouteRuleBuilder.isValidInterfaceName(it) }.toSet()
+        val safeIfaces = ifaces.filter {
+            RouteRuleBuilder.isValidInterfaceName(it) && !RouteRuleBuilder.isTunnelInterface(it)
+        }.toSet()
         if (safeIfaces.isEmpty()) return emptyMap()
 
         // 1. Android ConnectivityManager LinkProperties
@@ -133,9 +133,12 @@ internal class RouteSyncCoordinator(
                 for (network in networks) {
                     val lp = cm.getLinkProperties(network) ?: continue
                     val iface = lp.interfaceName ?: continue
+                    if (cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
+                        continue
+                    }
                     if (safeIfaces.contains(iface)) {
                         for (route in lp.routes) {
-                            if (!route.isDefaultRoute) {
+                            if (!route.isDefaultRoute && !route.hasGateway()) {
                                 val dest = route.destination.toString()
                                 if (RouteRuleBuilder.isValidPrefix(dest)) {
                                     result.getOrPut(iface) { mutableListOf() }.add(dest)
@@ -218,9 +221,15 @@ internal class RouteSyncCoordinator(
     /**
      * Deploys a dynamic boot restore script to the KernelSU/Magisk `service.d` directory.
      */
-    fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>): Boolean {
+    fun updateBootRestoreScript(
+        applyScript: String,
+        interfaces: Collection<String>,
+        vpnInterfaces: Set<String> = emptySet()
+    ): Boolean {
         return try {
-            val scriptContent = RouteRuleBuilder.buildBootRestoreScript(applyScript, interfaces)
+            val scriptContent = RouteRuleBuilder.buildBootRestoreScript(
+                applyScript, interfaces, vpnInterfaces = vpnInterfaces
+            )
 
             val cmd = "mkdir -p /data/adb/service.d /data/adb/multiroute && " +
                 "cat << 'MCROUTE_EOF' > /data/adb/service.d/00-multiroute-restore.sh\n" +
@@ -347,6 +356,7 @@ internal class RouteSyncCoordinator(
         val baseUidRules = RouteConfigProvider.getUidRules(context)
         val scenario = resolveScenarioProfile(context, baseUidRules)
         val runtimeChannels = NetworkUtils.getActiveChannels(context)
+        val vpnChannels = runtimeChannels.filter { it.isVpn }.associateBy { it.interfaceName }
         val simInterfaces = runtimeChannels.filter { CellularTargets.isSim(it.id) }
             .groupBy({ it.id }, { it.interfaceName })
         val uidRules = scenario.effectiveRules.mapNotNull { (uid, target) ->
@@ -380,7 +390,9 @@ internal class RouteSyncCoordinator(
             if ((hotspotIface != null && channelId == hotspotIface) || channelId.startsWith("swlan") || channelId.startsWith("ap")) continue
 
             // Prevent anti-loopback: VPN client apps must not route into VPN tunnels
-            if (channelId.startsWith("tun") || channelId.startsWith("wg") || channelId.startsWith("ppp")) {
+            if (channelId in vpnChannels || RouteRuleBuilder.isTunnelInterface(channelId)) {
+                val ownerUid = vpnChannels[channelId]?.vpnOwnerUid ?: -1
+                if (ownerUid > 0 && ownerUid % 100000 == uid % 100000) continue
                 val pkgName = runCatching { context.packageManager.getPackagesForUid(uid)?.firstOrNull() }.getOrNull()
                 if (pkgName != null && (
                         pkgName.contains("clash", ignoreCase = true) ||
@@ -415,18 +427,19 @@ internal class RouteSyncCoordinator(
 
         val autoFailover = RouteConfigProvider.isAutoFailoverEnabled(context)
         val probeInternet = RouteConfigProvider.isFailoverProbeInternet(context)
-        val defaultRouteChannels = getInterfacesWithDefaultRoute(candidateChannels)
+        val splitVpnInterfaces = vpnChannels.filterValues { it.vpnOwnerUid > 0 }.keys
+        val routeReadyChannels = getInterfacesWithDefaultRoute(candidateChannels, splitVpnInterfaces)
 
         val onlineChannels = if (autoFailover) {
-            if (probeInternet && defaultRouteChannels.isNotEmpty()) {
-                val validated = filterInterfacesWithInternet(context, defaultRouteChannels)
-                Log.i(TAG, "Failover check: defaultRoutes=$defaultRouteChannels, internetValidated=$validated")
+            if (probeInternet && routeReadyChannels.isNotEmpty()) {
+                val validated = filterInterfacesWithInternet(context, routeReadyChannels)
+                Log.i(TAG, "Failover check: usableRoutes=$routeReadyChannels, internetValidated=$validated")
                 validated
             } else {
-                defaultRouteChannels
+                routeReadyChannels
             }
         } else {
-            defaultRouteChannels
+            routeReadyChannels
         }
 
         if (onlineChannels.isEmpty() && candidateChannels.isNotEmpty()) {
@@ -446,7 +459,7 @@ internal class RouteSyncCoordinator(
         }
 
         // 3. Collect connected local subnet prefixes & resolvers for active channels
-        val connectedPrefixes = getConnectedSubnetPrefixes(context, activeChannelMap.keys)
+        val connectedPrefixes = getConnectedSubnetPrefixes(context, activeChannelMap.keys - vpnChannels.keys)
         val channelResolvers = if (RouteConfigProvider.isDnsFollowsChannel(context)) {
             getChannelResolvers(context, activeChannelMap.keys)
         } else {
@@ -458,7 +471,8 @@ internal class RouteSyncCoordinator(
         val script = RouteRuleBuilder.buildFullSyncScript(
             activeChannelMap,
             connectedPrefixes,
-            channelResolvers = channelResolvers
+            channelResolvers = channelResolvers,
+            vpnInterfaces = vpnChannels.keys
         )
         val success = shell.executeCommand(script, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
 
@@ -468,9 +482,11 @@ internal class RouteSyncCoordinator(
             val bootChannels = activeChannelMap.ifEmpty { channelToUidsMap }.mapValues { (_, uids) ->
                 uids.filterNot { it in dynamicUids }
             }.filterValues { it.isNotEmpty() }
-            val bootScript = RouteRuleBuilder.buildFullSyncScript(bootChannels, connectedPrefixes)
+            val bootScript = RouteRuleBuilder.buildFullSyncScript(
+                bootChannels, connectedPrefixes, vpnInterfaces = vpnChannels.keys
+            )
             val bootSaved = if (bootChannels.isEmpty()) shell.executeCommand("rm -f /data/adb/service.d/00-multiroute-restore.sh")
-            else updateBootRestoreScript(bootScript, bootChannels.keys)
+            else updateBootRestoreScript(bootScript, bootChannels.keys, splitVpnInterfaces)
             if (activeChannelMap.isEmpty()) {
                 if (!updateRuleCache(context, emptyMap())) return false
                 Log.w(TAG, "All configured channels are offline; kernel rules cleared, boot script updated with current targets")

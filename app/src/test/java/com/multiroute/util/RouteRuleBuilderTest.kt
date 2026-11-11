@@ -103,25 +103,32 @@ class RouteRuleBuilderTest {
 
     @Test
     fun testLanBypassWithConnectedPrefixes() {
-        val rules = mapOf("wlan1" to listOf(10150))
+        val rules = mapOf("wlan1" to listOf(10150), "tun0" to listOf(1010358), "vpn0" to listOf(10151))
         val prefixes = mapOf(
             "wlan0" to listOf("192.168.124.0/24", "240e:3b4:9244:af51::/64"),
-            "wlan1" to listOf("192.168.137.0/24")
+            "wlan1" to listOf("192.168.137.0/24"),
+            "tun0" to listOf("1.0.0.0/8"),
+            "vpn0" to listOf("2.0.0.0/8")
         )
-        val script = RouteRuleBuilder.buildFullSyncScript(rules, connectedPrefixes = prefixes, pref = 14500, lanBypassPref = 14400)
+        val script = RouteRuleBuilder.buildFullSyncScript(
+            rules, connectedPrefixes = prefixes, vpnInterfaces = setOf("vpn0")
+        )
 
         // Verify direct subnet bypass rules exist at pref 14400
-        assertTrue(script.contains("/system/bin/ip rule add to 192.168.124.0/24 lookup wlan0 pref 14400;"))
-        assertTrue(script.contains("/system/bin/ip -6 rule add to 240e:3b4:9244:af51::/64 lookup wlan0 pref 14400;"))
-        assertTrue(script.contains("/system/bin/ip rule add to 192.168.137.0/24 lookup wlan1 pref 14400;"))
+        assertTrue(script.contains("/system/bin/ip rule add uidrange 10150-10150 to 192.168.124.0/24 lookup wlan0 pref 14400;"))
+        assertTrue(script.contains("/system/bin/ip -6 rule add uidrange 10150-10150 to 240e:3b4:9244:af51::/64 lookup wlan0 pref 14400;"))
+        assertTrue(script.contains("/system/bin/ip rule add uidrange 10150-10150 to 192.168.137.0/24 lookup wlan1 pref 14400;"))
 
         // Verify standard fallback rules exist at pref 14400
-        assertTrue(script.contains("/system/bin/ip rule add to 192.168.0.0/16 lookup main pref 14400;"))
-        assertTrue(script.contains("/system/bin/ip -6 rule add to fe80::/10 lookup local pref 14400;"))
+        assertTrue(script.contains("/system/bin/ip rule add uidrange 10150-10150 to 192.168.0.0/16 lookup main pref 14400;"))
+        assertTrue(script.contains("/system/bin/ip -6 rule add uidrange 10150-10150 to fe80::/10 lookup local pref 14400;"))
 
         // Verify UID rules exist at pref 14500
         assertTrue(script.contains("/system/bin/ip rule add uidrange 10150-10150 lookup wlan1 pref 14500;"))
         assertTrue(script.contains("/system/bin/ip -6 rule add uidrange 10150-10150 lookup wlan1 pref 14500;"))
+        val bypassRules = script.split(';').filter { it.contains("rule add") && it.contains("pref 14400") }
+        assertTrue(bypassRules.all { it.contains("uidrange 10150-10150") })
+        assertTrue(bypassRules.none { it.contains("lookup tun0") || it.contains("lookup vpn0") })
     }
 
     @Test
@@ -161,8 +168,9 @@ class RouteRuleBuilderTest {
         // Absolute paths are required because service.d runs under busybox, whose `ip` applet does
         // not understand `ip route show table <name>`.
         assertTrue(script.contains("is_ready()"))
-        assertTrue(script.contains("/system/bin/ip route show table \"\$1\" 2>/dev/null | /system/bin/grep -qm1 '^default'"))
-        assertTrue(script.contains("/system/bin/ip -6 route show table \"\$1\" 2>/dev/null | /system/bin/grep -qm1 '^default'"))
+        assertTrue(script.contains("/system/bin/ip -4 route show table wlan0"))
+        assertTrue(script.contains("/system/bin/ip -6 route show table wlan0"))
+        assertTrue(script.contains("/system/bin/grep -Eq '^default([[:space:]]|\$)'"))
 
         // Interfaces are validated, deduplicated and sorted
         assertTrue(script.contains("for _f in wlan0 wlan1; do"))
@@ -186,6 +194,20 @@ class RouteRuleBuilderTest {
 
         // Every placeholder must have been substituted
         assertFalse(script.contains("@@"))
+    }
+
+    @Test
+    fun bootReadinessAcceptsSplitRoutesOnlyForIdentifiedVpn() {
+        val script = RouteRuleBuilder.buildBootRestoreScript(
+            ":", listOf("tun0", "wg0", "wlan0"), vpnInterfaces = setOf("tun0")
+        )
+        val tunProbe = script.lineSequence().first { it.trimStart().startsWith("tun0)") }
+        val wgProbe = script.lineSequence().first { it.trimStart().startsWith("wg0)") }
+        val wifiProbe = script.lineSequence().first { it.trimStart().startsWith("wlan0)") }
+        assertTrue(tunProbe.contains("type unicast dev tun0"))
+        assertFalse(tunProbe.contains("^default"))
+        assertTrue(wgProbe.contains("^default"))
+        assertTrue(wifiProbe.contains("^default"))
     }
 
     @Test
@@ -299,15 +321,17 @@ class RouteRuleBuilderTest {
                 "package:com.tencent.mm uid:99910309",
                 "package:android uid:99901000",
                 "USER 10",
-                "package:com.tencent.mm uid:1010309"
+                "package:com.tencent.mm uid:1010309",
+                "package:com.android.shell uid:1002000",
+                "package:com.example.wronguser uid:10309"
             )
         )
 
         assertEquals(2, parsed.size)
         assertEquals(999, parsed[0].userId)
-        assertEquals(99910309, parsed[0].packageUids["com.tencent.mm"])
+        assertEquals(mapOf("com.tencent.mm" to 99910309), parsed[0].packageUids)
         assertEquals(10, parsed[1].userId)
-        assertEquals(1010309, parsed[1].packageUids["com.tencent.mm"])
+        assertEquals(mapOf("com.tencent.mm" to 1010309), parsed[1].packageUids)
     }
 
     @Test

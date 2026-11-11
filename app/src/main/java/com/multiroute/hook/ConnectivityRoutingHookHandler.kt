@@ -26,7 +26,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 internal class ConnectivityRoutingHookHandler(
     private val xposed: XposedInterface,
-    private val onHooksInstalled: (source: String) -> Unit
+    private val onHooksInstalled: (source: String) -> Unit,
+    private val onConnectivityClassResolved: (ClassLoader) -> Unit
 ) {
     companion object {
         private const val PREF_CACHE_TTL_MS = 1500L
@@ -122,6 +123,7 @@ internal class ConnectivityRoutingHookHandler(
         synchronized(hookInstallLock) {
             if (isHooked) return
             if (csClass.name.contains("BinderProxy")) return
+            csClass.classLoader?.let(onConnectivityClassResolved)
             xposed.log(Log.INFO, HOOK_TAG, "Installing dynamic multi-route hooks on ${csClass.name}...")
 
             var hookedCount = 0

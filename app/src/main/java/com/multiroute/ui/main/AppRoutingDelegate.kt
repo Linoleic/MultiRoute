@@ -15,6 +15,7 @@ import com.multiroute.util.NetworkUtils
 import com.multiroute.util.RouteRuleBuilder
 import com.multiroute.util.SuHelper
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -36,6 +37,7 @@ internal class AppRoutingDelegate(
     private val onFinishScenarioEdit: () -> Unit
 ) {
     private var allApps: List<AppItem> = emptyList()
+    private var loadAppsJob: Job? = null
 
     fun transformAllApps(transform: (AppItem) -> AppItem) {
         allApps = allApps.map(transform)
@@ -291,12 +293,13 @@ internal class AppRoutingDelegate(
     }
 
     fun loadInstalledApps() {
-        scope.launch {
-            uiStateFlow.update { it.copy(routing = it.routing.copy(isLoadingApps = true)) }
+        loadAppsJob?.cancel()
+        loadAppsJob = scope.launch {
+            if (allApps.isEmpty()) {
+                uiStateFlow.update { it.copy(routing = it.routing.copy(isLoadingApps = true)) }
+            }
 
             val pm = application.packageManager
-            val currentRules = RouteConfigProvider.getAllRules(application)
-
             val loaded = withContext(Dispatchers.IO) {
                 val packageMap = mutableMapOf<String, AppItem>()
 
@@ -311,7 +314,6 @@ internal class AppRoutingDelegate(
                         val appName = ri.loadLabel(pm).toString()
                         val icon = runCatching { ri.loadIcon(pm) }.getOrNull()
                         val isSystem = (ri.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                        val targetChannel = currentRules[pkg] ?: CHANNEL_DEFAULT
                         val uid = ri.activityInfo.applicationInfo.uid
 
                         packageMap[pkg] = AppItem(
@@ -319,7 +321,7 @@ internal class AppRoutingDelegate(
                             appName = appName,
                             icon = icon,
                             uid = uid,
-                            targetChannelId = targetChannel,
+                            targetChannelId = CHANNEL_DEFAULT,
                             isSystemApp = isSystem
                         )
                     }
@@ -333,14 +335,13 @@ internal class AppRoutingDelegate(
                             val appName = runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(app.packageName)
                             val icon = runCatching { pm.getApplicationIcon(app) }.getOrNull()
                             val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                            val targetChannel = currentRules[app.packageName] ?: CHANNEL_DEFAULT
 
                             packageMap[app.packageName] = AppItem(
                                 packageName = app.packageName,
                                 appName = appName,
                                 icon = icon,
                                 uid = app.uid,
-                                targetChannelId = targetChannel,
+                                targetChannelId = CHANNEL_DEFAULT,
                                 isSystemApp = isSystem
                             )
                         }
@@ -360,7 +361,7 @@ internal class AppRoutingDelegate(
                                 appName = "${base?.appName ?: pkg} (${installs.userId})",
                                 icon = base?.icon,
                                 uid = uid,
-                                targetChannelId = currentRules[key] ?: CHANNEL_DEFAULT,
+                                targetChannelId = CHANNEL_DEFAULT,
                                 isSystemApp = base?.isSystemApp ?: false,
                                 userId = installs.userId
                             )
@@ -368,14 +369,17 @@ internal class AppRoutingDelegate(
                     }
                 } catch (_: Exception) {}
 
-                packageMap.values.sortedWith(
-                    compareByDescending<AppItem> { it.targetChannelId != CHANNEL_DEFAULT }
-                        .thenBy { it.isSystemApp }
-                        .thenBy { it.appName.lowercase() }
-                )
+                packageMap.values.toList()
             }
 
-            allApps = loaded
+            val currentRules = RouteConfigProvider.getAllRules(application)
+            allApps = loaded.map {
+                it.copy(targetChannelId = currentRules[it.ruleKey] ?: CHANNEL_DEFAULT)
+            }.sortedWith(
+                compareByDescending<AppItem> { it.targetChannelId != CHANNEL_DEFAULT }
+                    .thenBy { it.isSystemApp }
+                    .thenBy { it.appName.lowercase() }
+            )
             filterApps()
             uiStateFlow.update { it.copy(routing = it.routing.copy(isLoadingApps = false)) }
         }
