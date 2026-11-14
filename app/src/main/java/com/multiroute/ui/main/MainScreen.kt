@@ -102,7 +102,11 @@ fun MainScreen(
 
     val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val useRail = maxWidth >= 840.dp
+        val navigation = when {
+            maxWidth >= 840.dp && maxHeight >= 480.dp -> DestinationLayout.StandardRail
+            maxWidth >= 600.dp && maxWidth > maxHeight -> DestinationLayout.CompactRail
+            else -> DestinationLayout.BottomBar
+        }
         Scaffold(
             modifier = modifier.fillMaxSize(),
             topBar = {
@@ -184,13 +188,18 @@ fun MainScreen(
                 )
             },
             bottomBar = {
-                if (!useRail) MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, rail = false)
+                if (navigation == DestinationLayout.BottomBar) {
+                    MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, navigation)
+                }
             },
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
             Row(Modifier.fillMaxSize().padding(innerPadding)) {
-                if (useRail) MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, rail = true)
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                if (navigation != DestinationLayout.BottomBar) {
+                    MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, navigation)
+                }
+                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    val wideContent = maxWidth >= 840.dp
                     AnimatedContent(targetState = uiState.selectedTab, modifier = Modifier.fillMaxSize(),
                         transitionSpec = { AppMotion.content() }, label = "mainDestination") { tab ->
                         tabStates.SaveableStateProvider(tab) {
@@ -261,7 +270,7 @@ fun MainScreen(
                     }
 
                     if (showDiagnostics) ModuleDiagnosticsOverlay(
-                        uiState = uiState, viewModel = viewModel, wide = useRail,
+                        uiState = uiState, viewModel = viewModel, wide = wideContent,
                         onDismiss = { showDiagnostics = false },
                         onLogs = { showDiagnostics = false; viewModel.openLogsDialog() }
                     )

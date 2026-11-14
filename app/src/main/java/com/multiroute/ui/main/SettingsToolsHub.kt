@@ -6,7 +6,10 @@ import com.multiroute.theme.AppMotion
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,15 +46,51 @@ private enum class PreferencePage(@StringRes val title: Int, @StringRes val summ
     LOGS(R.string.settings_logs_title, R.string.tools_logs_summary, Icons.Default.Article)
 }
 
+internal enum class DestinationLayout { BottomBar, CompactRail, StandardRail }
+
 @Composable
-internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, rail: Boolean) {
+internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: DestinationLayout) {
     val labels = listOf(R.string.tab_routing, R.string.tab_channels, R.string.tab_tools, R.string.tab_settings)
     val icons = listOf(Icons.Default.Apps, Icons.Default.Hub, Icons.Default.Build, Icons.Default.Tune)
-    if (rail) NavigationRail(Modifier.fillMaxHeight()) {
-        Spacer(Modifier.height(12.dp))
-        labels.forEachIndexed { index, label ->
-            NavigationRailItem(selected == index, { onSelect(index) },
-                icon = { Icon(icons[index], contentDescription = null) }, label = { Text(stringResource(label)) })
+    if (layout != DestinationLayout.BottomBar) {
+        val compact = layout == DestinationLayout.CompactRail
+        NavigationRail(Modifier.fillMaxHeight()) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()).selectableGroup(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (!compact) Spacer(Modifier.height(12.dp))
+                labels.forEachIndexed { index, label ->
+                    val name = stringResource(label)
+                    if (compact) {
+                        val current = selected == index
+                        Box(
+                            modifier = Modifier.size(width = 64.dp, height = 48.dp)
+                                .selectable(current, role = Role.Tab, onClick = { onSelect(index) }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                                color = if (current) MaterialTheme.colorScheme.secondaryContainer
+                                else androidx.compose.ui.graphics.Color.Transparent,
+                                contentColor = if (current) MaterialTheme.colorScheme.onSecondaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            ) {
+                                Box(Modifier.size(width = 48.dp, height = 36.dp), contentAlignment = Alignment.Center) {
+                                    Icon(icons[index], contentDescription = name)
+                                }
+                            }
+                        }
+                    } else {
+                        NavigationRailItem(
+                            selected = selected == index,
+                            onClick = { onSelect(index) },
+                            icon = { Icon(icons[index], contentDescription = null) },
+                            label = { Text(name) }
+                        )
+                    }
+                }
+            }
         }
     } else NavigationBar {
         labels.forEachIndexed { index, label ->
