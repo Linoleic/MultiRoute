@@ -6,6 +6,8 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Binder
+import kotlinx.coroutines.runBlocking
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.util.RouteRuleBuilder
 import com.multiroute.util.SuHelper
@@ -21,6 +23,7 @@ class RouteConfigProvider : ContentProvider() {
 
     companion object {
         const val AUTHORITY = "com.multiroute.provider"
+        const val METHOD_RESYNC_VPN_ROUTES = "resyncVpnRoutes"
         const val PREF_NAME = "multiroute_rules"
         const val METHOD_GET_ROUTE = "getRoute"
         const val METHOD_SET_ROUTE = "setRoute"
@@ -368,6 +371,16 @@ class RouteConfigProvider : ContentProvider() {
         val bundle = Bundle()
 
         when (method) {
+            METHOD_RESYNC_VPN_ROUTES -> {
+                if (Binder.getCallingUid() != android.os.Process.SYSTEM_UID) return null
+                val identity = Binder.clearCallingIdentity()
+                try {
+                    bundle.putBoolean("success", runBlocking { SuHelper.syncAllRouteRules(ctx.applicationContext) })
+                } finally {
+                    Binder.restoreCallingIdentity(identity)
+                }
+                return bundle
+            }
             METHOD_GET_ROUTE -> {
                 val ruleKey = arg ?: return null
                 if (!isValidRuleKey(ruleKey)) return null

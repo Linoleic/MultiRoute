@@ -32,7 +32,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
             try {
                 val success = SuHelper.syncAllRouteRules(context.applicationContext)
                 Log.i(TAG, "Boot route rules sync completed. Result: $success")
-                if (!com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(context.applicationContext) &&
+                if (!intent.getBooleanExtra("routes_only", false) &&
+                    !com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(context.applicationContext) &&
                     com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context.applicationContext)) {
                     com.multiroute.wifi.DualWifiManager.autoReconnectSecondary(context.applicationContext)
                 }

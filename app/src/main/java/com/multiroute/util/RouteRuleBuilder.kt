@@ -26,6 +26,7 @@ object RouteRuleBuilder {
      * effect depends on the current links.
      */
     const val SCENARIO_PLAN_MARKER = "/data/system/multiroute_scenario_plans"
+    const val CONFIGURED_ROUTE_INTERFACES = "/data/system/multiroute_configured_route_interfaces"
 
     /**
      * Absolute path to the platform `ip` binary.

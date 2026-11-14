@@ -20,6 +20,7 @@ import com.multiroute.wifi.DualWifiManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -282,9 +283,9 @@ internal class RouteSyncCoordinator(
      */
     suspend fun resolveScenarioProfile(
         context: Context,
-        base: Map<Int, String>
+        base: Map<Int, String>,
+        profiles: List<com.multiroute.model.ScenarioProfile> = ScenarioStore.load(context)
     ): ScenarioResolution {
-        val profiles = ScenarioStore.load(context)
         if (profiles.isEmpty()) {
             return ScenarioResolution(effectiveRules = base)
         }
@@ -354,7 +355,17 @@ internal class RouteSyncCoordinator(
         shell.executeCommand("setprop persist.multiroute.keep_slave_wifi $keepAliveValue")
 
         val baseUidRules = RouteConfigProvider.getUidRules(context)
-        val scenario = resolveScenarioProfile(context, baseUidRules)
+        val profiles = ScenarioStore.load(context)
+        val scenarioTargets = profiles.filter { it.enabled }.flatMap { it.overrides.values }
+        val configuredInterfaces = (baseUidRules.filterKeys(RouteRuleBuilder::isValidUid).values + scenarioTargets)
+            .filter(RouteRuleBuilder::isValidInterfaceName).toSortedSet()
+        val targetsPath = RouteRuleBuilder.CONFIGURED_ROUTE_INTERFACES
+        if (!shell.executeCommand(
+                "printf '%s\\n' '${configuredInterfaces.joinToString(" ")}' > $targetsPath.tmp && " +
+                    "chmod 644 $targetsPath.tmp && mv -f $targetsPath.tmp $targetsPath"
+            )
+        ) Log.w(TAG, "Could not publish configured route interfaces")
+        val scenario = resolveScenarioProfile(context, baseUidRules, profiles)
         val runtimeChannels = NetworkUtils.getActiveChannels(context)
         val vpnChannels = runtimeChannels.filter { it.isVpn }.associateBy { it.interfaceName }
         val simInterfaces = runtimeChannels.filter { CellularTargets.isSim(it.id) }
@@ -370,7 +381,7 @@ internal class RouteSyncCoordinator(
                 "] scenario=${scenario.activeNames.ifEmpty { listOf("-") }.joinToString("+")}"
         )
 
-        val scenarioPlanCount = ScenarioStore.load(context).size +
+        val scenarioPlanCount = profiles.size +
             baseUidRules.values.count { CellularTargets.isSim(it) }
         shell.executeCommand(
             if (scenarioPlanCount > 0) {
@@ -428,7 +439,12 @@ internal class RouteSyncCoordinator(
         val autoFailover = RouteConfigProvider.isAutoFailoverEnabled(context)
         val probeInternet = RouteConfigProvider.isFailoverProbeInternet(context)
         val splitVpnInterfaces = vpnChannels.filterValues { it.vpnOwnerUid > 0 }.keys
-        val routeReadyChannels = getInterfacesWithDefaultRoute(candidateChannels, splitVpnInterfaces)
+        var routeReadyChannels = getInterfacesWithDefaultRoute(candidateChannels, splitVpnInterfaces)
+        if ((candidateChannels intersect splitVpnInterfaces).any { it !in routeReadyChannels }) {
+            // Network callbacks may precede installation of the VPN routing table by netd.
+            delay(650L)
+            routeReadyChannels = getInterfacesWithDefaultRoute(candidateChannels, splitVpnInterfaces)
+        }
 
         val onlineChannels = if (autoFailover) {
             if (probeInternet && routeReadyChannels.isNotEmpty()) {

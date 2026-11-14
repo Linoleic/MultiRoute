@@ -10,15 +10,20 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.util.Log
 import com.multiroute.BuildConfig
+import com.multiroute.data.RouteConfigProvider
 import com.multiroute.util.ModuleStateParser
 import com.multiroute.util.RouteRuleBuilder
 import io.github.libxposed.api.XposedInterface
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -59,6 +64,7 @@ internal class BootRestoreWatchdog(
 
     @Volatile
     private var linkCallbackRegistered = false
+    private var vpnCallbackRegistered = false
 
     @Volatile
     private var lastScenarioWakeAt = 0L
@@ -104,6 +110,7 @@ internal class BootRestoreWatchdog(
                 // The app's own NetworkCallback only runs while its process is alive; from here on the
                 // module watches link changes itself and wakes the app when a scenario plan is stored.
                 registerLinkChangeCallback()
+                registerVpnChangeCallback()
 
                 dispatchRestoreBroadcast()
 
@@ -115,6 +122,7 @@ internal class BootRestoreWatchdog(
                     xposed.log(Log.INFO, HOOK_TAG, "[BootRestore] Retrying restore broadcast (+${delayMs / 1000}s).")
                     registerKeepAliveReceiver()
                     registerLinkChangeCallback()
+                    registerVpnChangeCallback()
                     dispatchRestoreBroadcast()
                 }
             } catch (t: Throwable) {
@@ -238,6 +246,84 @@ internal class BootRestoreWatchdog(
         false
     }
 
+    private fun registerVpnChangeCallback() {
+        if (vpnCallbackRegistered) return
+        try {
+            val context = SystemServerEnv.systemContext() ?: return
+            val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
+            val handler = Handler(Looper.getMainLooper())
+            val worker = Executors.newSingleThreadExecutor { Thread(it, "MultiRoute-VpnSync") }
+            val interfaces = mutableMapOf<Network, String>()
+            val changed = mutableSetOf<String>()
+            var syncInFlight = false
+            lateinit var reconcile: Runnable
+            reconcile = Runnable {
+                if (syncInFlight) return@Runnable
+                val configured = runCatching {
+                    File(RouteRuleBuilder.CONFIGURED_ROUTE_INTERFACES).readText().trim().split(' ').toSet()
+                }.getOrDefault(emptySet())
+                val shouldSync = changed.any { it in configured }
+                changed.clear()
+                if (shouldSync) {
+                    syncInFlight = true
+                    worker.execute {
+                        try {
+                            val result = context.contentResolver.call(
+                                Uri.parse("content://" + RouteConfigProvider.AUTHORITY),
+                                RouteConfigProvider.METHOD_RESYNC_VPN_ROUTES, null, null
+                            )
+                            val success = result?.getBoolean("success") == true
+                            xposed.log(Log.INFO, HOOK_TAG, "[VpnRoutes] Background rule sync completed: $success")
+                            if (!success) dispatchRestoreBroadcast(routesOnly = true)
+                        } catch (t: Throwable) {
+                            xposed.log(Log.WARN, HOOK_TAG, "[VpnRoutes] Provider sync failed: ${t.message}")
+                            dispatchRestoreBroadcast(routesOnly = true)
+                        } finally {
+                            handler.post {
+                                syncInFlight = false
+                                if (changed.isNotEmpty()) {
+                                    handler.removeCallbacks(reconcile)
+                                    handler.postDelayed(reconcile, 400L)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cm.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                    .build(),
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+                        val current = properties.interfaceName
+                        val previous = if (current == null) interfaces.remove(network) else interfaces.put(network, current)
+                        if (previous == current) return
+                        queue(previous)
+                        queue(current)
+                    }
+
+                    override fun onLost(network: Network) {
+                        queue(interfaces.remove(network))
+                    }
+
+                    private fun queue(iface: String?) {
+                        if (iface == null) return
+                        changed.add(iface)
+                        handler.removeCallbacks(reconcile)
+                        handler.postDelayed(reconcile, 400L)
+                    }
+                },
+                handler
+            )
+            vpnCallbackRegistered = true
+        } catch (t: Throwable) {
+            xposed.log(Log.WARN, HOOK_TAG, "[VpnRoutes] Could not watch VPN links: ${t.message}", t)
+        }
+    }
+
     /**
      * Wakes the app when a link changes, but only while a plan exists: with no plans the rule set does not
      * depend on the current links, so there is nothing to re-evaluate and the app may stay asleep. The
@@ -281,13 +367,13 @@ internal class BootRestoreWatchdog(
      * Permission denied"), which silently disabled the whole boot restore until it was observed on
      * device. The shell route is retained only as a fallback for platforms that permit it.
      */
-    private fun dispatchRestoreBroadcast() {
-        if (sendRestoreBroadcastInProcess()) return
-        sendRestoreBroadcastViaShell()
+    private fun dispatchRestoreBroadcast(routesOnly: Boolean = false) {
+        if (sendRestoreBroadcastInProcess(routesOnly)) return
+        sendRestoreBroadcastViaShell(routesOnly)
     }
 
     /** Returns true when the broadcast was handed to ActivityManager in-process. */
-    private fun sendRestoreBroadcastInProcess(): Boolean {
+    private fun sendRestoreBroadcastInProcess(routesOnly: Boolean): Boolean {
         return try {
             val context = SystemServerEnv.systemContext() ?: return false
             val intent = Intent(ACTION_RESTORE_RULES).apply {
@@ -295,6 +381,7 @@ internal class BootRestoreWatchdog(
                 // which is exactly the boot-time case this exists for.
                 component = ComponentName(RESTORE_PACKAGE, RESTORE_RECEIVER_CLASS)
                 addFlags(FLAG_RECEIVER_INCLUDE_BACKGROUND)
+                putExtra("routes_only", routesOnly)
             }
             context.sendBroadcast(intent)
             xposed.log(Log.INFO, HOOK_TAG, "[BootRestore] Restore broadcast sent in-process.")
@@ -306,7 +393,7 @@ internal class BootRestoreWatchdog(
     }
 
     /** Fallback: shell out to `am` (only works where system_server may exec system binaries). */
-    private fun sendRestoreBroadcastViaShell() {
+    private fun sendRestoreBroadcastViaShell(routesOnly: Boolean) {
         try {
             // An EXPLICIT component (-n) is mandatory here: a package-only (-p) implicit broadcast
             // is dropped when the target process is not running, which is exactly the boot-time case.
@@ -314,7 +401,8 @@ internal class BootRestoreWatchdog(
                 "am", "broadcast",
                 "-a", ACTION_RESTORE_RULES,
                 "-n", RESTORE_RECEIVER,
-                "-f", "0x01000000" // FLAG_RECEIVER_INCLUDE_BACKGROUND
+                "-f", "0x01000000", // FLAG_RECEIVER_INCLUDE_BACKGROUND
+                "--ez", "routes_only", routesOnly.toString()
             )
             val proc = ProcessBuilder(*cmd).redirectErrorStream(true).start()
             val output = StringBuilder()
