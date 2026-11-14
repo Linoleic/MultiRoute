@@ -509,8 +509,10 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    bootPolicy.ssid?.let {
-                        Text(stringResource(R.string.adb_boot_network, it), style = MaterialTheme.typography.bodySmall)
+                    if (bootPolicy.enabled) {
+                        bootPolicy.ssid?.let {
+                            Text(stringResource(R.string.adb_boot_network, it), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                     if (bootPolicy.enabled) {
                         val modeStr = stringResource(if (bootPolicy.mode == AdbMode.TCP) R.string.adb_mode_tcp else R.string.adb_mode_tls)

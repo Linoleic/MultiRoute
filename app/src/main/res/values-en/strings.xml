@@ -670,12 +670,12 @@
     <string name="adb_control_failed">Could not confirm success. Check root access and system wireless debugging settings.</string>
     <string name="adb_control_off_warning">This disconnects wireless ADB and turns off boot recovery in this app. USB debugging settings remain unchanged.</string>
     <string name="adb_boot_title">Restore wireless debugging after boot</string>
-    <string name="adb_boot_recovery_summary">Attempts recovery on current primary Wi-Fi within 10 min after first unlock</string>
+    <string name="adb_boot_recovery_summary">Remembers the primary Wi-Fi at setup and tries to restore debugging on that network after reboot</string>
     <string name="adb_boot_dialog_title">Boot Recovery Security &amp; Scope</string>
     <string name="adb_boot_dialog_content">1. Requires authorization: Wireless debugging must first be paired or authorized on your computer.\n2. First unlock protection: Only triggers after the device is first unlocked with PIN/password after boot.\n3. Network binding: Only attempts recovery on the primary Wi-Fi recorded at setup; skipped on untrusted networks.\n4. 10-minute window: If conditions are not met within 10 minutes after boot, the recovery window expires.\n5. No continuous retry: Does not continuously restart debugging after everyday disconnections, preserving security and battery.</string>
     <string name="adb_boot_dialog_confirm">Got it</string>
-    <string name="adb_boot_description">Enable wireless debugging and complete system authorization first. This option remembers the current primary Wi-Fi name and attempts recovery on that network within ten minutes after first unlock. It does not attempt to enable debugging on other networks or provide continuous recovery after everyday disconnections.</string>
-    <string name="adb_boot_network">Selected network: %1$s</string>
+    <string name="adb_boot_description">Enable wireless debugging and complete system authorization first. Setup saves the current primary Wi-Fi name. Within ten minutes of the first unlock after reboot, recovery is attempted only when the primary Wi-Fi matches that saved name. This condition applies to boot recovery. Use the address list below to connect via ADB.</string>
+    <string name="adb_boot_network">Boot restore network: %1$s</string>
     <string name="adb_boot_mode_summary">Restore target: %1$s (port %2$d)</string>
     <string name="adb_boot_wait_network">Boot recovery is waiting for the selected primary Wi-Fi</string>
     <string name="adb_boot_wait_unlock">Boot recovery is waiting for first unlock</string>
