@@ -5,6 +5,38 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.8.1 - 2026-11-14
+
+**中文**
+
+### 变更
+
+- 场景方案显示应用数量、目标通道和匹配状态，自动与手动切换时说明影响。
+- 优化矮横屏的导航布局，调整应用图标内图案的比例。
+- 无线调试明确标注开机恢复网络，关闭开机恢复时隐藏该网络名称。
+
+### 修复
+
+- 改进应用分身的识别和独立分流，支持识别没有默认路由的分段路由 VPN。在兼容的系统上，显式指向 VPN 的分身可纳入系统 VPN。
+- VPN 断开或重连后，在后台更新普通应用和场景方案的分流规则。
+
+本版本已在 PixelOS 和 HyperOS 3/4 上验证，ColorOS 16 兼容性待确认。
+
+**English**
+
+### Changed
+
+- Scenario cards show app counts, target channels, and match status. Mode switches explain which plans will apply.
+- Improve navigation in short landscape windows and reduce the size of the launcher icon artwork.
+- Clarify the saved wireless debugging boot restore network and hide it when boot restore is off.
+
+### Fixed
+
+- Improve cloned-app detection and per-user routing. Recognize split-route VPNs without a default route and let explicitly assigned clones join the system VPN on compatible devices.
+- Refresh app and scenario routing rules in the background when a VPN disconnects or reconnects.
+
+This release was tested on PixelOS and HyperOS 3/4. ColorOS 16 compatibility remains unverified.
+
 ## v1.8.1-beta.1 - 2026-11-11
 
 **中文**
