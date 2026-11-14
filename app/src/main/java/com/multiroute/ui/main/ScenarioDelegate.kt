@@ -72,7 +72,8 @@ internal class ScenarioDelegate(
         syncRules()
     }
 
-    fun setScenarioManualMode() {
+    fun setScenarioManualMode(ids: Set<String>) {
+        ScenarioStore.setManualIds(application, ids)
         ScenarioStore.setManualMode(application, true)
         refreshScenarioState()
         syncRules()

@@ -213,7 +213,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun openScenarioSaveDialog() = scenarioDelegate.openScenarioSaveDialog()
     fun closeScenarioSaveDialog() = scenarioDelegate.closeScenarioSaveDialog()
     fun toggleScenarioManually(id: String) = scenarioDelegate.toggleScenarioManually(id)
-    fun setScenarioManualMode() = scenarioDelegate.setScenarioManualMode()
+    fun setScenarioManualMode(ids: Set<String>) = scenarioDelegate.setScenarioManualMode(ids)
     fun setScenarioAutomatic() = scenarioDelegate.setScenarioAutomatic()
     fun clearManualScenario() = scenarioDelegate.clearManualScenario()
     fun deleteScenario(id: String) = scenarioDelegate.deleteScenario(id)

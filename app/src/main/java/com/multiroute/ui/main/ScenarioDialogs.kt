@@ -1,27 +1,36 @@
 package com.multiroute.ui.main
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.model.CHANNEL_DEFAULT
+import com.multiroute.model.NetworkChannel
+import com.multiroute.util.NetworkUtils
+import com.multiroute.util.ScenarioEngine
 
 /**
  * 场景方案抽屉：查看全部方案、手动应用、恢复自动、把当前指派保存为方案、删除方案。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ScenarioBottomSheet(
     profiles: List<ScenarioProfile>,
     manualMode: Boolean,
     manualIds: Set<String>,
-    onSetManual: () -> Unit,
+    channels: List<NetworkChannel>,
+    onSetManual: (Set<String>) -> Unit,
     activeIds: Set<String>,
     conflicts: Map<String, Int>,
     onApplyManually: (String) -> Unit,
@@ -33,6 +42,11 @@ fun ScenarioBottomSheet(
     onMove: (String, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    var pendingManualIds by remember { mutableStateOf<Set<String>?>(null) }
+    var confirmAutomatic by remember { mutableStateOf(false) }
+    val enabledProfiles = profiles.filter { it.enabled }
+    val selectedManualIds = enabledProfiles.map { it.id }.filter { it in manualIds }.toSet()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -40,6 +54,7 @@ fun ScenarioBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -57,21 +72,19 @@ fun ScenarioBottomSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = !manualMode,
-                    onClick = onClearManual,
+                    onClick = {
+                        if (manualMode) {
+                            if (selectedManualIds.isEmpty()) onClearManual() else confirmAutomatic = true
+                        }
+                    },
                     label = { Text(stringResource(com.multiroute.R.string.scenario_mode_auto)) }
                 )
                 FilterChip(
                     selected = manualMode,
-                    onClick = onSetManual,
+                    onClick = { if (!manualMode) pendingManualIds = selectedManualIds },
                     label = { Text(stringResource(com.multiroute.R.string.scenario_mode_manual)) }
                 )
             }
-            Text(
-                text = stringResource(com.multiroute.R.string.scenario_sheet_manual_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-
             if (profiles.isEmpty()) {
                 Text(
                     text = stringResource(com.multiroute.R.string.scenario_empty),
@@ -88,14 +101,13 @@ fun ScenarioBottomSheet(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column {
                             // Indented so the name starts where the first action's label starts, instead of
                             // sitting further left than the buttons below it.
                             Column(modifier = Modifier.padding(start = 13.dp)) {
@@ -108,6 +120,38 @@ fun ScenarioBottomSheet(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )
+                                val targets = profile.overrides.values.map { id ->
+                                    val channel = channels.firstOrNull { it.id == id || it.interfaceName == id }
+                                    when {
+                                        id == CHANNEL_DEFAULT -> context.getString(com.multiroute.R.string.vm_system_default)
+                                        channel != null -> NetworkUtils.channelLabel(context, channel)
+                                        ScenarioEngine.isSymbolicChannel(id) -> id.removePrefix(ScenarioEngine.SYMBOLIC_SSID_PREFIX)
+                                        else -> NetworkUtils.savedTargetLabel(context, id)
+                                    }
+                                }.distinct()
+                                Text(
+                                    text = if (targets.isEmpty()) stringResource(com.multiroute.R.string.scenario_no_targets)
+                                    else pluralStringResource(
+                                        com.multiroute.R.plurals.scenario_summary,
+                                        profile.overrides.size,
+                                        profile.overrides.size,
+                                        targets.joinToString(" / ")
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = stringResource(
+                                        when {
+                                            !profile.enabled -> com.multiroute.R.string.scenario_status_disabled
+                                            manualMode && profile.id in manualIds -> com.multiroute.R.string.scenario_status_manual_on
+                                            manualMode -> com.multiroute.R.string.scenario_status_manual_off
+                                            profile.id in activeIds -> com.multiroute.R.string.scenario_status_matched
+                                            else -> com.multiroute.R.string.scenario_status_waiting
+                                        }
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                                 (conflicts[profile.id] ?: 0).takeIf { it > 0 }?.let { count ->
                                     Text(
                                         text = stringResource(
@@ -118,7 +162,19 @@ fun ScenarioBottomSheet(
                                     )
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                if (profile.enabled) {
+                                    TextButton(onClick = {
+                                        if (manualMode) onApplyManually(profile.id)
+                                        else pendingManualIds = selectedManualIds + profile.id
+                                    }) {
+                                        Text(stringResource(when {
+                                            !manualMode -> com.multiroute.R.string.scenario_switch_and_enable
+                                            profile.id in manualIds -> com.multiroute.R.string.scenario_turn_off
+                                            else -> com.multiroute.R.string.scenario_turn_on
+                                        }))
+                                    }
+                                }
                                 TextButton(onClick = { onEditOverrides(profile.id) }) {
                                     Text(
                                         text = stringResource(com.multiroute.R.string.scenario_edit_overrides),
@@ -137,23 +193,10 @@ fun ScenarioBottomSheet(
                                 TextButton(onClick = { onMove(profile.id, 1) }) {
                                     Text(text = "\u2193", style = MaterialTheme.typography.labelSmall)
                                 }
+                                TextButton(onClick = { onDelete(profile.id) }) {
+                                    Text(stringResource(com.multiroute.R.string.scenario_delete))
+                                }
                             }
-                        }
-                        FilterChip(
-                            selected = if (manualMode) profile.id in manualIds else profile.id in activeIds,
-                            onClick = { onApplyManually(profile.id) },
-                            label = {
-                                Text(
-                                    when {
-                                        profile.id in activeIds -> stringResource(com.multiroute.R.string.scenario_active)
-                                        manualMode -> stringResource(com.multiroute.R.string.scenario_turn_on)
-                                        else -> stringResource(com.multiroute.R.string.scenario_apply)
-                                    }
-                                )
-                            }
-                        )
-                        TextButton(onClick = { onDelete(profile.id) }) {
-                            Text(stringResource(com.multiroute.R.string.scenario_delete))
                         }
                     }
                 }
@@ -164,6 +207,46 @@ fun ScenarioBottomSheet(
             }
         }
     }
+    pendingManualIds?.let { ids ->
+        val names = enabledProfiles.filter { it.id in ids }.map { it.name }
+        val selection = if (names.isEmpty()) stringResource(com.multiroute.R.string.scenario_manual_empty)
+        else names.joinToString("\n")
+        ScenarioModeConfirmation(
+            title = stringResource(com.multiroute.R.string.scenario_confirm_manual_title),
+            message = stringResource(com.multiroute.R.string.scenario_confirm_manual_body, selection),
+            onDismiss = { pendingManualIds = null },
+            onConfirm = {
+                pendingManualIds = null
+                onSetManual(ids)
+            }
+        )
+    }
+    if (confirmAutomatic) {
+        ScenarioModeConfirmation(
+            title = stringResource(com.multiroute.R.string.scenario_confirm_auto_title),
+            message = stringResource(com.multiroute.R.string.scenario_confirm_auto_body),
+            onDismiss = { confirmAutomatic = false },
+            onConfirm = {
+                confirmAutomatic = false
+                onClearManual()
+            }
+        )
+    }
+}
+
+@Composable
+private fun ScenarioModeConfirmation(title: String, message: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message, Modifier.verticalScroll(rememberScrollState())) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(com.multiroute.R.string.scenario_confirm_switch)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(com.multiroute.R.string.ui_cancel)) }
+        }
+    )
 }
 
 /** 触发条件的可读描述，用于方案列表。 */
