@@ -5,6 +5,35 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## Unreleased
+
+**中文**
+
+### 变更
+
+- 无线调试自动化支持独立开关**开机解锁恢复**、**连接指定 Wi-Fi 自动开启/切换**及**接管系统原生自启**，并支持配置多个信任 Wi-Fi（SSID 列表）。
+- 无线调试触发改由 `system_server` 内 `BootRestoreWatchdog`（解锁事件与 Wi-Fi 网络回调）直接唤醒执行，移除 `02-multiroute-adb.sh` 与 `JobScheduler`，策略、状态快照与滚动日志统一保存在应用私有 `noBackupFilesDir`。
+- 精简无线调试提示文案并去掉重复提示框与说明弹窗，连接状态改为按活跃连接数与去重对端 IP 展示。
+- 收紧 `/data/adb/multiroute/`（`0700`）与 `last_boot_sync.log`（`0600`）权限，并在 `00-multiroute-restore.sh` 补充包卸载后的开机自清理逻辑。
+
+### 修复
+
+- 加固跨用户/应用分身包查询（完成哨兵与失败重试）及 VPN UID 范围排除策略，避免分身或次级用户规则同步异常。
+- 解决 HyperOS 重启后无线调试恢复不触发问题，并在系统受信任 Wi-Fi（如 Android 17 自动启用 TLS）下明确区分触发来源与接管覆盖结果。
+
+**English**
+
+### Changed
+
+- Split wireless debugging automation into **post-boot/unlock recovery**, **trusted Wi-Fi auto-enable/switch** (multi-SSID list), and **system auto-start takeover**, replacing `02-multiroute-adb.sh` and `JobScheduler` with event-driven `BootRestoreWatchdog` triggers (`ACTION_USER_UNLOCKED` and Wi-Fi callbacks) and app-private `noBackupFilesDir` storage for status and rolling logs.
+- Trimmed wireless ADB helper notices, removed the duplicate banner and info dialog, and updated connected-client status to show active connection counts alongside deduplicated peer IPs.
+- Tightened `/data/adb/multiroute/` (`0700`) and `last_boot_sync.log` (`0600`) permissions and added post-boot package-uninstall self-cleanup to `00-multiroute-restore.sh`.
+
+### Fixed
+
+- Hardened secondary-user/clone listing with a completion sentinel and retry, along with VPN UID range policy checks.
+- Fixed wireless ADB recovery being skipped on HyperOS reboots and clarified activation source vs. system trusted-network overrides on Android 17.
+
 ## v1.8.1 - 2026-11-14
 
 **中文**
