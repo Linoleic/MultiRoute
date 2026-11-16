@@ -312,12 +312,16 @@ object RouteRuleBuilder {
 mkdir -p @@LOG_DIR@@ && chmod 700 @@LOG_DIR@@
 
 # Remove leftover root artifacts on post-boot invocation if the package was uninstalled.
-if [ "@@(getprop sys.boot_completed 2>/dev/null)" = "1" ] && /system/bin/pm path android >/dev/null 2>&1; then
-  if ! /system/bin/pm path io.github.linoleic.multiroute >/dev/null 2>&1; then
-    rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/adb/service.d/02-multiroute-adb.sh /data/system/multiroute_active /data/system/multiroute_rules_cache /data/system/multiroute_scenario_plans /data/system/multiroute_configured_route_interfaces "@@LOG_PATH@@" /data/adb/multiroute/adb_boot_status /data/adb/multiroute/last_adb_boot.log 2>/dev/null
-    exit 0
+cleanup_if_uninstalled() {
+  if [ "@@(getprop sys.boot_completed 2>/dev/null)" = "1" ] && /system/bin/pm path android >/dev/null 2>&1; then
+    if ! /system/bin/pm path io.github.linoleic.multiroute >/dev/null 2>&1; then
+      rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/adb/service.d/02-multiroute-adb.sh /data/system/multiroute_active /data/system/multiroute_rules_cache /data/system/multiroute_scenario_plans /data/system/multiroute_configured_route_interfaces "@@LOG_PATH@@" /data/adb/multiroute/adb_boot_status /data/adb/multiroute/last_adb_boot.log 2>/dev/null
+      exit 0
+    fi
   fi
-fi
+}
+
+cleanup_if_uninstalled
 
 # service.d scripts are launched with busybox in PATH, whose `ip` applet does not support
 # `ip route show table <name>` - so the readiness probe would always report "not ready".
@@ -351,6 +355,7 @@ apply_rules() {
 # Applying while a table is missing would both fail and wipe rules the app may already have set.
 _n=0
 while [ "@@_n" -lt @@WAIT_ATTEMPTS@@ ]; do
+  cleanup_if_uninstalled
   _state="@@(ready_state)"
   case "@@_state" in
     *0*) ;;
@@ -359,6 +364,8 @@ while [ "@@_n" -lt @@WAIT_ATTEMPTS@@ ]; do
   _n=@@((_n + 1))
   sleep @@WAIT_INTERVAL@@
 done
+
+cleanup_if_uninstalled
 
 _state="@@(ready_state)"
 case "@@_state" in

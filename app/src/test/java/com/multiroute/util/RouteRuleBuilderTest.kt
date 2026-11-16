@@ -510,8 +510,12 @@ class RouteRuleBuilderTest {
         val script = RouteRuleBuilder.buildBootRestoreScript(":", listOf("wlan0"))
         assertTrue(script.contains("chmod 700 /data/adb/multiroute"))
         assertTrue(script.contains("chmod 600 \"${RouteRuleBuilder.BOOT_LOG_PATH}\""))
+        assertTrue(script.contains("cleanup_if_uninstalled()"))
         assertTrue(script.contains("/system/bin/pm path android"))
         assertTrue(script.contains("/system/bin/pm path io.github.linoleic.multiroute"))
         assertTrue(script.contains("rm -f /data/adb/service.d/00-multiroute-restore.sh"))
+        // Must invoke cleanup_if_uninstalled before, inside, and after the readiness wait loop
+        val invocations = script.lineSequence().count { it.trim() == "cleanup_if_uninstalled" }
+        assertEquals(3, invocations)
     }
 }

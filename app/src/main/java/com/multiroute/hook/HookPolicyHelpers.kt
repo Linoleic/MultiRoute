@@ -64,4 +64,51 @@ internal object HookPolicyHelpers {
         if (senderUid == myUid || senderUid == 0 || senderUid == 1000) return true
         return appUid != null && appUid > 0 && senderUid == appUid
     }
+
+    /**
+     * Tracks per-network Wi-Fi SSID transitions for wireless ADB wakeups so dual-Wi-Fi RSSI updates
+     * on two different SSIDs do not ping-pong and transitions during locked or debounce windows are
+     * not swallowed.
+     */
+    internal class WifiAdbTransitionTracker<K>(
+        private val debounceMs: Long = 2000L
+    ) {
+        private val acknowledgedSsids = mutableMapOf<K, String>()
+        private var lastWakeAtMs: Long = 0L
+
+        @Synchronized
+        fun onCapabilities(
+            network: K,
+            rawSsid: String?,
+            unlocked: Boolean,
+            nowMs: Long,
+            shouldWakeForSsid: (String) -> Boolean
+        ): String? {
+            val ssid = rawSsid?.trim()?.removeSurrounding("\"")
+                ?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
+                ?: return null
+            if (!unlocked) return null
+            if (acknowledgedSsids[network] == ssid) return null
+            if (!shouldWakeForSsid(ssid)) {
+                acknowledgedSsids[network] = ssid
+                return null
+            }
+            if (lastWakeAtMs != 0L && nowMs - lastWakeAtMs < debounceMs) {
+                return null
+            }
+            acknowledgedSsids[network] = ssid
+            lastWakeAtMs = nowMs
+            return ssid
+        }
+
+        @Synchronized
+        fun onLost(network: K) {
+            acknowledgedSsids.remove(network)
+        }
+
+        @Synchronized
+        fun reset() {
+            acknowledgedSsids.clear()
+        }
+    }
 }

@@ -73,16 +73,15 @@ internal class BootRestoreWatchdog(
 
     @Volatile
     private var linkCallbackRegistered = false
+    @Volatile
     private var vpnCallbackRegistered = false
     @Volatile
     private var wifiAdbCallbackRegistered = false
 
     @Volatile
     private var lastScenarioWakeAt = 0L
-    @Volatile
-    private var lastWifiAdbWakeAt = 0L
-    @Volatile
-    private var lastObservedWifiSsid: String? = null
+
+    private val wifiAdbTracker = HookPolicyHelpers.WifiAdbTransitionTracker<Network>()
 
     @Volatile
     private var adbTriggerInitialized = false
@@ -214,6 +213,7 @@ internal class BootRestoreWatchdog(
                             adbTrustedSsids = intent.getStringArrayListExtra(ModuleStateParser.EXTRA_ADB_TRUSTED_SSIDS)
                                 ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
                             adbTriggerInitialized = true
+                            wifiAdbTracker.reset()
                             xposed.log(
                                 Log.INFO,
                                 HOOK_TAG,
@@ -297,42 +297,32 @@ internal class BootRestoreWatchdog(
         try {
             val context = SystemServerEnv.systemContext() ?: return
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-            val activeWifiSsids = mutableMapOf<Network, String?>()
 
-            fun extractCleanSsid(capabilities: NetworkCapabilities): String? {
+            fun extractRawSsid(capabilities: NetworkCapabilities): String? {
                 val info = if (Build.VERSION.SDK_INT >= 29) capabilities.transportInfo as? WifiInfo else null
                 @Suppress("DEPRECATION")
-                val raw = info?.ssid ?: (context.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.connectionInfo?.ssid
-                return raw?.trim()?.removeSurrounding("\"")?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
+                return info?.ssid ?: (context.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.connectionInfo?.ssid
             }
 
             fun onWifiCapabilities(network: Network, capabilities: NetworkCapabilities) {
-                val ssid = extractCleanSsid(capabilities)
-                activeWifiSsids[network] = ssid
-                if (ssid == null || ssid == lastObservedWifiSsid) return
-                lastObservedWifiSsid = ssid
-
                 val unlocked = runCatching { context.getSystemService(UserManager::class.java)?.isUserUnlocked == true }
                     .getOrDefault(false)
-                if (!unlocked) return
+                val matchedSsid = wifiAdbTracker.onCapabilities(
+                    network = network,
+                    rawSsid = extractRawSsid(capabilities),
+                    unlocked = unlocked,
+                    nowMs = System.currentTimeMillis()
+                ) { ssid ->
+                    refreshAdbConfigFromRemotePrefs()
+                    adbAutoOnWifi || adbTakeOverSystem || (adbRestoreOnBoot && ssid in adbTrustedSsids)
+                } ?: return
 
-                val now = System.currentTimeMillis()
-                if (now - lastWifiAdbWakeAt < 2000L) return
-
-                refreshAdbConfigFromRemotePrefs()
-                val shouldWake = adbAutoOnWifi || adbTakeOverSystem || (adbRestoreOnBoot && ssid in adbTrustedSsids)
-                if (!shouldWake) return
-
-                lastWifiAdbWakeAt = now
-                xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Wi-Fi connected ($ssid); waking app")
+                xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Wi-Fi connected ($matchedSsid); waking app")
                 dispatchRestoreBroadcast(reason = REASON_WIFI_CONNECTED)
             }
 
             fun onWifiLost(network: Network) {
-                activeWifiSsids.remove(network)
-                if (activeWifiSsids.isEmpty()) {
-                    lastObservedWifiSsid = null
-                }
+                wifiAdbTracker.onLost(network)
             }
 
             val callback = if (Build.VERSION.SDK_INT >= 31) {
