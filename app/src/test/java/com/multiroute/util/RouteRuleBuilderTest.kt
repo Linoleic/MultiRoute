@@ -504,4 +504,14 @@ class RouteRuleBuilderTest {
         assertTrue(RouteRuleBuilder.resolveUidResolvers(mapOf("wlan9" to listOf(10530)), mapOf("wlan1" to listOf("1.1.1.1"))).isEmpty())
         assertTrue(RouteRuleBuilder.resolveUidResolvers(mapOf("wlan1" to listOf(10530)), emptyMap()).isEmpty())
     }
+
+    @Test
+    fun testBootRestoreScriptTightensPermissionsAndSelfCleansOnUninstall() {
+        val script = RouteRuleBuilder.buildBootRestoreScript(":", listOf("wlan0"))
+        assertTrue(script.contains("chmod 700 /data/adb/multiroute"))
+        assertTrue(script.contains("chmod 600 \"${RouteRuleBuilder.BOOT_LOG_PATH}\""))
+        assertTrue(script.contains("/system/bin/pm path android"))
+        assertTrue(script.contains("/system/bin/pm path io.github.linoleic.multiroute"))
+        assertTrue(script.contains("rm -f /data/adb/service.d/00-multiroute-restore.sh"))
+    }
 }

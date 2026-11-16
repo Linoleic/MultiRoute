@@ -233,6 +233,7 @@ internal class RouteSyncCoordinator(
             )
 
             val cmd = "mkdir -p /data/adb/service.d /data/adb/multiroute && " +
+                "chmod 700 /data/adb/multiroute && " +
                 "cat << 'MCROUTE_EOF' > /data/adb/service.d/00-multiroute-restore.sh\n" +
                 "$scriptContent\n" +
                 "MCROUTE_EOF\n" +

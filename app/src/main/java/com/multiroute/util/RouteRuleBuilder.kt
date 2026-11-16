@@ -290,8 +290,14 @@ object RouteRuleBuilder {
                 |#!/system/bin/sh
                 |# MultiRoute boot-time policy routing recovery
                 |# Generated automatically - do not edit by hand.
-                |mkdir -p $logDir
-                |echo "[${'$'}(date '+%Y-%m-%d %H:%M:%S')] no channels configured; nothing to restore" >> "$logPath"
+                |mkdir -p $logDir && chmod 700 $logDir
+                |if [ "${'$'}(getprop sys.boot_completed 2>/dev/null)" = "1" ] && /system/bin/pm path android >/dev/null 2>&1; then
+                |  if ! /system/bin/pm path io.github.linoleic.multiroute >/dev/null 2>&1; then
+                |    rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/adb/service.d/02-multiroute-adb.sh /data/system/multiroute_active /data/system/multiroute_rules_cache /data/system/multiroute_scenario_plans /data/system/multiroute_configured_route_interfaces "$logPath" /data/adb/multiroute/adb_boot_status /data/adb/multiroute/last_adb_boot.log 2>/dev/null
+                |    exit 0
+                |  fi
+                |fi
+                |echo "[${'$'}(date '+%Y-%m-%d %H:%M:%S')] no channels configured; nothing to restore" >> "$logPath" && chmod 600 "$logPath" 2>/dev/null
                 |exit 0
                 """.trimMargin()
         }
@@ -303,13 +309,21 @@ object RouteRuleBuilder {
 #!/system/bin/sh
 # MultiRoute boot-time policy routing recovery
 # Generated automatically - do not edit by hand.
-mkdir -p @@LOG_DIR@@
+mkdir -p @@LOG_DIR@@ && chmod 700 @@LOG_DIR@@
+
+# Remove leftover root artifacts on post-boot invocation if the package was uninstalled.
+if [ "@@(getprop sys.boot_completed 2>/dev/null)" = "1" ] && /system/bin/pm path android >/dev/null 2>&1; then
+  if ! /system/bin/pm path io.github.linoleic.multiroute >/dev/null 2>&1; then
+    rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/adb/service.d/02-multiroute-adb.sh /data/system/multiroute_active /data/system/multiroute_rules_cache /data/system/multiroute_scenario_plans /data/system/multiroute_configured_route_interfaces "@@LOG_PATH@@" /data/adb/multiroute/adb_boot_status /data/adb/multiroute/last_adb_boot.log 2>/dev/null
+    exit 0
+  fi
+fi
 
 # service.d scripts are launched with busybox in PATH, whose `ip` applet does not support
 # `ip route show table <name>` - so the readiness probe would always report "not ready".
 # Absolute paths to the platform tools are therefore mandatory here.
 log() {
-  echo "[@@(/system/bin/date '+%Y-%m-%d %H:%M:%S')] @@*" >> "@@LOG_PATH@@"
+  echo "[@@(/system/bin/date '+%Y-%m-%d %H:%M:%S')] @@*" >> "@@LOG_PATH@@" && chmod 600 "@@LOG_PATH@@" 2>/dev/null
 }
 
 # VPN channels can have split routes instead of a default route.
