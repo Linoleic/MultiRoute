@@ -25,7 +25,7 @@ MultiRoute is an Android LSPosed module for per-app network routing (including s
 - **Dual Wi-Fi management (`STA + STA`)**: Connect and switch a secondary Wi-Fi network alongside primary Wi-Fi, distinguish access points sharing an SSID by BSSID and band, and show band compatibility indicators.
 - **Personal hotspot upstream selection**: Request Android Tethering to select **Cellular**, **Secondary Wi-Fi**, or **System Default** as the hotspot uplink (for example, keeping the device on an intranet Wi-Fi while sharing cellular data over hotspot).
 - **Channel monitoring & egress probes**: Inspect per-interface download/upload rates, 30-second traffic history graphs, cumulative usage since boot, Wi-Fi link rates, and per-channel public-IP probes.
-- **Wireless debugging helper**: Manage Android 11+ Native TLS wireless debugging and Legacy TCP mode (configurable port `1024..65535`), detect connected workstation IPs, copy `adb connect` commands, and optionally attempt post-boot recovery within ten minutes after first unlock.
+- **Wireless debugging helper**: Manage Android 11+ Native TLS wireless debugging and Legacy TCP mode (configurable port `1024..65535`), inspect active ADB connections and peer IPs, copy `adb connect` commands, and configure boot/unlock recovery, automatic switching on trusted Wi-Fi networks, or system auto-start takeover.
 
 ---
 
@@ -100,12 +100,12 @@ MultiRoute provides four main destinations (**App routing**, **Channels**, **Too
   - Choose a connection scheme (**Auto** is the default; Xiaomi/HyperOS devices use `SlaveWifiService` coordination and keepalive hooks, while Android 13+ AOSP/other ROMs provide Overlay and Root options).
   - System Multi-Internet schemes only connect to networks already saved in Android Wi-Fi settings; MultiRoute does not store or send Wi-Fi passwords in those requests. Access points with the same SSID are listed separately by BSSID and band.
 - **Personal Hotspot Upstream**: Select **Cellular**, **Secondary Wi-Fi**, or **System Default** (including before turning on Hotspot) and view the reported active upstream on the status card. Forwarding, NAT, IPv6, and offload remain managed by Android Tethering.
-- **Wireless Debugging Helper**: Switch between **Native TLS** (Android 11+ dynamic port and pairing) and **Legacy TCP** (`1024..65535`, default `5555`), check connected workstation IPs, copy the `adb connect` command, and optionally enable post-unlock boot recovery on a chosen primary Wi-Fi.
-- **Runtime logs & module status**: Open the toolbar status icon to verify hook readiness and build parity, or open **Tools → Runtime logs** to check per-UID rule status, boot logs, and exportable diagnostic snapshots.
+- **Wireless Debugging Helper**: Switch between **Native TLS** (Android 11+ dynamic port and pairing) and **Legacy TCP** (`1024..65535`, default `5555`), inspect active connections and peer IPs, copy the `adb connect` command, and configure a trusted Wi-Fi list for boot/unlock recovery, automatic enablement/switching on Wi-Fi connect (via `system_server` callbacks), or system auto-start takeover.
+- **Runtime logs & module status**: Open the toolbar status icon to verify hook readiness and build parity, or open **Tools → Runtime logs** to check per-UID rule status, boot logs, wireless ADB automation logs, and exportable diagnostic snapshots.
 
 ### 4. Settings & Backup
 - Configure **Auto-Failover** (fall back to the default network when an assigned link drops, with optional HTTP 204 connectivity checks), **Per-App DNS Redirection**, failover hold-off timers, **Theme / Material You**, and **App Language** (`Follow system` / `简体中文` / `English`).
-- **Backup & Restore (v3 JSON)**: Preview and restore selected categories (app routing, SIM targets, scenario plans, network policies, hotspot preference, non-secret Dual Wi-Fi settings, appearance, and probe servers). Compatible with v1/v2 backups; Wi-Fi passwords, UID caches, logs, and boot ADB recovery settings are excluded.
+- **Backup & Restore (v3 JSON)**: Preview and restore selected categories (app routing, SIM targets, scenario plans, network policies, hotspot preference, non-secret Dual Wi-Fi settings, appearance, and probe servers). Compatible with v1/v2 backups; Wi-Fi passwords, UID caches, logs, and wireless ADB automation settings are excluded.
 
 ---
 
@@ -184,7 +184,7 @@ This is a **root** networking module that modifies kernel routing rules and inje
 ## Privacy
 
 - **No telemetry**: MultiRoute has no analytics, crash-reporting, telemetry, or advertising backend and does not require an account.
-- **Local storage & app list**: Configuration is stored in app-private storage (backups exclude Wi-Fi passwords, logs, and boot ADB recovery settings); `QUERY_ALL_PACKAGES` is used only to list installed apps and clone spaces locally.
+- **Local storage & app list**: Configuration is stored in app-private storage (backups exclude Wi-Fi passwords, logs, and wireless ADB automation settings, while wireless ADB status and rolling logs stay in app `noBackupFilesDir`); `QUERY_ALL_PACKAGES` is used only to list installed apps and clone spaces locally.
 - **User-controlled outbound requests**: Channels public-IP probes run only when initiated manually. Optional connectivity validation under Auto-Failover sends a single HTTP 204 request only when a channel connects or recovers (with no continuous background polling and no device IDs, app lists, or rules) and makes no requests when turned off.
 - **Root usage**: `su` is used for routing/DNS rules, boot scripts, Dual Wi-Fi / Hotspot / ADB operations, interface traffic counters, and diagnostic snapshots (see [Architecture](ARCHITECTURE.md#privacy--network-activity) for details).
 

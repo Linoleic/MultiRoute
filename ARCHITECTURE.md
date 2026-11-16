@@ -81,7 +81,8 @@ MultiRoute installs a `MULTIROUTE_DNS` chain in the IPv4 `nat` table (linked fro
 
 ### 4. Boot Recovery & Rule Cache
 
-- **Boot script (`/data/adb/service.d/00-multiroute-restore.sh`)**: Generated when rule recovery is active and root managers run `service.d`. On boot, it polls for target interfaces for up to 36 intervals of 5 seconds, applies IPv4/IPv6 routing rules once interfaces are ready, logs diagnostics to `/data/adb/multiroute/last_boot_sync.log`, and exits. It restores routing rules only and does not establish secondary Wi-Fi links.
+- **Boot script (`/data/adb/service.d/00-multiroute-restore.sh`)**: Generated when rule recovery is active and root managers run `service.d`. On boot, it polls for target interfaces for up to 36 intervals of 5 seconds, applies IPv4/IPv6 routing rules once interfaces are ready, logs diagnostics to `/data/adb/multiroute/last_boot_sync.log` (directory `0700`, log file `0600`), and exits. If invoked after `sys.boot_completed=1` when `io.github.linoleic.multiroute` is no longer installed, it removes leftover MultiRoute scripts and runtime files automatically. It restores routing rules only and does not establish secondary Wi-Fi links.
+- **Wireless ADB automation (`BootRestoreWatchdog` + `WirelessAdbController`)**: Triggered event-driven after device unlock via `ACTION_USER_UNLOCKED` and `ConnectivityManager` Wi-Fi callbacks in `system_server` (no `service.d` script or `JobScheduler`). Supports separate boot/unlock and trusted-SSID Wi-Fi triggers, as well as overriding or suppressing system trusted-Wi-Fi TLS auto-start (`persist.adb.tls_server.enable=0`). Policy, status, and rolling logs stay inside app `noBackupFilesDir`.
 - **Rule cache (`/data/system/multiroute_rules_cache`)**: Holds UID→interface mappings read by framework hooks.
 
 ### 5. Manual Cleanup Commands
@@ -108,7 +109,7 @@ Kernel `ip rule` steers socket packets, while apps also query `ConnectivityManag
 - `ConnectivityService.getDefaultNetworkForUid`
 - `ConnectivityService.getActiveNetworkForUidInternal`
 - `ConnectivityService.getMobileDataPreferredUids` (used for SIM-based cellular routing on ROMs that honor it)
-- Link-change wakeup triggers so Scenario Plans re-evaluate when networks change even when the UI is closed.
+- Link-change, unlock, and Wi-Fi SSID transition triggers (`BootRestoreWatchdog`) so Scenario Plans re-evaluate and Wireless ADB automation executes on boot/unlock/trusted Wi-Fi without polling.
 
 ### 2. Personal Hotspot Upstream Steering (`NetworkStack / Tethering APEX`)
 
@@ -168,7 +169,7 @@ The toolbar status icon checks framework beacons together with `BuildConfig.VERS
 
 MultiRoute has no telemetry, analytics, crash-reporting, or advertising backend and does not require an account.
 
-- **Local storage & backups**: Rules live in app-private storage, active rules in the kernel, and UID mappings in `/data/system/multiroute_rules_cache`. SIM targets use opaque device-scoped IDs rather than raw ICCIDs or phone numbers. v3 JSON backups cover app routing, scenarios, policy toggles, hotspot upstream preferences, non-secret Dual Wi-Fi settings, appearance, and probe URLs—excluding Wi-Fi passwords, UID caches, logs, and boot ADB recovery settings.
+- **Local storage & backups**: Rules live in app-private storage, active rules in the kernel, UID mappings in `/data/system/multiroute_rules_cache`, and wireless ADB automation policy, status, and rolling logs in app `noBackupFilesDir`. SIM targets use opaque device-scoped IDs rather than raw ICCIDs or phone numbers. v3 JSON backups cover app routing, scenarios, policy toggles, hotspot upstream preferences, non-secret Dual Wi-Fi settings, appearance, and probe URLs—excluding Wi-Fi passwords, UID caches, logs, and wireless ADB automation settings.
 - **Outbound requests**:
   - **Public-IP egress probe** on the Channels screen executes only when triggered manually by the user. `usesCleartextTraffic` remains enabled so custom LAN endpoints such as `http://192.168.1.1/ip` work; built-in presets use HTTPS.
   - **Auto-Failover connectivity validation** (toggleable in Settings) sends a single HTTP 204 request (0-byte body, no device IDs, app lists, or rules) only when a channel connects or recovers, to help detect captive portals or offline uplinks. When disabled, no probe requests are sent.

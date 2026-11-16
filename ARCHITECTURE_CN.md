@@ -81,7 +81,8 @@ MultiRoute 在 IPv4 `nat` 表中创建 `MULTIROUTE_DNS` 链（挂接于 `OUTPUT`
 
 ### 4. 开机恢复与规则缓存
 
-- **开机脚本（`/data/adb/service.d/00-multiroute-restore.sh`）**：当 Root 管理器支持 `service.d` 时生成。开机后最多等待 36 轮（每轮 5 秒）检测目标接口，就绪后应用一次 IPv4/IPv6 路由规则，记录日志到 `/data/adb/multiroute/last_boot_sync.log` 后退出。该脚本仅恢复路由规则，不会建立副 Wi-Fi 连接。
+- **开机脚本（`/data/adb/service.d/00-multiroute-restore.sh`）**：当 Root 管理器支持 `service.d` 时生成。开机后最多等待 36 轮（每轮 5 秒）检测目标接口，就绪后应用一次 IPv4/IPv6 路由规则，并将日志以 `0700`/`0600` 权限写入 `/data/adb/multiroute/last_boot_sync.log` 后退出；若在系统启动完成后检测到主包已卸载，会自动清理残留脚本与外部运行文件。该脚本仅恢复路由规则，不会建立副 Wi-Fi 连接。
+- **无线调试自动触发（`BootRestoreWatchdog` + `WirelessAdbController`）**：无需 `service.d` 脚本或 `JobScheduler`，解锁后由 `system_server` 内的 `ACTION_USER_UNLOCKED` 与 `ConnectivityManager` Wi-Fi 回调按事件直接唤醒执行，支持开机恢复、指定信任 Wi-Fi 列表触发以及接管系统原生受信任网络自启（清除 `persist.adb.tls_server.enable`）；策略、状态与滚动日志均保存在应用私有 `noBackupFilesDir`。
 - **规则缓存（`/data/system/multiroute_rules_cache`）**：保存 UID → 接口 映射供框架 Hook 读取。
 
 ### 5. 手工清理命令
@@ -108,7 +109,7 @@ su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat 
 - `ConnectivityService.getDefaultNetworkForUid`
 - `ConnectivityService.getActiveNetworkForUidInternal`
 - `ConnectivityService.getMobileDataPreferredUids`（在遵循该接口的 ROM 上支持按 SIM 蜂窝分流）
-- 链路变更唤醒：网络切换时触发场景方案重新评估，界面不在前台时同样会更新。
+- 链路变更、解锁与 Wi-Fi SSID 切换唤醒（`BootRestoreWatchdog`）：在网络切换或开机解锁时触发场景方案重算与无线调试自动触发，无需后台轮询或常驻服务。
 
 ### 2. 个人热点上游调度（`NetworkStack / Tethering APEX`）
 
@@ -168,7 +169,7 @@ MultiRoute Hook NetworkStack / Tethering APEX 中的 `UpstreamNetworkMonitor.get
 
 MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账号。
 
-- **本地数据与配置备份**：分流配置保存在应用私有目录，运行规则保存在内核与 `/data/system/multiroute_rules_cache`。SIM 目标使用设备内不透明标识，不保存原始 ICCID 或手机号。v3 JSON 备份包含应用分流、场景、网络策略、热点偏好、双 Wi-Fi 非敏感设置、外观与测速节点，不包含 Wi-Fi 密码、UID 缓存、运行日志和无线调试开机恢复设置。
+- **本地数据与配置备份**：分流配置保存在应用私有目录，运行规则保存在内核与 `/data/system/multiroute_rules_cache`，无线调试策略、状态快照与滚动日志保存于应用不备份目录 `noBackupFilesDir`。SIM 目标使用设备内不透明标识，不保存原始 ICCID 或手机号。v3 JSON 备份包含应用分流、场景、网络策略、热点偏好、双 Wi-Fi 非敏感设置、外观与测速节点，不包含 Wi-Fi 密码、UID 缓存、运行日志和无线调试自动触发设置。
 - **对外请求**：
   - **公网出口探测**仅在用户手动点击测试时向目标地址发起请求。因支持自定义局域网 URL（如 `http://192.168.1.1/ip`），`usesCleartextTraffic` 保持开启；内置预设节点均为 HTTPS。
   - **自动容灾回退的连通性校验**（可在设置中关闭）仅在通道连接或恢复时发送单次 HTTP 204 请求（0 字节请求体，不含设备标识、应用列表或规则）以识别需认证 Wi-Fi 或离线网络。关闭后不发起这些请求。
