@@ -1,154 +1,232 @@
 package com.multiroute.adb
 
 import android.content.Context
+import android.content.Intent
 import android.os.SystemClock
 import android.os.UserManager
 import android.util.AtomicFile
 import android.util.Log
+import com.multiroute.data.RouteConfigProvider
+import com.multiroute.util.ModuleStateParser
 import com.multiroute.util.SuHelper
 import com.multiroute.util.WirelessAdbInfo
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class AdbMode { TLS, TCP }
 enum class AdbActionResult { READY, OFF, FAILED, NO_NETWORK, WAIT_NETWORK, WAIT_UNLOCK, EXPIRED, INACTIVE, SAVED }
+internal enum class AdbTriggerDecision { ENABLE_TARGET, SUPPRESS_SYSTEM_TLS, WAIT_UNLOCK, WAIT_NETWORK, INACTIVE }
+
 data class AdbBootPolicy(
-    val enabled: Boolean = false,
-    val ssid: String? = null,
+    val restoreOnBoot: Boolean = false,
+    val autoEnableOnWifi: Boolean = false,
+    val takeOverSystemAutoStart: Boolean = false,
+    val trustedSsids: List<String> = emptyList(),
     val result: AdbActionResult? = null,
     val mode: AdbMode = AdbMode.TLS,
     val customPort: Int = 5555
-)
+) {
+    val hasAnyTrigger: Boolean get() = restoreOnBoot || autoEnableOnWifi || takeOverSystemAutoStart
+}
 
 object WirelessAdbController {
-    private const val TAG = "MultiRoute-AdbBoot"
+    private const val TAG = "MultiRoute-AdbAuto"
+    private const val LEGACY_BOOT_SCRIPT_PATH = "/data/adb/service.d/02-multiroute-adb.sh"
+    private const val LEGACY_BOOT_STATUS_PATH = "/data/adb/multiroute/adb_boot_status"
+    private const val LEGACY_BOOT_LOG_PATH = "/data/adb/multiroute/last_adb_boot.log"
+
     private val mutex = Mutex()
     private val diskLock = Any()
+    private val legacyCleaned = AtomicBoolean(false)
+
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "wireless-adb-policy.json"))
 
-    private fun syncBootScript(context: Context, policy: AdbBootPolicy) {
-        try {
-            val ssid = policy.ssid
-            if (policy.enabled && !ssid.isNullOrBlank()) {
-                val script = WirelessAdbBootScriptBuilder.buildBootScript(
-                    ssid = ssid,
-                    mode = policy.mode,
-                    customPort = policy.customPort,
-                    policyFilePath = file(context).baseFile.absolutePath
-                )
-                val logDir = WirelessAdbBootScriptBuilder.BOOT_LOG_PATH.substringBeforeLast('/', "/data/adb/multiroute")
-                val cmd = "mkdir -p /data/adb/service.d '$logDir' && " +
-                    "cat << 'MCROUTE_ADB_EOF' > ${WirelessAdbBootScriptBuilder.BOOT_SCRIPT_PATH}\n" +
-                    script +
-                    "MCROUTE_ADB_EOF\n" +
-                    "chmod 755 ${WirelessAdbBootScriptBuilder.BOOT_SCRIPT_PATH}"
-                if (!SuHelper.executeCommand(cmd, timeoutSeconds = 5)) {
-                    Log.w(TAG, "Failed to deploy wireless ADB boot script")
-                }
-            } else {
-                SuHelper.executeCommand(
-                    "rm -f ${WirelessAdbBootScriptBuilder.BOOT_SCRIPT_PATH} ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH}",
-                    timeoutSeconds = 4
-                )
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Unable to sync wireless ADB boot script: ${t.message}")
-        }
-    }
+    internal fun sanitizeSsids(ssids: Iterable<String>): List<String> =
+        ssids.map { it.trim() }
+            .filter { it.isNotEmpty() && it != "<unknown ssid>" }
+            .distinct()
 
-    private fun writeBootStatus(
-        bootCount: Int?,
-        uptimeSeconds: Long,
-        source: String,
-        mode: AdbMode,
-        port: Int?,
-        result: AdbActionResult,
-        detail: String
-    ) {
-        runCatching {
-            val content = WirelessAdbBootScriptBuilder.formatStatus(
-                bootCount = bootCount,
-                uptimeSeconds = uptimeSeconds,
-                source = source,
-                mode = mode,
-                port = port,
-                result = result,
-                detail = detail
-            )
-            val statusDir = WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH.substringBeforeLast('/', "/data/adb/multiroute")
-            val cmd = "mkdir -p '$statusDir' && " +
-                "cat << 'MCROUTE_ADB_STATUS_EOF' > ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH}.tmp\n" +
-                content +
-                "MCROUTE_ADB_STATUS_EOF\n" +
-                "mv ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH}.tmp ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH}"
-            SuHelper.executeCommand(cmd, timeoutSeconds = 4)
-        }.onFailure {
-            Log.w(TAG, "Failed to write wireless ADB boot status: ${it.message}")
-        }
-    }
-
-    fun policy(context: Context): AdbBootPolicy = synchronized(diskLock) { try {
-        val data = JSONObject(file(context).readFully().toString(Charsets.UTF_8))
+    internal fun parsePolicyJson(raw: String): AdbBootPolicy {
+        val data = JSONObject(raw)
         val mode = runCatching { AdbMode.valueOf(data.optString("mode")) }.getOrDefault(AdbMode.TLS)
         val customPort = data.optInt("customPort", 5555).let { if (it in 1024..65535) it else 5555 }
-        AdbBootPolicy(
-            enabled = data.optBoolean("enabled"),
-            ssid = data.optString("ssid").takeIf { it.isNotEmpty() },
-            result = runCatching { AdbActionResult.valueOf(data.optString("result")) }.getOrNull(),
+        val result = runCatching { AdbActionResult.valueOf(data.optString("result")) }.getOrNull()
+
+        val hasNewSchema = data.has("restoreOnBoot") || data.has("autoEnableOnWifi") || data.has("trustedSsids")
+        val restoreOnBoot = if (hasNewSchema) data.optBoolean("restoreOnBoot", false) else data.optBoolean("enabled", false)
+        val autoEnableOnWifi = data.optBoolean("autoEnableOnWifi", false)
+        val takeOver = data.optBoolean("takeOverSystemAutoStart", false)
+
+        val ssids = buildList {
+            val arr = data.optJSONArray("trustedSsids")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    add(arr.optString(i))
+                }
+            }
+            val legacySsid = data.optString("ssid")
+            if (legacySsid.isNotEmpty()) add(legacySsid)
+        }.let(::sanitizeSsids)
+
+        return AdbBootPolicy(
+            restoreOnBoot = restoreOnBoot,
+            autoEnableOnWifi = autoEnableOnWifi,
+            takeOverSystemAutoStart = takeOver,
+            trustedSsids = ssids,
+            result = result,
             mode = mode,
             customPort = customPort
         )
-    } catch (_: Exception) { AdbBootPolicy() } }
+    }
 
-    private fun save(context: Context, policy: AdbBootPolicy): Boolean = synchronized(diskLock) {
+    internal fun encodePolicyJson(policy: AdbBootPolicy): String = JSONObject()
+        .put("restoreOnBoot", policy.restoreOnBoot)
+        .put("autoEnableOnWifi", policy.autoEnableOnWifi)
+        .put("takeOverSystemAutoStart", policy.takeOverSystemAutoStart)
+        .put("trustedSsids", JSONArray(sanitizeSsids(policy.trustedSsids)))
+        .put("result", policy.result?.name.orEmpty())
+        .put("mode", policy.mode.name)
+        .put("customPort", policy.customPort)
+        .toString()
+
+    fun policy(context: Context): AdbBootPolicy = synchronized(diskLock) {
+        try {
+            parsePolicyJson(file(context).readFully().toString(Charsets.UTF_8))
+        } catch (_: Exception) {
+            AdbBootPolicy()
+        }
+    }
+
+    private fun save(context: Context, policy: AdbBootPolicy, syncSystemServer: Boolean = true): Boolean = synchronized(diskLock) {
         val target = file(context)
         var stream: java.io.FileOutputStream? = null
         try {
             stream = target.startWrite()
-            val json = JSONObject()
-                .put("enabled", policy.enabled)
-                .put("ssid", policy.ssid.orEmpty())
-                .put("result", policy.result?.name.orEmpty())
-                .put("mode", policy.mode.name)
-                .put("customPort", policy.customPort)
-            stream.write(json.toString().toByteArray(Charsets.UTF_8))
+            stream.write(encodePolicyJson(policy).toByteArray(Charsets.UTF_8))
             target.finishWrite(stream)
+            if (syncSystemServer) {
+                mirrorTriggersToPrefs(context, policy)
+                publishTriggerSync(context, policy)
+            }
             true
-        } catch (_: Exception) { stream?.let { target.failWrite(it) }; false }
+        } catch (_: Exception) {
+            stream?.let { target.failWrite(it) }
+            false
+        }
     }
 
-    fun updateConfig(context: Context, mode: AdbMode, customPort: Int): Boolean {
-        val (saved, updated) = synchronized(diskLock) {
-            val current = policy(context)
-            val validPort = if (customPort in 1024..65535) customPort else 5555
-            val next = current.copy(mode = mode, customPort = validPort)
-            save(context, next) to next
+    private fun mirrorTriggersToPrefs(context: Context, policy: AdbBootPolicy) {
+        runCatching {
+            context.getSharedPreferences(RouteConfigProvider.PREF_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(RouteConfigProvider.KEY_ADB_RESTORE_ON_BOOT, policy.restoreOnBoot)
+                .putBoolean(RouteConfigProvider.KEY_ADB_AUTO_ON_WIFI, policy.autoEnableOnWifi)
+                .putBoolean(RouteConfigProvider.KEY_ADB_TAKE_OVER_SYSTEM, policy.takeOverSystemAutoStart)
+                .putStringSet(RouteConfigProvider.KEY_ADB_TRUSTED_SSIDS, sanitizeSsids(policy.trustedSsids).toSet())
+                .commit()
         }
-        if (saved && updated.enabled) {
-            syncBootScript(context, updated)
+    }
+
+    fun publishTriggerSync(context: Context, policy: AdbBootPolicy = policy(context)) {
+        runCatching {
+            val intent = Intent(ModuleStateParser.ACTION_ADB_TRIGGER_CHANGED).apply {
+                putExtra(ModuleStateParser.EXTRA_ADB_RESTORE_ON_BOOT, policy.restoreOnBoot)
+                putExtra(ModuleStateParser.EXTRA_ADB_AUTO_ON_WIFI, policy.autoEnableOnWifi)
+                putExtra(ModuleStateParser.EXTRA_ADB_TAKE_OVER_SYSTEM, policy.takeOverSystemAutoStart)
+                putStringArrayListExtra(
+                    ModuleStateParser.EXTRA_ADB_TRUSTED_SSIDS,
+                    ArrayList(sanitizeSsids(policy.trustedSsids))
+                )
+            }
+            context.sendBroadcast(intent)
         }
-        return saved
+    }
+
+    private fun cleanupLegacyRootArtifactsOnce() {
+        if (!legacyCleaned.compareAndSet(false, true)) return
+        runCatching {
+            SuHelper.executeCommand(
+                "rm -f $LEGACY_BOOT_SCRIPT_PATH $LEGACY_BOOT_STATUS_PATH $LEGACY_BOOT_LOG_PATH",
+                timeoutSeconds = 4
+            )
+        }
     }
 
     internal fun primarySsid(lines: List<String>): String? {
         val section = lines.indexOfFirst { "ROLE_CLIENT_PRIMARY" in it }
         val selected = if (section >= 0) lines.drop(section + 1).takeWhile { !it.startsWith("====") }
-            else if (lines.any { it.startsWith("====") }) emptyList() else lines
+        else if (lines.any { it.startsWith("====") }) emptyList() else lines
         return selected.firstNotNullOfOrNull {
             Regex("^Wifi is connected to \"(.*)\"$").matchEntire(it.trim())?.groupValues?.get(1)
         }?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
     }
+
     private fun wifi() = SuHelper.executeShellWithOutput("cmd wifi status && echo WIFI_QUERY_OK", timeoutSeconds = 4)
 
-    internal fun restoreGate(policy: AdbBootPolicy, ssid: String?, unlocked: Boolean, now: Long, deadline: Long): AdbActionResult? = when {
-        !policy.enabled -> AdbActionResult.INACTIVE
-        now >= deadline -> AdbActionResult.EXPIRED
-        !unlocked -> AdbActionResult.WAIT_UNLOCK
-        policy.ssid == null || ssid != policy.ssid -> AdbActionResult.WAIT_NETWORK
-        else -> null
+    suspend fun currentPrimarySsid(): String? = withContext(Dispatchers.IO) {
+        val lines = wifi()
+        if ("WIFI_QUERY_OK" !in lines) null else primarySsid(lines)
+    }
+
+    fun readLogTail(context: Context, maxLines: Int = 30): List<String> =
+        WirelessAdbStatusStore.readLogTail(context, maxLines)
+
+    internal fun decideTriggerAction(
+        policy: AdbBootPolicy,
+        trigger: AdbTriggerSource,
+        ssid: String?,
+        unlocked: Boolean
+    ): AdbTriggerDecision {
+        if (!policy.hasAnyTrigger) return AdbTriggerDecision.INACTIVE
+        if (!unlocked) return AdbTriggerDecision.WAIT_UNLOCK
+
+        val validSsid = ssid?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
+        val ssidMatched = validSsid != null && validSsid in policy.trustedSsids
+
+        val isBootLike = trigger == AdbTriggerSource.BOOT || trigger == AdbTriggerSource.UNLOCK
+        if (isBootLike) {
+            if (policy.restoreOnBoot) {
+                return if (ssidMatched) {
+                    AdbTriggerDecision.ENABLE_TARGET
+                } else if (policy.takeOverSystemAutoStart) {
+                    AdbTriggerDecision.SUPPRESS_SYSTEM_TLS
+                } else {
+                    AdbTriggerDecision.WAIT_NETWORK
+                }
+            }
+            return if (policy.takeOverSystemAutoStart) {
+                if (policy.autoEnableOnWifi && ssidMatched) AdbTriggerDecision.ENABLE_TARGET
+                else AdbTriggerDecision.SUPPRESS_SYSTEM_TLS
+            } else {
+                AdbTriggerDecision.INACTIVE
+            }
+        }
+
+        if (trigger == AdbTriggerSource.WIFI) {
+            if (policy.autoEnableOnWifi) {
+                return if (ssidMatched) {
+                    AdbTriggerDecision.ENABLE_TARGET
+                } else if (policy.takeOverSystemAutoStart) {
+                    AdbTriggerDecision.SUPPRESS_SYSTEM_TLS
+                } else {
+                    AdbTriggerDecision.WAIT_NETWORK
+                }
+            }
+            if (policy.takeOverSystemAutoStart) {
+                val keepOnMatchedBootSsid = policy.restoreOnBoot && ssidMatched
+                return if (keepOnMatchedBootSsid) AdbTriggerDecision.INACTIVE else AdbTriggerDecision.SUPPRESS_SYSTEM_TLS
+            }
+        }
+
+        return AdbTriggerDecision.INACTIVE
     }
 
     private data class SwitchOutcome(
@@ -165,7 +243,10 @@ object WirelessAdbController {
     ): SwitchOutcome {
         currentCoroutineContext().ensureActive()
         if (enabled && SuHelper.executeShellWithOutput("settings get global development_settings_enabled", timeoutSeconds = 4)
-                .firstOrNull()?.trim() != "1") return SwitchOutcome(AdbActionResult.FAILED, detail = "DEV_OFF")
+                .firstOrNull()?.trim() != "1"
+        ) {
+            return SwitchOutcome(AdbActionResult.FAILED, detail = "DEV_OFF")
+        }
         val validPort = if (customPort in 1024..65535) customPort else 5555
         var wasTrustedTlsBeforeTcpSwitch = false
         if (enabled) {
@@ -187,6 +268,7 @@ object WirelessAdbController {
                 wasTrustedTlsBeforeTcpSwitch = current.systemTrustedNetwork == true && current.tlsPort != null
             }
         }
+
         val ok = if (enabled) {
             when (mode) {
                 AdbMode.TLS -> {
@@ -248,8 +330,37 @@ object WirelessAdbController {
         return SwitchOutcome(AdbActionResult.FAILED, detail = "TIMEOUT")
     }
 
-    private suspend fun switch(context: Context, enabled: Boolean, mode: AdbMode, customPort: Int): AdbActionResult =
-        switchWithDetail(context, enabled, mode, customPort).result
+    private suspend fun suppressSystemTls(): SwitchOutcome {
+        val currentFlags = SuHelper.executeShellWithOutput(
+            "echo WIFI=$(settings get global adb_wifi_enabled); echo PERSIST=$(getprop persist.adb.tls_server.enable)",
+            timeoutSeconds = 3
+        )
+        val wifiEnabled = currentFlags.firstOrNull { it.startsWith("WIFI=") }?.substringAfter('=') == "1"
+        val persistEnabled = currentFlags.firstOrNull { it.startsWith("PERSIST=") }?.substringAfter('=') == "1"
+        if (!wifiEnabled && !persistEnabled) {
+            return SwitchOutcome(AdbActionResult.OFF, detail = "SYSTEM_TLS_ALREADY_OFF")
+        }
+        val ok = SuHelper.executeCommand(
+            "settings put global adb_wifi_enabled 0 && setprop persist.adb.tls_server.enable 0",
+            timeoutSeconds = 4
+        )
+        return if (ok) {
+            SwitchOutcome(AdbActionResult.OFF, detail = "SYSTEM_TLS_SUPPRESSED")
+        } else {
+            SwitchOutcome(AdbActionResult.FAILED, detail = "SUPPRESS_FAILED")
+        }
+    }
+
+    fun updateConfig(context: Context, mode: AdbMode, customPort: Int): Boolean {
+        val updated = synchronized(diskLock) {
+            val current = policy(context)
+            val validPort = if (customPort in 1024..65535) customPort else 5555
+            val next = current.copy(mode = mode, customPort = validPort)
+            if (save(context, next)) next else null
+        }
+        cleanupLegacyRootArtifactsOnce()
+        return updated != null
+    }
 
     suspend fun setEnabled(
         context: Context,
@@ -258,112 +369,229 @@ object WirelessAdbController {
         customPort: Int = policy(context).customPort
     ): AdbActionResult = withContext(Dispatchers.IO) {
         mutex.withLock {
+            cleanupLegacyRootArtifactsOnce()
             val currentPolicy = policy(context)
             val validPort = if (customPort in 1024..65535) customPort else 5555
             if (!enabled) {
-                // Persist the cancellation before writing the system toggle. A queued boot job must not re-enable it.
-                val disabledPolicy = currentPolicy.copy(enabled = false, result = AdbActionResult.INACTIVE)
-                if (!save(context, disabledPolicy))
-                    return@withLock AdbActionResult.FAILED
-                WirelessAdbBootJob.cancel(context)
-                syncBootScript(context, disabledPolicy)
+                val nextPolicy = currentPolicy.copy(
+                    restoreOnBoot = false,
+                    autoEnableOnWifi = false,
+                    result = AdbActionResult.INACTIVE
+                )
+                if (!save(context, nextPolicy)) return@withLock AdbActionResult.FAILED
             } else {
-                val wifi = wifi()
-                if ("WIFI_QUERY_OK" !in wifi) return@withLock AdbActionResult.FAILED
-                if (primarySsid(wifi) == null) return@withLock AdbActionResult.NO_NETWORK
+                val wifiLines = wifi()
+                if ("WIFI_QUERY_OK" !in wifiLines) return@withLock AdbActionResult.FAILED
+                if (primarySsid(wifiLines) == null) return@withLock AdbActionResult.NO_NETWORK
                 val updated = currentPolicy.copy(mode = mode, customPort = validPort)
-                if (save(context, updated) && updated.enabled) {
-                    syncBootScript(context, updated)
-                }
+                save(context, updated)
             }
-            switch(context, enabled, mode, validPort)
+
+            val outcome = switchWithDetail(context, enabled, mode, validPort)
+            val info = WirelessAdbInfo.read(context, preferredMode = mode)
+            WirelessAdbStatusStore.writeStatus(
+                context,
+                AdbBootStatus(
+                    bootCount = info.currentBootCount,
+                    uptimeSeconds = SystemClock.elapsedRealtime() / 1000L,
+                    source = "Manual",
+                    trigger = AdbTriggerSource.MANUAL,
+                    ssid = null,
+                    mode = mode,
+                    port = outcome.port ?: if (enabled && mode == AdbMode.TCP) validPort else null,
+                    result = outcome.result,
+                    detail = outcome.detail,
+                    timestampMillis = System.currentTimeMillis()
+                )
+            )
+            WirelessAdbStatusStore.appendLog(
+                context,
+                "manual enabled=$enabled mode=${mode.name} port=${outcome.port ?: validPort} -> ${outcome.result.name} (${outcome.detail})"
+            )
+            outcome.result
         }
     }
 
-    suspend fun setBootEnabled(
+    suspend fun updateAutomation(
         context: Context,
-        enabled: Boolean,
-        mode: AdbMode = policy(context).mode,
-        customPort: Int = policy(context).customPort
+        restoreOnBoot: Boolean? = null,
+        autoEnableOnWifi: Boolean? = null,
+        takeOverSystemAutoStart: Boolean? = null,
+        mode: AdbMode? = null,
+        customPort: Int? = null
     ): AdbActionResult = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val currentPolicy = policy(context)
-            val validPort = if (customPort in 1024..65535) customPort else 5555
-            if (!enabled) {
-                val disabledPolicy = currentPolicy.copy(enabled = false, result = AdbActionResult.INACTIVE)
-                if (!save(context, disabledPolicy))
-                    return@withLock AdbActionResult.FAILED
-                WirelessAdbBootJob.cancel(context)
-                syncBootScript(context, disabledPolicy)
-                return@withLock AdbActionResult.SAVED
+            cleanupLegacyRootArtifactsOnce()
+            val current = policy(context)
+            val nextBoot = restoreOnBoot ?: current.restoreOnBoot
+            val nextWifi = autoEnableOnWifi ?: current.autoEnableOnWifi
+            val nextTakeOver = takeOverSystemAutoStart ?: current.takeOverSystemAutoStart
+            val nextMode = mode ?: current.mode
+            val validPort = (customPort ?: current.customPort).let { if (it in 1024..65535) it else 5555 }
+
+            var nextSsids = sanitizeSsids(current.trustedSsids)
+            if ((nextBoot || nextWifi) && nextSsids.isEmpty()) {
+                val wifiLines = wifi()
+                if ("WIFI_QUERY_OK" !in wifiLines) return@withLock AdbActionResult.FAILED
+                val detected = primarySsid(wifiLines) ?: return@withLock AdbActionResult.NO_NETWORK
+                nextSsids = listOf(detected)
             }
-            val wifi = wifi()
-            if ("WIFI_QUERY_OK" !in wifi) return@withLock AdbActionResult.FAILED
-            val ssid = primarySsid(wifi) ?: return@withLock AdbActionResult.NO_NETWORK
-            val info = WirelessAdbInfo.read(context, preferredMode = mode)
-            if (info.listening != true || info.port == null) return@withLock AdbActionResult.FAILED
-            val savedPolicy = AdbBootPolicy(true, ssid, AdbActionResult.SAVED, mode, validPort)
-            if (!save(context, savedPolicy)) return@withLock AdbActionResult.FAILED
-            syncBootScript(context, savedPolicy)
+
+            val nextPolicy = current.copy(
+                restoreOnBoot = nextBoot,
+                autoEnableOnWifi = nextWifi,
+                takeOverSystemAutoStart = nextTakeOver,
+                trustedSsids = nextSsids,
+                mode = nextMode,
+                customPort = validPort,
+                result = if (nextBoot || nextWifi) AdbActionResult.SAVED else AdbActionResult.INACTIVE
+            )
+            if (!save(context, nextPolicy)) return@withLock AdbActionResult.FAILED
+
+            if (nextTakeOver && !nextBoot && !nextWifi) {
+                val suppressed = suppressSystemTls()
+                WirelessAdbStatusStore.appendLog(
+                    context,
+                    "takeover enabled with auto-triggers off -> ${suppressed.result.name} (${suppressed.detail})"
+                )
+            } else {
+                WirelessAdbStatusStore.appendLog(
+                    context,
+                    "policy saved boot=$nextBoot wifi=$nextWifi takeover=$nextTakeOver mode=${nextMode.name}:$validPort ssids=$nextSsids"
+                )
+            }
             AdbActionResult.SAVED
         }
     }
 
-    suspend fun restore(context: Context, deadline: Long): AdbActionResult = withContext(Dispatchers.IO) {
+    suspend fun addTrustedSsid(context: Context, ssid: String): AdbActionResult = withContext(Dispatchers.IO) {
         mutex.withLock {
+            val clean = ssid.trim()
+            if (clean.isEmpty() || clean == "<unknown ssid>") return@withLock AdbActionResult.NO_NETWORK
+            val current = policy(context)
+            val next = current.copy(trustedSsids = sanitizeSsids(current.trustedSsids + clean))
+            if (!save(context, next)) return@withLock AdbActionResult.FAILED
+            WirelessAdbStatusStore.appendLog(context, "added trusted SSID: $clean")
+            AdbActionResult.SAVED
+        }
+    }
+
+    suspend fun addCurrentWifiSsid(context: Context): AdbActionResult = withContext(Dispatchers.IO) {
+        val lines = wifi()
+        if ("WIFI_QUERY_OK" !in lines) return@withContext AdbActionResult.FAILED
+        val ssid = primarySsid(lines) ?: return@withContext AdbActionResult.NO_NETWORK
+        addTrustedSsid(context, ssid)
+    }
+
+    suspend fun removeTrustedSsid(context: Context, ssid: String): AdbActionResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = policy(context)
+            val remaining = current.trustedSsids.filterNot { it == ssid }
+            val next = if (remaining.isEmpty()) {
+                current.copy(
+                    trustedSsids = emptyList(),
+                    restoreOnBoot = false,
+                    autoEnableOnWifi = false,
+                    result = AdbActionResult.INACTIVE
+                )
+            } else {
+                current.copy(trustedSsids = remaining)
+            }
+            if (!save(context, next)) return@withLock AdbActionResult.FAILED
+            WirelessAdbStatusStore.appendLog(context, "removed trusted SSID: $ssid (remaining=$remaining)")
+            AdbActionResult.SAVED
+        }
+    }
+
+    suspend fun handleTrigger(
+        context: Context,
+        trigger: AdbTriggerSource
+    ): AdbActionResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            cleanupLegacyRootArtifactsOnce()
             val policy = policy(context)
-            if (!policy.enabled) return@withLock AdbActionResult.INACTIVE
-            syncBootScript(context, policy)
+            if (!policy.hasAnyTrigger) return@withLock AdbActionResult.INACTIVE
 
             val unlocked = context.getSystemService(UserManager::class.java).isUserUnlocked
-            val now = SystemClock.elapsedRealtime()
-            val uptimeSeconds = now / 1000L
-
-            val liveInfo = if (unlocked) WirelessAdbInfo.read(context, preferredMode = policy.mode) else null
-            val existingStatus = liveInfo?.bootStatus
-            val bootCount = liveInfo?.currentBootCount
-            val alreadyRestoredThisBoot = existingStatus != null &&
-                bootCount != null &&
-                existingStatus.bootCount == bootCount &&
-                existingStatus.result == AdbActionResult.READY &&
-                existingStatus.mode == policy.mode &&
-                (policy.mode != AdbMode.TCP || existingStatus.port == policy.customPort) &&
-                liveInfo.enabled == true &&
-                liveInfo.listening == true &&
-                (policy.mode != AdbMode.TCP || liveInfo.tcpPort == policy.customPort)
-            if (alreadyRestoredThisBoot) {
-                save(context, policy.copy(result = AdbActionResult.READY))
-                return@withLock AdbActionResult.READY
+            val uptimeSeconds = SystemClock.elapsedRealtime() / 1000L
+            val sourceLabel = when (trigger) {
+                AdbTriggerSource.BOOT -> "BootWatchdog"
+                AdbTriggerSource.UNLOCK -> "UserUnlocked"
+                AdbTriggerSource.WIFI -> "WifiCallback"
+                AdbTriggerSource.MANUAL -> "Manual"
             }
 
-            val gate = restoreGate(policy, null, unlocked, now, deadline)
-            val outcome = if (gate == AdbActionResult.EXPIRED || gate == AdbActionResult.WAIT_UNLOCK) {
-                SwitchOutcome(gate, detail = gate.name)
-            } else {
-                val wifi = wifi()
-                if ("WIFI_QUERY_OK" !in wifi) {
-                    SwitchOutcome(AdbActionResult.FAILED, detail = "WIFI_QUERY_FAILED")
-                } else {
-                    val netGate = restoreGate(policy, primarySsid(wifi), unlocked, SystemClock.elapsedRealtime(), deadline)
-                    if (netGate != null) {
-                        SwitchOutcome(netGate, detail = netGate.name)
-                    } else {
-                        switchWithDetail(context, true, policy.mode, policy.customPort)
-                    }
+            if (!unlocked) {
+                WirelessAdbStatusStore.appendLog(context, "$sourceLabel skipped: locked")
+                return@withLock AdbActionResult.WAIT_UNLOCK
+            }
+
+            val liveInfo = WirelessAdbInfo.read(context, preferredMode = policy.mode)
+            val bootCount = liveInfo.currentBootCount
+            val existingStatus = WirelessAdbStatusStore.readStatus(context)
+
+            val wifiLines = wifi()
+            if ("WIFI_QUERY_OK" !in wifiLines) {
+                WirelessAdbStatusStore.appendLog(context, "$sourceLabel failed: WIFI_QUERY_FAILED")
+                return@withLock AdbActionResult.FAILED
+            }
+            val ssid = primarySsid(wifiLines)
+            val decision = decideTriggerAction(policy, trigger, ssid, unlocked)
+
+            if ((trigger == AdbTriggerSource.BOOT || trigger == AdbTriggerSource.UNLOCK) &&
+                bootCount != null &&
+                existingStatus?.bootCount == bootCount &&
+                (existingStatus.trigger == AdbTriggerSource.BOOT || existingStatus.trigger == AdbTriggerSource.UNLOCK)
+            ) {
+                val bootAlreadySatisfied = when (decision) {
+                    AdbTriggerDecision.ENABLE_TARGET -> existingStatus.result == AdbActionResult.READY &&
+                        existingStatus.mode == policy.mode &&
+                        (policy.mode != AdbMode.TCP || existingStatus.port == policy.customPort) &&
+                        liveInfo.enabled == true &&
+                        liveInfo.listening == true &&
+                        (policy.mode != AdbMode.TCP || liveInfo.tcpPort == policy.customPort)
+                    AdbTriggerDecision.SUPPRESS_SYSTEM_TLS -> existingStatus.result == AdbActionResult.OFF &&
+                        liveInfo.tlsEnabled != true
+                    else -> false
+                }
+                if (bootAlreadySatisfied) {
+                    return@withLock existingStatus.result ?: AdbActionResult.READY
                 }
             }
-            if (outcome.result != AdbActionResult.WAIT_UNLOCK) {
-                writeBootStatus(
-                    bootCount = bootCount,
-                    uptimeSeconds = uptimeSeconds,
-                    source = "BootJob",
-                    mode = policy.mode,
-                    port = outcome.port ?: if (policy.mode == AdbMode.TCP) policy.customPort else null,
-                    result = outcome.result,
-                    detail = outcome.detail
+
+            val outcome = when (decision) {
+                AdbTriggerDecision.INACTIVE -> SwitchOutcome(AdbActionResult.INACTIVE, detail = "INACTIVE")
+                AdbTriggerDecision.WAIT_UNLOCK -> SwitchOutcome(AdbActionResult.WAIT_UNLOCK, detail = "WAIT_UNLOCK")
+                AdbTriggerDecision.WAIT_NETWORK -> SwitchOutcome(
+                    AdbActionResult.WAIT_NETWORK,
+                    detail = if (ssid == null) "NO_WIFI" else "SSID_MISMATCH"
+                )
+                AdbTriggerDecision.ENABLE_TARGET -> switchWithDetail(context, true, policy.mode, policy.customPort)
+                AdbTriggerDecision.SUPPRESS_SYSTEM_TLS -> suppressSystemTls()
+            }
+
+            if (outcome.result != AdbActionResult.INACTIVE) {
+                WirelessAdbStatusStore.writeStatus(
+                    context,
+                    AdbBootStatus(
+                        bootCount = bootCount,
+                        uptimeSeconds = uptimeSeconds,
+                        source = sourceLabel,
+                        trigger = trigger,
+                        ssid = ssid,
+                        mode = policy.mode,
+                        port = outcome.port ?: if (decision == AdbTriggerDecision.ENABLE_TARGET && policy.mode == AdbMode.TCP) policy.customPort else null,
+                        result = outcome.result,
+                        detail = outcome.detail,
+                        timestampMillis = System.currentTimeMillis()
+                    )
+                )
+                save(context, policy.copy(result = outcome.result), syncSystemServer = false)
+                WirelessAdbStatusStore.appendLog(
+                    context,
+                    "$sourceLabel ssid=${ssid ?: "-"} decision=${decision.name} -> ${outcome.result.name} (${outcome.detail})"
                 )
             }
-            save(context, policy.copy(result = outcome.result))
             outcome.result
         }
     }

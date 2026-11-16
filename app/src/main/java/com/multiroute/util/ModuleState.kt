@@ -51,8 +51,15 @@ object ModuleStateParser {
     /** Broadcast dispatched to system_server to disconnect secondary Wi-Fi via SlaveWifiService. */
     const val ACTION_DISCONNECT_SLAVE_WIFI = "com.multiroute.ACTION_DISCONNECT_SLAVE_WIFI"
 
+    /** Broadcast dispatched to system_server to sync wireless ADB auto-start trigger config. */
+    const val ACTION_ADB_TRIGGER_CHANGED = "com.multiroute.ACTION_ADB_TRIGGER_CHANGED"
+
     const val EXTRA_NET_ID = "netId"
     const val EXTRA_BSSID = "bssid"
+    const val EXTRA_ADB_RESTORE_ON_BOOT = "adbRestoreOnBoot"
+    const val EXTRA_ADB_AUTO_ON_WIFI = "adbAutoOnWifi"
+    const val EXTRA_ADB_TAKE_OVER_SYSTEM = "adbTakeOverSystem"
+    const val EXTRA_ADB_TRUSTED_SSIDS = "adbTrustedSsids"
 
     const val FORMAT_VERSION = 1
 

@@ -493,6 +493,13 @@ internal class ModuleDiagnosticsCollector(
         }
         sb.appendLine()
 
+        val adbLogs = com.multiroute.adb.WirelessAdbController.readLogTail(context, maxLines = 25)
+        if (adbLogs.isNotEmpty()) {
+            sb.appendLine("=== Wireless ADB Automation Log ===")
+            adbLogs.forEach { sb.appendLine("  $it") }
+            sb.appendLine()
+        }
+
         // 9. 最近 Logcat 相关日志
         sb.appendLine(context.getString(R.string.diag_sec_logcat))
         try {

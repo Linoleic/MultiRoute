@@ -79,6 +79,12 @@ class RouteConfigProvider : ContentProvider() {
         const val KEY_DYNAMIC_COLOR = "dynamic_color"
         const val KEY_LANGUAGE = "language"
 
+        // Mirror of wireless ADB trigger flags so RemotePreferences in system_server can consult them.
+        const val KEY_ADB_RESTORE_ON_BOOT = "adb_restore_on_boot"
+        const val KEY_ADB_AUTO_ON_WIFI = "adb_auto_on_wifi"
+        const val KEY_ADB_TAKE_OVER_SYSTEM = "adb_take_over_system"
+        const val KEY_ADB_TRUSTED_SSIDS = "adb_trusted_ssids"
+
         /** `system` (default), `light` or `dark`. */
         fun getThemeMode(context: Context): String {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)

@@ -2,8 +2,8 @@ package com.multiroute.util
 
 import com.multiroute.adb.AdbBootStatus
 import com.multiroute.adb.AdbMode
-import com.multiroute.adb.WirelessAdbBootScriptBuilder
 import com.multiroute.adb.WirelessAdbController
+import com.multiroute.adb.WirelessAdbStatusStore
 
 /** A local observation, never proof that a workstation can reach an endpoint. */
 data class WirelessAdbInfo(
@@ -16,6 +16,7 @@ data class WirelessAdbInfo(
     val tcpPort: Int? = null,
     val tlsPort: Int? = null,
     val connectedClients: List<String> = emptyList(),
+    val connectedConnectionCount: Int = 0,
     val connectedLocalAddresses: Set<String> = emptySet(),
     val systemTrustedNetwork: Boolean? = null,
     val currentBootCount: Int? = null,
@@ -39,11 +40,6 @@ data class WirelessAdbInfo(
               echo TRUSTED_NETWORK=1
             elif dumpsys adb 2>/dev/null | grep -qa 'is_trusted_network=false'; then
               echo TRUSTED_NETWORK=0
-            fi
-            if [ -r ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH} ]; then
-              echo BOOT_STATUS_START
-              cat ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH} 2>/dev/null
-              echo BOOT_STATUS_END
             fi
             sockets=${'$'}(ss -lnt 2>/dev/null)
             if [ ${'$'}? -eq 0 ]; then
@@ -72,14 +68,16 @@ data class WirelessAdbInfo(
                     val port = framework.firstOrNull { it.startsWith("PORT=") }?.substringAfter('=')
                         ?.toIntOrNull()?.takeIf { it in 1..65535 }
                     if (port != null) {
-                        return parse(
+                        val parsed = parse(
                             listOf("TLS_PORT=$port", "PORT=$port") + lines.filterNot { it.startsWith("PORT=") || it.startsWith("TLS_PORT=") },
                             modeToUse
                         )
+                        return parsed.copy(bootStatus = WirelessAdbStatusStore.readStatus(context))
                     }
                 }
             }
-            return parse(lines, modeToUse)
+            val parsed = parse(lines, modeToUse)
+            return if (context != null) parsed.copy(bootStatus = WirelessAdbStatusStore.readStatus(context)) else parsed
         }
 
         internal fun parseEndpoint(raw: String): Pair<String, Int>? {
@@ -231,23 +229,6 @@ data class WirelessAdbInfo(
             val currentBootCount = lines.firstOrNull { it.startsWith("BOOT_COUNT=") }
                 ?.substringAfter('=')?.trim()?.toIntOrNull()
 
-            val statusLines = mutableListOf<String>()
-            var inBootStatus = false
-            for (line in lines) {
-                if (line == "BOOT_STATUS_START") {
-                    inBootStatus = true
-                    continue
-                }
-                if (line == "BOOT_STATUS_END") {
-                    inBootStatus = false
-                    continue
-                }
-                if (inBootStatus && line.isNotBlank()) {
-                    statusLines.add(line)
-                }
-            }
-            val bootStatus = WirelessAdbBootScriptBuilder.parseStatus(statusLines)
-
             return WirelessAdbInfo(
                 enabled = effectiveEnabled,
                 port = effectivePort,
@@ -258,10 +239,11 @@ data class WirelessAdbInfo(
                 tcpPort = tcpPort,
                 tlsPort = tlsPort,
                 connectedClients = connectedClients.distinct(),
+                connectedConnectionCount = connectedClients.size,
                 connectedLocalAddresses = connectedLocalAddresses,
                 systemTrustedNetwork = systemTrustedNetwork,
                 currentBootCount = currentBootCount,
-                bootStatus = bootStatus
+                bootStatus = null
             )
         }
     }

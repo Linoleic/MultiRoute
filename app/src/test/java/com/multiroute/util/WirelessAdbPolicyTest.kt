@@ -5,78 +5,144 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WirelessAdbPolicyTest {
-    private val policy = AdbBootPolicy(true, "F5G")
-    @Test fun disabledPolicyCannotRestoreEvenOnMatchingNetwork() {
-        assertEquals(AdbActionResult.INACTIVE, WirelessAdbController.restoreGate(policy.copy(enabled = false), "F5G", true, 10, 100))
+    private val policy = AdbBootPolicy(
+        restoreOnBoot = true,
+        autoEnableOnWifi = false,
+        takeOverSystemAutoStart = false,
+        trustedSsids = listOf("F5G", "Home5G")
+    )
+
+    @Test fun disabledPolicyReturnsInactive() {
+        val offPolicy = AdbBootPolicy(trustedSsids = listOf("F5G"))
+        assertEquals(
+            AdbTriggerDecision.INACTIVE,
+            WirelessAdbController.decideTriggerAction(offPolicy, AdbTriggerSource.BOOT, "F5G", unlocked = true)
+        )
+        assertEquals(
+            AdbTriggerDecision.INACTIVE,
+            WirelessAdbController.decideTriggerAction(offPolicy, AdbTriggerSource.WIFI, "F5G", unlocked = true)
+        )
     }
-    @Test fun lockedOrExpiredCannotRestore() {
-        assertEquals(AdbActionResult.WAIT_UNLOCK, WirelessAdbController.restoreGate(policy, "F5G", false, 10, 100))
-        assertEquals(AdbActionResult.EXPIRED, WirelessAdbController.restoreGate(policy, "F5G", true, 100, 100))
+
+    @Test fun lockedDeviceWaitsForUnlock() {
+        assertEquals(
+            AdbTriggerDecision.WAIT_UNLOCK,
+            WirelessAdbController.decideTriggerAction(policy, AdbTriggerSource.BOOT, "F5G", unlocked = false)
+        )
     }
-    @Test fun unknownOrDifferentNetworkCannotRestore() {
+
+    @Test fun bootAndUnlockRespectTrustedSsidList() {
         for (ssid in listOf(null, "Hpkt", "<unknown ssid>")) {
-            assertEquals(AdbActionResult.WAIT_NETWORK, WirelessAdbController.restoreGate(policy, ssid, true, 10, 100))
+            assertEquals(
+                AdbTriggerDecision.WAIT_NETWORK,
+                WirelessAdbController.decideTriggerAction(policy, AdbTriggerSource.BOOT, ssid, unlocked = true)
+            )
         }
-        assertEquals(AdbActionResult.WAIT_NETWORK, WirelessAdbController.restoreGate(policy.copy(ssid = null), "F5G", true, 10, 100))
-        assertNull(WirelessAdbController.restoreGate(policy, "F5G", true, 10, 100))
+        assertEquals(
+            AdbTriggerDecision.ENABLE_TARGET,
+            WirelessAdbController.decideTriggerAction(policy, AdbTriggerSource.BOOT, "Home5G", unlocked = true)
+        )
+        assertEquals(
+            AdbTriggerDecision.ENABLE_TARGET,
+            WirelessAdbController.decideTriggerAction(policy, AdbTriggerSource.UNLOCK, "F5G", unlocked = true)
+        )
     }
+
+    @Test fun wifiTriggerAndSystemTakeoverBehaveAsConfigured() {
+        val wifiTakeover = policy.copy(
+            restoreOnBoot = false,
+            autoEnableOnWifi = true,
+            takeOverSystemAutoStart = true
+        )
+        assertEquals(
+            AdbTriggerDecision.ENABLE_TARGET,
+            WirelessAdbController.decideTriggerAction(wifiTakeover, AdbTriggerSource.WIFI, "Home5G", unlocked = true)
+        )
+        assertEquals(
+            AdbTriggerDecision.SUPPRESS_SYSTEM_TLS,
+            WirelessAdbController.decideTriggerAction(wifiTakeover, AdbTriggerSource.WIFI, "CoffeeShop", unlocked = true)
+        )
+        assertEquals(
+            AdbTriggerDecision.ENABLE_TARGET,
+            WirelessAdbController.decideTriggerAction(wifiTakeover, AdbTriggerSource.BOOT, "F5G", unlocked = true)
+        )
+        assertEquals(
+            AdbTriggerDecision.SUPPRESS_SYSTEM_TLS,
+            WirelessAdbController.decideTriggerAction(wifiTakeover, AdbTriggerSource.BOOT, "CoffeeShop", unlocked = true)
+        )
+        val takeoverOnly = policy.copy(
+            restoreOnBoot = false,
+            autoEnableOnWifi = false,
+            takeOverSystemAutoStart = true
+        )
+        assertEquals(
+            AdbTriggerDecision.SUPPRESS_SYSTEM_TLS,
+            WirelessAdbController.decideTriggerAction(takeoverOnly, AdbTriggerSource.BOOT, "F5G", unlocked = true)
+        )
+
+        val bootPlusTakeover = policy.copy(
+            restoreOnBoot = true,
+            autoEnableOnWifi = false,
+            takeOverSystemAutoStart = true
+        )
+        assertEquals(
+            AdbTriggerDecision.INACTIVE,
+            WirelessAdbController.decideTriggerAction(bootPlusTakeover, AdbTriggerSource.WIFI, "F5G", unlocked = true)
+        )
+        assertEquals(
+            AdbTriggerDecision.SUPPRESS_SYSTEM_TLS,
+            WirelessAdbController.decideTriggerAction(bootPlusTakeover, AdbTriggerSource.WIFI, "CoffeeShop", unlocked = true)
+        )
+    }
+
     @Test fun secondaryNetworkDoesNotSatisfyPrimarySelection() {
-        val lines = listOf("==== Client role=ROLE_CLIENT_SECONDARY_LONG_LIVED ====", "Wifi is connected to \"F5G\"",
-            "==== Client role=ROLE_CLIENT_PRIMARY ====", "Wifi is connected to \"Hpkt\"")
+        val lines = listOf(
+            "==== Client role=ROLE_CLIENT_SECONDARY_LONG_LIVED ====", "Wifi is connected to \"F5G\"",
+            "==== Client role=ROLE_CLIENT_PRIMARY ====", "Wifi is connected to \"Hpkt\""
+        )
         assertEquals("Hpkt", WirelessAdbController.primarySsid(lines))
     }
+
     @Test fun unknownSectionLayoutFailsClosed() {
         assertNull(WirelessAdbController.primarySsid(listOf("==== Unknown role ====", "Wifi is connected to \"F5G\"")))
         assertNull(WirelessAdbController.primarySsid(listOf("Wifi is not connected")))
         assertNull(WirelessAdbController.primarySsid(listOf("Wifi is connected to \"<unknown ssid>\"")))
         assertEquals("F5G", WirelessAdbController.primarySsid(listOf("Wifi is connected to \"F5G\"")))
     }
-    @Test fun policyDefaultValuesSupportDualMode() {
-        val defaultPolicy = AdbBootPolicy()
-        assertFalse(defaultPolicy.enabled)
-        assertNull(defaultPolicy.ssid)
-        assertEquals(AdbMode.TLS, defaultPolicy.mode)
-        assertEquals(5555, defaultPolicy.customPort)
 
-        val tcpPolicy = defaultPolicy.copy(mode = AdbMode.TCP, customPort = 6666)
-        assertEquals(AdbMode.TCP, tcpPolicy.mode)
-        assertEquals(6666, tcpPolicy.customPort)
-    }
+    @Test fun policyJsonMigratesLegacyFormatAndRoundTripsNewSchema() {
+        val legacy = """{"enabled":true,"ssid":"F5G","result":"READY","mode":"TCP","customPort":5556}"""
+        val migrated = WirelessAdbController.parsePolicyJson(legacy)
+        assertTrue(migrated.restoreOnBoot)
+        assertFalse(migrated.autoEnableOnWifi)
+        assertFalse(migrated.takeOverSystemAutoStart)
+        assertEquals(listOf("F5G"), migrated.trustedSsids)
+        assertEquals(AdbMode.TCP, migrated.mode)
+        assertEquals(5556, migrated.customPort)
 
-    @Test fun bootScriptEscapesSsidAndEnforcesUnlockWindowAndTcpOverride() {
-        val script = WirelessAdbBootScriptBuilder.buildBootScript(
-            ssid = "My'Home \$WiFi",
-            mode = AdbMode.TCP,
-            customPort = 5566,
-            policyFilePath = "/data/user/0/io.github.linoleic.multiroute/no_backup/wireless-adb-policy.json"
+        val modern = migrated.copy(
+            autoEnableOnWifi = true,
+            takeOverSystemAutoStart = true,
+            trustedSsids = listOf("F5G", "StudioWifi")
         )
-        assertTrue(script.contains("TARGET_SSID='My'\"'\"'Home \$WiFi'"))
-        assertTrue(script.contains("TARGET_MODE='TCP'"))
-        assertTrue(script.contains("TARGET_PORT='5566'"))
-        assertTrue(script.contains("sys.user.0.ce_available"))
-        assertTrue(script.contains("ROLE_CLIENT_PRIMARY"))
-        assertTrue(script.contains("setprop persist.adb.tls_server.enable 0"))
-        assertTrue(script.contains(") >/dev/null 2>&1 &"))
+        val decoded = WirelessAdbController.parsePolicyJson(WirelessAdbController.encodePolicyJson(modern))
+        assertEquals(modern, decoded)
     }
 
-    @Test fun bootStatusRoundTripParsesFields() {
-        val formatted = WirelessAdbBootScriptBuilder.formatStatus(
+    @Test fun statusStoreRoundTripsJson() {
+        val status = AdbBootStatus(
             bootCount = 19,
             uptimeSeconds = 27L,
-            source = "service.d",
+            source = "WifiCallback",
+            trigger = AdbTriggerSource.WIFI,
+            ssid = "F5G",
             mode = AdbMode.TCP,
             port = 5555,
             result = AdbActionResult.READY,
-            detail = "SWITCHED_OVERRIDE"
+            detail = "SWITCHED_OVERRIDE",
+            timestampMillis = 123456789L
         )
-        val parsed = WirelessAdbBootScriptBuilder.parseStatus(formatted.lines())
-        assertNotNull(parsed)
-        assertEquals(19, parsed?.bootCount)
-        assertEquals(27L, parsed?.uptimeSeconds)
-        assertEquals("service.d", parsed?.source)
-        assertEquals(AdbMode.TCP, parsed?.mode)
-        assertEquals(5555, parsed?.port)
-        assertEquals(AdbActionResult.READY, parsed?.result)
-        assertEquals("SWITCHED_OVERRIDE", parsed?.detail)
+        val parsed = WirelessAdbStatusStore.parseStatus(WirelessAdbStatusStore.encodeStatus(status))
+        assertEquals(status, parsed)
     }
 }

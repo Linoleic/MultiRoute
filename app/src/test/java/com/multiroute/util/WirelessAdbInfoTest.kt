@@ -160,8 +160,27 @@ class WirelessAdbInfoTest {
         val info = WirelessAdbInfo.parse(lines)
         assertTrue(info.isClientConnected)
         assertEquals(listOf("192.168.1.158", "fd77:2c88:73a5:0:1:2:3:4"), info.connectedClients)
+        assertEquals(2, info.connectedConnectionCount)
         assertTrue(info.connectedLocalAddresses.contains("192.168.1.207"))
         assertTrue(info.connectedLocalAddresses.contains("fd77:2c88:73a5:0:7462:12ff:fea1:ebfc"))
+    }
+
+    @Test fun countsThreeSocketsAcrossTwoDistinctPeerIps() {
+        val lines = listOf(
+            "ENABLED=1",
+            "TLS_PORT=41869",
+            "SOCKETS_OK",
+            "LISTEN 0 4 *:41869 *:*",
+            "ESTABLISHED_START",
+            "0 0 [::ffff:192.168.1.207]:41869 [::ffff:192.168.1.158]:8022",
+            "0 0 [fd77:2c88:73a5:0:d48a:b7ff:fec6:6bbd]:41869 [fd77:2c88:73a5:0:f8e4:c30c:6796:e34b]:12913",
+            "0 0 [::ffff:192.168.1.234]:41869 [::ffff:192.168.1.158]:11612",
+            "ESTABLISHED_END"
+        )
+        val info = WirelessAdbInfo.parse(lines, preferredMode = AdbMode.TLS)
+        assertEquals(3, info.connectedConnectionCount)
+        assertEquals(listOf("192.168.1.158", "fd77:2c88:73a5:0:f8e4:c30c:6796:e34b"), info.connectedClients)
+        assertEquals(setOf("192.168.1.207", "fd77:2c88:73a5:0:d48a:b7ff:fec6:6bbd", "192.168.1.234"), info.connectedLocalAddresses)
     }
 
     @Test fun noEstablishedClientsWhenPortDiffers() {
@@ -193,33 +212,21 @@ class WirelessAdbInfoTest {
         assertNull(info.port)
     }
 
-    @Test fun parsesTrustedNetworkAndCurrentBootStatus() {
+    @Test fun parsesTrustedNetworkAndCurrentBootCount() {
         val lines = listOf(
             "ENABLED=0",
             "TCP_PORT=5555",
             "BOOT_COUNT=42",
             "TRUSTED_NETWORK=1",
-            "BOOT_STATUS_START",
-            "boot_count=42",
-            "uptime_sec=18",
-            "source=service.d",
-            "mode=TCP",
-            "port=5555",
-            "result=READY",
-            "detail=SWITCHED_OVERRIDE",
-            "BOOT_STATUS_END",
             "SOCKETS_OK",
             "LISTEN 0 4 *:5555 *:*"
         )
         val info = WirelessAdbInfo.parse(lines, preferredMode = AdbMode.TCP)
         assertEquals(true, info.systemTrustedNetwork)
         assertEquals(42, info.currentBootCount)
-        assertEquals(42, info.bootStatus?.bootCount)
-        assertEquals(18L, info.bootStatus?.uptimeSeconds)
-        assertEquals("service.d", info.bootStatus?.source)
-        assertEquals(AdbMode.TCP, info.bootStatus?.mode)
-        assertEquals(5555, info.bootStatus?.port)
-        assertEquals(AdbActionResult.READY, info.bootStatus?.result)
-        assertEquals("SWITCHED_OVERRIDE", info.bootStatus?.detail)
+        assertEquals(AdbMode.TCP, info.mode)
+        assertEquals(5555, info.port)
+        assertEquals(true, info.listening)
+        assertNull(info.bootStatus)
     }
 }

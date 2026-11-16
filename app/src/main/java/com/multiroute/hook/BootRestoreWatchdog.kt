@@ -11,10 +11,13 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.os.UserManager
 import android.util.Log
 import com.multiroute.BuildConfig
 import com.multiroute.data.RouteConfigProvider
@@ -57,17 +60,40 @@ internal class BootRestoreWatchdog(
 
         /** Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND (hidden constant, needed to wake a stopped app). */
         private const val FLAG_RECEIVER_INCLUDE_BACKGROUND = 0x01000000
+
+        private const val EXTRA_RESTORE_REASON = "restore_reason"
+        private const val REASON_BOOT = "boot"
+        private const val REASON_USER_UNLOCKED = "user_unlocked"
+        private const val REASON_WIFI_CONNECTED = "wifi_connected"
     }
 
     /** Set once the keep-alive broadcast receiver is registered; retried by the boot watchdog until then. */
     private val keepAliveReceiverRegistered = AtomicBoolean(false)
+    private val userUnlockedReceiverRegistered = AtomicBoolean(false)
 
     @Volatile
     private var linkCallbackRegistered = false
     private var vpnCallbackRegistered = false
+    @Volatile
+    private var wifiAdbCallbackRegistered = false
 
     @Volatile
     private var lastScenarioWakeAt = 0L
+    @Volatile
+    private var lastWifiAdbWakeAt = 0L
+    @Volatile
+    private var lastObservedWifiSsid: String? = null
+
+    @Volatile
+    private var adbTriggerInitialized = false
+    @Volatile
+    private var adbRestoreOnBoot = false
+    @Volatile
+    private var adbAutoOnWifi = false
+    @Volatile
+    private var adbTakeOverSystem = false
+    @Volatile
+    private var adbTrustedSsids: Set<String> = emptySet()
 
     fun schedule() {
         Thread {
@@ -106,10 +132,12 @@ internal class BootRestoreWatchdog(
                 // ActivityManager only exists after boot completes, and registering the keep-alive
                 // receiver needs it - registering earlier fails with a null ActivityManager.
                 registerKeepAliveReceiver()
+                registerUserUnlockedReceiver()
 
                 // The app's own NetworkCallback only runs while its process is alive; from here on the
                 // module watches link changes itself and wakes the app when a scenario plan is stored.
                 registerLinkChangeCallback()
+                registerWifiAdbCallback()
                 registerVpnChangeCallback()
 
                 dispatchRestoreBroadcast()
@@ -121,7 +149,9 @@ internal class BootRestoreWatchdog(
                     Thread.sleep(delayMs)
                     xposed.log(Log.INFO, HOOK_TAG, "[BootRestore] Retrying restore broadcast (+${delayMs / 1000}s).")
                     registerKeepAliveReceiver()
+                    registerUserUnlockedReceiver()
                     registerLinkChangeCallback()
+                    registerWifiAdbCallback()
                     registerVpnChangeCallback()
                     dispatchRestoreBroadcast()
                 }
@@ -177,6 +207,20 @@ internal class BootRestoreWatchdog(
                             }
                         }
                         ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI -> onDisconnectSlaveWifi()
+                        ModuleStateParser.ACTION_ADB_TRIGGER_CHANGED -> {
+                            adbRestoreOnBoot = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_RESTORE_ON_BOOT, false)
+                            adbAutoOnWifi = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_AUTO_ON_WIFI, false)
+                            adbTakeOverSystem = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_TAKE_OVER_SYSTEM, false)
+                            adbTrustedSsids = intent.getStringArrayListExtra(ModuleStateParser.EXTRA_ADB_TRUSTED_SSIDS)
+                                ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+                            adbTriggerInitialized = true
+                            xposed.log(
+                                Log.INFO,
+                                HOOK_TAG,
+                                "[AdbTrigger] Synced config: boot=$adbRestoreOnBoot, wifi=$adbAutoOnWifi, " +
+                                    "takeover=$adbTakeOverSystem, ssids=${adbTrustedSsids.size}"
+                            )
+                        }
                     }
                 }
             }
@@ -185,6 +229,7 @@ internal class BootRestoreWatchdog(
                 addAction(ModuleStateParser.ACTION_ROUTES_CHANGED)
                 addAction(ModuleStateParser.ACTION_CONNECT_SLAVE_WIFI)
                 addAction(ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI)
+                addAction(ModuleStateParser.ACTION_ADB_TRIGGER_CHANGED)
             }
             if (Build.VERSION.SDK_INT >= 33) {
                 context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
@@ -197,6 +242,124 @@ internal class BootRestoreWatchdog(
             // ActivityManager does not exist this early in system_server startup, so the caller retries.
             keepAliveReceiverRegistered.set(false)
             xposed.log(Log.WARN, HOOK_TAG, "[KeepAlive] Could not register receiver yet: ${t.message}")
+        }
+    }
+
+    private fun refreshAdbConfigFromRemotePrefs() {
+        if (adbTriggerInitialized) return
+        val prefs = runCatching { xposed.getRemotePreferences(PREF_NAME) }.getOrNull() ?: return
+        val hasAnyKey = prefs.contains(RouteConfigProvider.KEY_ADB_RESTORE_ON_BOOT) ||
+            prefs.contains(RouteConfigProvider.KEY_ADB_AUTO_ON_WIFI) ||
+            prefs.contains(RouteConfigProvider.KEY_ADB_TAKE_OVER_SYSTEM)
+        if (!hasAnyKey) return
+        adbRestoreOnBoot = prefs.getBoolean(RouteConfigProvider.KEY_ADB_RESTORE_ON_BOOT, false)
+        adbAutoOnWifi = prefs.getBoolean(RouteConfigProvider.KEY_ADB_AUTO_ON_WIFI, false)
+        adbTakeOverSystem = prefs.getBoolean(RouteConfigProvider.KEY_ADB_TAKE_OVER_SYSTEM, false)
+        adbTrustedSsids = runCatching {
+            prefs.getStringSet(RouteConfigProvider.KEY_ADB_TRUSTED_SSIDS, emptySet())
+                ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+        }.getOrNull() ?: emptySet()
+        adbTriggerInitialized = true
+    }
+
+    private fun registerUserUnlockedReceiver() {
+        if (!userUnlockedReceiverRegistered.compareAndSet(false, true)) return
+        val context = SystemServerEnv.systemContext() ?: run {
+            userUnlockedReceiverRegistered.set(false)
+            return
+        }
+        try {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    if (intent?.action != Intent.ACTION_USER_UNLOCKED) return
+                    refreshAdbConfigFromRemotePrefs()
+                    if (!adbTriggerInitialized || adbRestoreOnBoot || adbTakeOverSystem || adbAutoOnWifi) {
+                        xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Device unlocked; waking app to check wireless ADB")
+                        dispatchRestoreBroadcast(reason = REASON_USER_UNLOCKED)
+                    }
+                }
+            }
+            val filter = IntentFilter(Intent.ACTION_USER_UNLOCKED)
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                context.registerReceiver(receiver, filter)
+            }
+        } catch (t: Throwable) {
+            userUnlockedReceiverRegistered.set(false)
+            xposed.log(Log.WARN, HOOK_TAG, "[AdbTrigger] Could not register unlock receiver yet: ${t.message}")
+        }
+    }
+
+    private fun registerWifiAdbCallback() {
+        if (wifiAdbCallbackRegistered) return
+        try {
+            val context = SystemServerEnv.systemContext() ?: return
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+            val activeWifiSsids = mutableMapOf<Network, String?>()
+
+            fun extractCleanSsid(capabilities: NetworkCapabilities): String? {
+                val info = if (Build.VERSION.SDK_INT >= 29) capabilities.transportInfo as? WifiInfo else null
+                @Suppress("DEPRECATION")
+                val raw = info?.ssid ?: (context.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.connectionInfo?.ssid
+                return raw?.trim()?.removeSurrounding("\"")?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
+            }
+
+            fun onWifiCapabilities(network: Network, capabilities: NetworkCapabilities) {
+                val ssid = extractCleanSsid(capabilities)
+                activeWifiSsids[network] = ssid
+                if (ssid == null || ssid == lastObservedWifiSsid) return
+                lastObservedWifiSsid = ssid
+
+                val unlocked = runCatching { context.getSystemService(UserManager::class.java)?.isUserUnlocked == true }
+                    .getOrDefault(false)
+                if (!unlocked) return
+
+                val now = System.currentTimeMillis()
+                if (now - lastWifiAdbWakeAt < 2000L) return
+
+                refreshAdbConfigFromRemotePrefs()
+                val shouldWake = adbAutoOnWifi || adbTakeOverSystem || (adbRestoreOnBoot && ssid in adbTrustedSsids)
+                if (!shouldWake) return
+
+                lastWifiAdbWakeAt = now
+                xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Wi-Fi connected ($ssid); waking app")
+                dispatchRestoreBroadcast(reason = REASON_WIFI_CONNECTED)
+            }
+
+            fun onWifiLost(network: Network) {
+                activeWifiSsids.remove(network)
+                if (activeWifiSsids.isEmpty()) {
+                    lastObservedWifiSsid = null
+                }
+            }
+
+            val callback = if (Build.VERSION.SDK_INT >= 31) {
+                object : ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) {
+                    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
+                        onWifiCapabilities(network, capabilities)
+                    override fun onLost(network: Network) = onWifiLost(network)
+                }
+            } else {
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
+                        onWifiCapabilities(network, capabilities)
+                    override fun onLost(network: Network) = onWifiLost(network)
+                }
+            }
+
+            cm.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build(),
+                callback
+            )
+            wifiAdbCallbackRegistered = true
+            xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Watching Wi-Fi SSID transitions in system_server")
+        } catch (t: Throwable) {
+            xposed.log(Log.WARN, HOOK_TAG, "[AdbTrigger] Could not register Wi-Fi callback: ${t.message}")
         }
     }
 
@@ -367,13 +530,13 @@ internal class BootRestoreWatchdog(
      * Permission denied"), which silently disabled the whole boot restore until it was observed on
      * device. The shell route is retained only as a fallback for platforms that permit it.
      */
-    private fun dispatchRestoreBroadcast(routesOnly: Boolean = false) {
-        if (sendRestoreBroadcastInProcess(routesOnly)) return
-        sendRestoreBroadcastViaShell(routesOnly)
+    private fun dispatchRestoreBroadcast(routesOnly: Boolean = false, reason: String = REASON_BOOT) {
+        if (sendRestoreBroadcastInProcess(routesOnly, reason)) return
+        sendRestoreBroadcastViaShell(routesOnly, reason)
     }
 
     /** Returns true when the broadcast was handed to ActivityManager in-process. */
-    private fun sendRestoreBroadcastInProcess(routesOnly: Boolean): Boolean {
+    private fun sendRestoreBroadcastInProcess(routesOnly: Boolean, reason: String): Boolean {
         return try {
             val context = SystemServerEnv.systemContext() ?: return false
             val intent = Intent(ACTION_RESTORE_RULES).apply {
@@ -382,9 +545,10 @@ internal class BootRestoreWatchdog(
                 component = ComponentName(RESTORE_PACKAGE, RESTORE_RECEIVER_CLASS)
                 addFlags(FLAG_RECEIVER_INCLUDE_BACKGROUND)
                 putExtra("routes_only", routesOnly)
+                putExtra(EXTRA_RESTORE_REASON, reason)
             }
             context.sendBroadcast(intent)
-            xposed.log(Log.INFO, HOOK_TAG, "[BootRestore] Restore broadcast sent in-process.")
+            xposed.log(Log.INFO, HOOK_TAG, "[BootRestore] Restore broadcast sent in-process (reason=$reason).")
             true
         } catch (t: Throwable) {
             xposed.log(Log.WARN, HOOK_TAG, "[BootRestore] In-process broadcast failed: ${t.message}")
@@ -393,7 +557,7 @@ internal class BootRestoreWatchdog(
     }
 
     /** Fallback: shell out to `am` (only works where system_server may exec system binaries). */
-    private fun sendRestoreBroadcastViaShell(routesOnly: Boolean) {
+    private fun sendRestoreBroadcastViaShell(routesOnly: Boolean, reason: String) {
         try {
             // An EXPLICIT component (-n) is mandatory here: a package-only (-p) implicit broadcast
             // is dropped when the target process is not running, which is exactly the boot-time case.
@@ -402,7 +566,8 @@ internal class BootRestoreWatchdog(
                 "-a", ACTION_RESTORE_RULES,
                 "-n", RESTORE_RECEIVER,
                 "-f", "0x01000000", // FLAG_RECEIVER_INCLUDE_BACKGROUND
-                "--ez", "routes_only", routesOnly.toString()
+                "--ez", "routes_only", routesOnly.toString(),
+                "--es", EXTRA_RESTORE_REASON, reason
             )
             val proc = ProcessBuilder(*cmd).redirectErrorStream(true).start()
             val output = StringBuilder()

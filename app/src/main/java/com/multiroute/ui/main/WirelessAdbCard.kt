@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassEmpty
@@ -46,6 +48,7 @@ enum class AdbModeChoice {
     TCP
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WirelessAdbCard(showTitle: Boolean = true) {
     val context = LocalContext.current
@@ -54,6 +57,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var revision by remember { mutableIntStateOf(0) }
     var info by remember { mutableStateOf<WirelessAdbInfo?>(null) }
+    var currentSsid by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var settingsFailed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -61,7 +65,8 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
     var result by remember { mutableStateOf<AdbActionResult?>(null) }
     var bootPolicy by remember { mutableStateOf(AdbBootPolicy()) }
     var confirmOff by remember { mutableStateOf(false) }
-    var showBootInfoDialog by remember { mutableStateOf(false) }
+    var showAddSsidDialog by remember { mutableStateOf(false) }
+    var manualSsidText by remember { mutableStateOf("") }
 
     var selectedMode by rememberSaveable { mutableStateOf(AdbMode.TLS) }
     var selectedChoice by rememberSaveable { mutableStateOf<AdbModeChoice?>(null) }
@@ -91,7 +96,9 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
         bootPolicy = p
         val prefMode = if (initializedPrefs) selectedMode else p.mode
         val inf = withContext(Dispatchers.IO) { WirelessAdbInfo.read(context, preferredMode = prefMode) }
+        val ssid = withContext(Dispatchers.IO) { WirelessAdbController.currentPrimarySsid() }
         info = inf
+        currentSsid = ssid
         if (!initializedPrefs) {
             val initialChoice = if (inf.enabled == true) {
                 if (inf.mode == AdbMode.TCP) AdbModeChoice.TCP else AdbModeChoice.TLS
@@ -198,10 +205,11 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
-                                val clientText = if (currentInfo.connectedClients.size == 1) {
+                                val totalConns = currentInfo.connectedConnectionCount.coerceAtLeast(currentInfo.connectedClients.size)
+                                val clientText = if (totalConns <= 1) {
                                     stringResource(R.string.adb_helper_connected_single, currentInfo.connectedClients.first())
                                 } else {
-                                    stringResource(R.string.adb_helper_connected_multi, currentInfo.connectedClients.size, currentInfo.connectedClients.joinToString(", "))
+                                    stringResource(R.string.adb_helper_connected_multi, totalConns, currentInfo.connectedClients.joinToString(", "))
                                 }
                                 Text(
                                     text = clientText,
@@ -465,7 +473,8 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
 
             val currentBootStatus = info?.bootStatus?.takeIf { status ->
                 val curBoot = info?.currentBootCount
-                curBoot != null && status.bootCount == curBoot
+                status.trigger != AdbTriggerSource.BOOT && status.trigger != AdbTriggerSource.UNLOCK ||
+                    (curBoot != null && status.bootCount == curBoot)
             }
             val outcome = result ?: currentBootStatus?.result ?: bootPolicy.result
             if (outcome != null) Text(
@@ -484,24 +493,36 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (currentBootStatus?.result == AdbActionResult.READY && currentBootStatus.port != null) {
+            if (currentBootStatus != null &&
+                ((currentBootStatus.result == AdbActionResult.READY && currentBootStatus.port != null) ||
+                    currentBootStatus.detail == "SYSTEM_TLS_SUPPRESSED")
+            ) {
                 val uptimeSec = currentBootStatus.uptimeSeconds ?: 0L
                 val srcStr = stringResource(
-                    if (currentBootStatus.source == "service.d") R.string.adb_boot_source_service_d
-                    else R.string.adb_boot_source_job
+                    when (currentBootStatus.trigger) {
+                        AdbTriggerSource.BOOT -> R.string.adb_trigger_source_boot
+                        AdbTriggerSource.UNLOCK -> R.string.adb_trigger_source_unlock
+                        AdbTriggerSource.WIFI -> R.string.adb_trigger_source_wifi
+                        else -> R.string.adb_trigger_source_manual
+                    }
                 )
                 val targetMode = currentBootStatus.mode ?: bootPolicy.mode
                 val modeLabel = stringResource(
                     if (targetMode == AdbMode.TCP) R.string.adb_mode_tcp else R.string.adb_mode_tls
                 )
-                val resId = when (currentBootStatus.detail) {
-                    "SWITCHED_OVERRIDE" -> R.string.adb_boot_verified_override
-                    "ALREADY_ACTIVE_TRUSTED" -> R.string.adb_boot_verified_already_trusted
-                    "ALREADY_ACTIVE" -> R.string.adb_boot_verified_already
-                    else -> R.string.adb_boot_verified_switched
+                val statusText = if (currentBootStatus.detail == "SYSTEM_TLS_SUPPRESSED") {
+                    stringResource(R.string.adb_boot_verified_suppressed, uptimeSec, srcStr)
+                } else {
+                    val resId = when (currentBootStatus.detail) {
+                        "SWITCHED_OVERRIDE" -> R.string.adb_boot_verified_override
+                        "ALREADY_ACTIVE_TRUSTED" -> R.string.adb_boot_verified_already_trusted
+                        "ALREADY_ACTIVE" -> R.string.adb_boot_verified_already
+                        else -> R.string.adb_boot_verified_switched
+                    }
+                    stringResource(resId, uptimeSec, srcStr, modeLabel, currentBootStatus.port ?: bootPolicy.customPort)
                 }
                 Text(
-                    text = stringResource(resId, uptimeSec, srcStr, modeLabel, currentBootStatus.port),
+                    text = statusText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -526,37 +547,21 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        Text(
+                            stringResource(R.string.adb_boot_title),
+                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                stringResource(R.string.adb_boot_title),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            IconButton(
-                                onClick = { showBootInfoDialog = true },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Info,
-                                    contentDescription = stringResource(R.string.adb_boot_dialog_title),
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        )
                         Switch(
-                            checked = bootPolicy.enabled,
-                            enabled = !loading && !busy && (bootPolicy.enabled || info?.enabled == true && info?.listening == true),
+                            checked = bootPolicy.restoreOnBoot,
+                            enabled = !loading && !busy,
                             onCheckedChange = { enabled ->
                                 perform {
-                                    WirelessAdbController.setBootEnabled(
+                                    WirelessAdbController.updateAutomation(
                                         context,
-                                        enabled,
-                                        selectedMode,
-                                        parsedPort ?: 5555
+                                        restoreOnBoot = enabled,
+                                        mode = selectedMode,
+                                        customPort = parsedPort ?: 5555
                                     )
                                 }
                             }
@@ -567,12 +572,130 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (bootPolicy.enabled) {
-                        bootPolicy.ssid?.let {
-                            Text(stringResource(R.string.adb_boot_network, it), style = MaterialTheme.typography.bodySmall)
-                        }
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            stringResource(R.string.adb_wifi_trigger_title),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = bootPolicy.autoEnableOnWifi,
+                            enabled = !loading && !busy,
+                            onCheckedChange = { enabled ->
+                                perform {
+                                    WirelessAdbController.updateAutomation(
+                                        context,
+                                        autoEnableOnWifi = enabled,
+                                        mode = selectedMode,
+                                        customPort = parsedPort ?: 5555
+                                    )
+                                }
+                            }
+                        )
                     }
-                    if (bootPolicy.enabled) {
+                    Text(
+                        stringResource(R.string.adb_wifi_trigger_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            stringResource(R.string.adb_takeover_title),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = bootPolicy.takeOverSystemAutoStart,
+                            enabled = !loading && !busy,
+                            onCheckedChange = { enabled ->
+                                perform {
+                                    WirelessAdbController.updateAutomation(
+                                        context,
+                                        takeOverSystemAutoStart = enabled,
+                                        mode = selectedMode,
+                                        customPort = parsedPort ?: 5555
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.adb_takeover_summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Text(
+                        stringResource(R.string.adb_trusted_ssids_title),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (bootPolicy.trustedSsids.isEmpty()) {
+                        Text(
+                            stringResource(R.string.adb_trusted_ssids_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        bootPolicy.trustedSsids.forEach { savedSsid ->
+                            InputChip(
+                                selected = savedSsid == currentSsid,
+                                onClick = {},
+                                enabled = !loading && !busy,
+                                label = { Text(savedSsid) },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = { perform { WirelessAdbController.removeTrustedSsid(context, savedSsid) } },
+                                        enabled = !loading && !busy,
+                                        modifier = Modifier.size(18.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                        if (currentSsid != null && currentSsid !in bootPolicy.trustedSsids) {
+                            AssistChip(
+                                onClick = { perform { WirelessAdbController.addCurrentWifiSsid(context) } },
+                                enabled = !loading && !busy,
+                                leadingIcon = {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                },
+                                label = { Text(stringResource(R.string.adb_trusted_add_current, currentSsid!!)) }
+                            )
+                        }
+                        AssistChip(
+                            onClick = {
+                                manualSsidText = ""
+                                showAddSsidDialog = true
+                            },
+                            enabled = !loading && !busy,
+                            leadingIcon = {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            label = { Text(stringResource(R.string.adb_trusted_add_manual)) }
+                        )
+                    }
+
+                    if (bootPolicy.hasAnyTrigger) {
                         val modeStr = stringResource(if (bootPolicy.mode == AdbMode.TCP) R.string.adb_mode_tcp else R.string.adb_mode_tls)
                         Text(
                             stringResource(R.string.adb_boot_mode_summary, modeStr, if (bootPolicy.mode == AdbMode.TCP) bootPolicy.customPort else (info?.port ?: bootPolicy.customPort)),
@@ -580,6 +703,12 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+
+                    Text(
+                        stringResource(R.string.adb_automation_prereq_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -620,33 +749,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                     if (snapshot?.addresses.isNullOrEmpty()) {
                         Text(stringResource(R.string.adb_helper_no_address), style = MaterialTheme.typography.bodyMedium)
                     } else {
-                        if (info?.systemTrustedNetwork == true) {
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp).padding(top = 2.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                        Text(
-                            text = stringResource(R.string.adb_trusted_network_notice),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             snapshot.addresses.forEachIndexed { index, (iface, address) ->
                                 val isExpanded = expandAllAddresses || expandedAddressIndices.contains(index)
                                 val isIpv6 = address.contains(':')
@@ -858,18 +961,35 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
         }
     )
 
-    if (showBootInfoDialog) AlertDialog(
-        onDismissRequest = { showBootInfoDialog = false },
-        title = { Text(stringResource(R.string.adb_boot_dialog_title)) },
+    if (showAddSsidDialog) AlertDialog(
+        onDismissRequest = { showAddSsidDialog = false },
+        title = { Text(stringResource(R.string.adb_trusted_add_dialog_title)) },
         text = {
-            Text(
-                stringResource(R.string.adb_boot_dialog_content),
-                style = MaterialTheme.typography.bodyMedium
+            OutlinedTextField(
+                value = manualSsidText,
+                onValueChange = { manualSsidText = it },
+                label = { Text(stringResource(R.string.adb_trusted_add_dialog_hint)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
             )
         },
         confirmButton = {
-            TextButton(onClick = { showBootInfoDialog = false }) {
-                Text(stringResource(R.string.adb_boot_dialog_confirm))
+            TextButton(
+                onClick = {
+                    val value = manualSsidText.trim()
+                    showAddSsidDialog = false
+                    if (value.isNotEmpty()) {
+                        perform { WirelessAdbController.addTrustedSsid(context, value) }
+                    }
+                },
+                enabled = manualSsidText.isNotBlank()
+            ) {
+                Text(stringResource(R.string.adb_trusted_add_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { showAddSsidDialog = false }) {
+                Text(stringResource(android.R.string.cancel))
             }
         }
     )
