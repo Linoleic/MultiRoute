@@ -1,5 +1,6 @@
 package com.multiroute.util
 
+import com.multiroute.adb.AdbActionResult
 import com.multiroute.adb.AdbMode
 import org.junit.Assert.*
 import org.junit.Test
@@ -190,5 +191,35 @@ class WirelessAdbInfoTest {
         assertEquals(true, info.enabled)
         assertEquals(false, info.listening)
         assertNull(info.port)
+    }
+
+    @Test fun parsesTrustedNetworkAndCurrentBootStatus() {
+        val lines = listOf(
+            "ENABLED=0",
+            "TCP_PORT=5555",
+            "BOOT_COUNT=42",
+            "TRUSTED_NETWORK=1",
+            "BOOT_STATUS_START",
+            "boot_count=42",
+            "uptime_sec=18",
+            "source=service.d",
+            "mode=TCP",
+            "port=5555",
+            "result=READY",
+            "detail=SWITCHED_OVERRIDE",
+            "BOOT_STATUS_END",
+            "SOCKETS_OK",
+            "LISTEN 0 4 *:5555 *:*"
+        )
+        val info = WirelessAdbInfo.parse(lines, preferredMode = AdbMode.TCP)
+        assertEquals(true, info.systemTrustedNetwork)
+        assertEquals(42, info.currentBootCount)
+        assertEquals(42, info.bootStatus?.bootCount)
+        assertEquals(18L, info.bootStatus?.uptimeSeconds)
+        assertEquals("service.d", info.bootStatus?.source)
+        assertEquals(AdbMode.TCP, info.bootStatus?.mode)
+        assertEquals(5555, info.bootStatus?.port)
+        assertEquals(AdbActionResult.READY, info.bootStatus?.result)
+        assertEquals("SWITCHED_OVERRIDE", info.bootStatus?.detail)
     }
 }

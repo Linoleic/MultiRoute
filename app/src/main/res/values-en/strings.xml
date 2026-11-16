@@ -699,6 +699,13 @@
     <string name="adb_boot_expired">Boot recovery window ended. Enable manually or wait for the next boot.</string>
     <string name="adb_boot_inactive">Boot recovery is off</string>
     <string name="adb_control_result">Latest result: %1$s</string>
+    <string name="adb_trusted_network_notice">This Wi-Fi is marked as system-trusted ("Always allow on this network"): Android auto-enables native TLS on connect even when boot recovery here is off. Remove this network in system Wireless debugging settings to stop auto-TLS, or enable Legacy TCP boot recovery to override it.</string>
+    <string name="adb_boot_source_service_d">boot script</string>
+    <string name="adb_boot_source_job">boot job</string>
+    <string name="adb_boot_verified_switched">Verified this boot (%1$ds after boot · %2$s): restored %3$s (port %4$d)</string>
+    <string name="adb_boot_verified_override">Verified this boot (%1$ds after boot · %2$s): overrode system auto-TLS to %3$s (port %4$d)</string>
+    <string name="adb_boot_verified_already_trusted">Verified this boot (%1$ds after boot · %2$s): %3$s (port %4$d) ready (pre-activated by system trusted Wi-Fi)</string>
+    <string name="adb_boot_verified_already">Verified this boot (%1$ds after boot · %2$s): %3$s (port %4$d) already active</string>
 
     <string name="tab_tools">Tools</string>
     <string name="tools_subtitle">Network management, wireless debugging and logs</string>

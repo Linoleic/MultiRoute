@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.multiroute.adb.WirelessAdbBootJob
 import com.multiroute.util.SuHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +33,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
             try {
                 val success = SuHelper.syncAllRouteRules(context.applicationContext)
                 Log.i(TAG, "Boot route rules sync completed. Result: $success")
-                if (!intent.getBooleanExtra("routes_only", false) &&
-                    !com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(context.applicationContext) &&
-                    com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context.applicationContext)) {
-                    com.multiroute.wifi.DualWifiManager.autoReconnectSecondary(context.applicationContext)
+                if (!intent.getBooleanExtra("routes_only", false)) {
+                    WirelessAdbBootJob.schedule(context.applicationContext)
+                    if (!com.multiroute.data.RouteConfigProvider.isDualWifiDisabled(context.applicationContext) &&
+                        com.multiroute.data.RouteConfigProvider.isDualWifiAutoReconnectEnabled(context.applicationContext)) {
+                        com.multiroute.wifi.DualWifiManager.autoReconnectSecondary(context.applicationContext)
+                    }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to restore route rules on boot: ${t.message}", t)

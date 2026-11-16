@@ -698,6 +698,13 @@
     <string name="adb_boot_expired">本次开机恢复窗口已结束，可手动开启或等待下次开机</string>
     <string name="adb_boot_inactive">开机恢复已关闭</string>
     <string name="adb_control_result">最近结果：%1$s</string>
+    <string name="adb_trusted_network_notice">当前 Wi-Fi 已设为系统「始终允许在此网络上调试」：联网后系统会自动开启原生 TLS（即使本应用关闭开机恢复也会自启）。若需取消自启请前往系统「无线调试」中移除此网络；若将开机恢复设为传统 TCP，开机后会尝试覆盖为固定端口。</string>
+    <string name="adb_boot_source_service_d">开机脚本</string>
+    <string name="adb_boot_source_job">系统调度</string>
+    <string name="adb_boot_verified_switched">本次开机已生效（开机第 %1$ds · %2$s）：已恢复 %3$s（端口 %4$d）</string>
+    <string name="adb_boot_verified_override">本次开机已生效（开机第 %1$ds · %2$s）：已覆盖系统自启 TLS 为 %3$s（端口 %4$d）</string>
+    <string name="adb_boot_verified_already_trusted">本次开机已确认（开机第 %1$ds · %2$s）：%3$s（端口 %4$d）已就绪（系统信任网络已先行激活）</string>
+    <string name="adb_boot_verified_already">本次开机已确认（开机第 %1$ds · %2$s）：%3$s（端口 %4$d）已处于就绪状态</string>
 
     <string name="tab_tools">工具</string>
     <string name="tools_subtitle">网络管理、无线调试与日志</string>

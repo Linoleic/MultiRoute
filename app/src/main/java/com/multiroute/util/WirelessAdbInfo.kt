@@ -1,6 +1,8 @@
 package com.multiroute.util
 
+import com.multiroute.adb.AdbBootStatus
 import com.multiroute.adb.AdbMode
+import com.multiroute.adb.WirelessAdbBootScriptBuilder
 import com.multiroute.adb.WirelessAdbController
 
 /** A local observation, never proof that a workstation can reach an endpoint. */
@@ -14,7 +16,10 @@ data class WirelessAdbInfo(
     val tcpPort: Int? = null,
     val tlsPort: Int? = null,
     val connectedClients: List<String> = emptyList(),
-    val connectedLocalAddresses: Set<String> = emptySet()
+    val connectedLocalAddresses: Set<String> = emptySet(),
+    val systemTrustedNetwork: Boolean? = null,
+    val currentBootCount: Int? = null,
+    val bootStatus: AdbBootStatus? = null
 ) {
     val isClientConnected: Boolean get() = connectedClients.isNotEmpty()
     companion object {
@@ -29,6 +34,17 @@ data class WirelessAdbInfo(
             echo TCP_PORT=${'$'}(getprop service.adb.tcp.port)
             echo PERSIST_TCP_PORT=${'$'}(getprop persist.adb.tcp.port)
             echo PORT=${'$'}(getprop service.adb.tls.port)
+            echo BOOT_COUNT=${'$'}(settings get global boot_count 2>/dev/null)
+            if dumpsys adb 2>/dev/null | grep -qa 'is_trusted_network=true'; then
+              echo TRUSTED_NETWORK=1
+            elif dumpsys adb 2>/dev/null | grep -qa 'is_trusted_network=false'; then
+              echo TRUSTED_NETWORK=0
+            fi
+            if [ -r ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH} ]; then
+              echo BOOT_STATUS_START
+              cat ${WirelessAdbBootScriptBuilder.BOOT_STATUS_PATH} 2>/dev/null
+              echo BOOT_STATUS_END
+            fi
             sockets=${'$'}(ss -lnt 2>/dev/null)
             if [ ${'$'}? -eq 0 ]; then
               printf '%s\n' "${'$'}sockets"
@@ -207,6 +223,31 @@ data class WirelessAdbInfo(
                 else -> null
             }
 
+            val systemTrustedNetwork = when (lines.firstOrNull { it.startsWith("TRUSTED_NETWORK=") }?.substringAfter('=')) {
+                "1" -> true
+                "0" -> false
+                else -> null
+            }
+            val currentBootCount = lines.firstOrNull { it.startsWith("BOOT_COUNT=") }
+                ?.substringAfter('=')?.trim()?.toIntOrNull()
+
+            val statusLines = mutableListOf<String>()
+            var inBootStatus = false
+            for (line in lines) {
+                if (line == "BOOT_STATUS_START") {
+                    inBootStatus = true
+                    continue
+                }
+                if (line == "BOOT_STATUS_END") {
+                    inBootStatus = false
+                    continue
+                }
+                if (inBootStatus && line.isNotBlank()) {
+                    statusLines.add(line)
+                }
+            }
+            val bootStatus = WirelessAdbBootScriptBuilder.parseStatus(statusLines)
+
             return WirelessAdbInfo(
                 enabled = effectiveEnabled,
                 port = effectivePort,
@@ -217,7 +258,10 @@ data class WirelessAdbInfo(
                 tcpPort = tcpPort,
                 tlsPort = tlsPort,
                 connectedClients = connectedClients.distinct(),
-                connectedLocalAddresses = connectedLocalAddresses
+                connectedLocalAddresses = connectedLocalAddresses,
+                systemTrustedNetwork = systemTrustedNetwork,
+                currentBootCount = currentBootCount,
+                bootStatus = bootStatus
             )
         }
     }

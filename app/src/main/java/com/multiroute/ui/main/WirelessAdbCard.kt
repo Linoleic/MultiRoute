@@ -93,13 +93,18 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
         val inf = withContext(Dispatchers.IO) { WirelessAdbInfo.read(context, preferredMode = prefMode) }
         info = inf
         if (!initializedPrefs) {
-            selectedMode = inf.mode ?: p.mode
-            portText = (inf.tcpPort ?: p.customPort).toString()
-            selectedChoice = if (inf.enabled == true) {
+            val initialChoice = if (inf.enabled == true) {
                 if (inf.mode == AdbMode.TCP) AdbModeChoice.TCP else AdbModeChoice.TLS
             } else {
                 AdbModeChoice.OFF
             }
+            selectedChoice = initialChoice
+            selectedMode = when (initialChoice) {
+                AdbModeChoice.TCP -> AdbMode.TCP
+                AdbModeChoice.TLS -> AdbMode.TLS
+                AdbModeChoice.OFF -> p.mode
+            }
+            portText = (inf.tcpPort ?: p.customPort).toString()
             initializedPrefs = true
         } else {
             if (inf.enabled == false && selectedChoice != AdbModeChoice.TLS && selectedChoice != AdbModeChoice.TCP) {
@@ -271,6 +276,32 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                 }
             }
 
+            if (info?.systemTrustedNetwork == true) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp).padding(top = 2.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = stringResource(R.string.adb_trusted_network_notice),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     stringResource(R.string.adb_mode_title),
@@ -432,7 +463,11 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                 }
             }
 
-            val outcome = result ?: bootPolicy.result
+            val currentBootStatus = info?.bootStatus?.takeIf { status ->
+                val curBoot = info?.currentBootCount
+                curBoot != null && status.bootCount == curBoot
+            }
+            val outcome = result ?: currentBootStatus?.result ?: bootPolicy.result
             if (outcome != null) Text(
                 stringResource(R.string.adb_control_result, stringResource(when (outcome) {
                     AdbActionResult.READY -> R.string.adb_control_ready
@@ -448,6 +483,29 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            if (currentBootStatus?.result == AdbActionResult.READY && currentBootStatus.port != null) {
+                val uptimeSec = currentBootStatus.uptimeSeconds ?: 0L
+                val srcStr = stringResource(
+                    if (currentBootStatus.source == "service.d") R.string.adb_boot_source_service_d
+                    else R.string.adb_boot_source_job
+                )
+                val targetMode = currentBootStatus.mode ?: bootPolicy.mode
+                val modeLabel = stringResource(
+                    if (targetMode == AdbMode.TCP) R.string.adb_mode_tcp else R.string.adb_mode_tls
+                )
+                val resId = when (currentBootStatus.detail) {
+                    "SWITCHED_OVERRIDE" -> R.string.adb_boot_verified_override
+                    "ALREADY_ACTIVE_TRUSTED" -> R.string.adb_boot_verified_already_trusted
+                    "ALREADY_ACTIVE" -> R.string.adb_boot_verified_already
+                    else -> R.string.adb_boot_verified_switched
+                }
+                Text(
+                    text = stringResource(resId, uptimeSec, srcStr, modeLabel, currentBootStatus.port),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
 
             if (settingsFailed) Text(
                 stringResource(R.string.adb_helper_settings_failed),
@@ -562,7 +620,33 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                     if (snapshot?.addresses.isNullOrEmpty()) {
                         Text(stringResource(R.string.adb_helper_no_address), style = MaterialTheme.typography.bodyMedium)
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (info?.systemTrustedNetwork == true) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp).padding(top = 2.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = stringResource(R.string.adb_trusted_network_notice),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             snapshot.addresses.forEachIndexed { index, (iface, address) ->
                                 val isExpanded = expandAllAddresses || expandedAddressIndices.contains(index)
                                 val isIpv6 = address.contains(':')
