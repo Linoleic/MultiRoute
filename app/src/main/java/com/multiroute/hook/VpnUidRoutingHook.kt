@@ -86,28 +86,39 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
         val oldRanges = api.getUids.invoke(oldCaps) as? Set<Range<Int>> ?: return
         @Suppress("UNCHECKED_CAST")
         val native = api.nativeRanges.invoke(vpn, userId, allowed, denied) as Set<Range<Int>>
-        val desired = native.toMutableSet()
         val users = context.getSystemService(UserManager::class.java) ?: return
-        val cloneUsers = mutableMapOf<Int, Boolean>()
-        for (uid in routes.keys) {
-            if (uid / 100000 == userId || uid % 100000 == ownerUid % 100000) continue
-            val targetUser = uid / 100000
-            val isClone = cloneUsers.getOrPut(targetUser) {
-                val info = api.getUserInfo.invoke(users, targetUser) ?: return@getOrPut false
-                val parent = api.getProfileParent.invoke(users, targetUser) ?: return@getOrPut false
-                api.userType.get(info) == "android.os.usertype.profile.CLONE" &&
-                    api.profileId.getInt(parent) == userId
+        val allowedSet = allowed?.mapNotNull { it as? String }?.toSet()
+        val deniedSet = denied?.mapNotNull { it as? String }?.toSet().orEmpty()
+        val decision = VpnUidRangePolicy.evaluate(
+            routeUids = routes.keys,
+            hostUserId = userId,
+            ownerUid = ownerUid,
+            allowedPackages = allowedSet,
+            deniedPackages = deniedSet,
+            nativeRanges = native.map { it.lower..it.upper },
+            oldRanges = oldRanges.map { it.lower..it.upper },
+            wasInjected = state.injected,
+            isCloneUser = { targetUser ->
+                val info = api.getUserInfo.invoke(users, targetUser) ?: return@evaluate false
+                val parent = api.getProfileParent.invoke(users, targetUser) ?: return@evaluate false
+                VpnUidRangePolicy.isEligibleCloneUser(
+                    targetUserId = targetUser,
+                    hostUserId = userId,
+                    userType = api.userType.get(info) as? String,
+                    profileParentId = api.profileId.getInt(parent)
+                )
+            },
+            packagesForUid = { uid ->
+                context.packageManager.getPackagesForUid(uid)?.toList().orEmpty()
             }
-            if (!isClone || native.any { it.contains(uid) }) continue
-            val packages = context.packageManager.getPackagesForUid(uid)?.toList().orEmpty()
-            if (packages.isEmpty() || packages.any { it in denied.orEmpty() }) continue
-            if (allowed != null && packages.any { it !in allowed }) continue
-            desired.add(Range(uid, uid))
-        }
-        val hasInjection = desired != native
-        if (desired == oldRanges || (!hasInjection && !state.injected)) {
-            state.injected = hasInjection
+        )
+        if (!decision.shouldPublish) {
+            state.injected = decision.hasInjection
             return
+        }
+        val desired = native.toMutableSet()
+        for (uid in decision.injectedUids) {
+            desired.add(Range(uid, uid))
         }
 
         val builder = api.capBuilder.newInstance(oldCaps)
@@ -116,7 +127,7 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
         try {
             api.caps.set(vpn, newCaps)
             api.send.invoke(null, agent, newCaps)
-            state.injected = hasInjection
+            state.injected = decision.hasInjection
             xposed.log(Log.INFO, HOOK_TAG, "[VpnUid] Updated clone UID ranges for $iface")
         } catch (t: Throwable) {
             runCatching {

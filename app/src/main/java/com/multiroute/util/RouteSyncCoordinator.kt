@@ -253,14 +253,25 @@ internal class RouteSyncCoordinator(
      * Enumerates OEM clone-space / work-profile installs so the UI can list and configure them
      * separately from the primary-user installs of the same packages.
      */
-    fun listSecondaryUserInstalls(): List<RouteRuleBuilder.SecondaryUserInstalls> {
-        val lines = shell.executeShellWithOutput(RouteRuleBuilder.buildSecondaryUserListingQuery(), timeoutSeconds = 6)
-        if (lines.isEmpty()) {
-            Log.w(TAG, "Secondary-user listing returned nothing; clone apps will not be listed")
-            return emptyList()
+    fun querySecondaryUserInstalls(): RouteRuleBuilder.SecondaryUserScanResult {
+        val query = "${RouteRuleBuilder.buildSecondaryUserListingQuery()}; echo ${RouteRuleBuilder.SECONDARY_QUERY_SENTINEL}"
+        val first = RouteRuleBuilder.parseSecondaryUserListingWithSentinel(
+            shell.executeShellWithOutput(query, timeoutSeconds = 6)
+        )
+        if (first.succeeded) return first
+
+        Log.w(TAG, "Secondary-user listing incomplete or timed out; retrying once")
+        val retry = RouteRuleBuilder.parseSecondaryUserListingWithSentinel(
+            shell.executeShellWithOutput(query, timeoutSeconds = 8)
+        )
+        if (!retry.succeeded) {
+            Log.w(TAG, "Secondary-user listing failed after retry; clone apps may be unavailable")
         }
-        return RouteRuleBuilder.parseSecondaryUserListing(lines)
+        return retry
     }
+
+    fun listSecondaryUserInstalls(): List<RouteRuleBuilder.SecondaryUserInstalls> =
+        querySecondaryUserInstalls().installs
 
     fun resolveUidForRuleKey(
         context: Context,

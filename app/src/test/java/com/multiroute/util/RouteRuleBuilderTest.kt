@@ -332,6 +332,18 @@ class RouteRuleBuilderTest {
         assertEquals(mapOf("com.tencent.mm" to 99910309), parsed[0].packageUids)
         assertEquals(10, parsed[1].userId)
         assertEquals(mapOf("com.tencent.mm" to 1010309), parsed[1].packageUids)
+
+        val emptyWithSentinel = RouteRuleBuilder.parseSecondaryUserListingWithSentinel(
+            listOf(RouteRuleBuilder.SECONDARY_QUERY_SENTINEL)
+        )
+        assertTrue(emptyWithSentinel.succeeded)
+        assertTrue(emptyWithSentinel.installs.isEmpty())
+
+        val timedOut = RouteRuleBuilder.parseSecondaryUserListingWithSentinel(
+            listOf("USER 10", "package:com.tencent.mm uid:1010309")
+        )
+        assertFalse(timedOut.succeeded)
+        assertTrue(timedOut.installs.isEmpty())
     }
 
     @Test

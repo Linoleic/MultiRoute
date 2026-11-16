@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.util.Log
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.RuleTarget
@@ -14,6 +15,7 @@ import com.multiroute.model.NetworkChannel
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.RouteRuleBuilder
 import com.multiroute.util.SuHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +40,10 @@ internal class AppRoutingDelegate(
 ) {
     private var allApps: List<AppItem> = emptyList()
     private var loadAppsJob: Job? = null
+
+    private companion object {
+        const val TAG = "MultiRoute-AppScan"
+    }
 
     fun transformAllApps(transform: (AppItem) -> AppItem) {
         allApps = allApps.map(transform)
@@ -300,7 +306,8 @@ internal class AppRoutingDelegate(
             }
 
             val pm = application.packageManager
-            val loaded = withContext(Dispatchers.IO) {
+            val previousSecondary = allApps.filter { it.userId > 0 }
+            val (loaded, secondaryScanFailed) = withContext(Dispatchers.IO) {
                 val packageMap = mutableMapOf<String, AppItem>()
 
                 try {
@@ -325,7 +332,11 @@ internal class AppRoutingDelegate(
                             isSystemApp = isSystem
                         )
                     }
-                } catch (_: Exception) {}
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Launcher activity enumeration failed: ${t.message}")
+                }
 
                 try {
                     val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -346,30 +357,55 @@ internal class AppRoutingDelegate(
                             )
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Installed package enumeration failed: ${t.message}")
+                }
 
                 // OEM clone spaces (Xiaomi XSpace = user 999) and work profiles
+                var secondaryFailed = false
                 try {
-                    for (installs in SuHelper.listSecondaryUserInstalls()) {
-                        for ((pkg, uid) in installs.packageUids) {
-                            if (pkg == application.packageName) continue
-                            val key = RouteRuleBuilder.ruleKey(pkg, installs.userId)
-                            if (packageMap.containsKey(key)) continue
-                            val base = packageMap[pkg]
-                            packageMap[key] = AppItem(
-                                packageName = pkg,
-                                appName = "${base?.appName ?: pkg} (${installs.userId})",
-                                icon = base?.icon,
-                                uid = uid,
-                                targetChannelId = CHANNEL_DEFAULT,
-                                isSystemApp = base?.isSystemApp ?: false,
-                                userId = installs.userId
-                            )
+                    val scan = SuHelper.querySecondaryUserInstalls()
+                    if (scan.succeeded) {
+                        for (installs in scan.installs) {
+                            for ((pkg, uid) in installs.packageUids) {
+                                if (pkg == application.packageName) continue
+                                val key = RouteRuleBuilder.ruleKey(pkg, installs.userId)
+                                if (packageMap.containsKey(key)) continue
+                                val base = packageMap[pkg]
+                                packageMap[key] = AppItem(
+                                    packageName = pkg,
+                                    appName = "${base?.appName ?: pkg} (${installs.userId})",
+                                    icon = base?.icon,
+                                    uid = uid,
+                                    targetChannelId = CHANNEL_DEFAULT,
+                                    isSystemApp = base?.isSystemApp ?: false,
+                                    userId = installs.userId
+                                )
+                            }
+                        }
+                    } else {
+                        secondaryFailed = true
+                        for (cached in previousSecondary) {
+                            packageMap.putIfAbsent(cached.ruleKey, cached)
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    secondaryFailed = true
+                    Log.w(TAG, "Secondary-user enumeration failed: ${t.message}", t)
+                    for (cached in previousSecondary) {
+                        packageMap.putIfAbsent(cached.ruleKey, cached)
+                    }
+                }
 
-                packageMap.values.toList()
+                packageMap.values.toList() to secondaryFailed
+            }
+
+            if (secondaryScanFailed) {
+                Log.w(TAG, "Retained ${previousSecondary.size} cached clone app(s) after secondary-user scan failure")
             }
 
             val currentRules = RouteConfigProvider.getAllRules(application)

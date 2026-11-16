@@ -106,6 +106,9 @@ object SuHelper {
     fun updateBootRestoreScript(applyScript: String, interfaces: Collection<String>): Boolean =
         routeSync.updateBootRestoreScript(applyScript, interfaces)
 
+    fun querySecondaryUserInstalls(): RouteRuleBuilder.SecondaryUserScanResult =
+        routeSync.querySecondaryUserInstalls()
+
     fun listSecondaryUserInstalls(): List<RouteRuleBuilder.SecondaryUserInstalls> =
         routeSync.listSecondaryUserInstalls()
 

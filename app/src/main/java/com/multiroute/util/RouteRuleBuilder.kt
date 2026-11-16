@@ -411,11 +411,29 @@ exit 0
                 "cmd package list packages -U --user \"\$id\" 2>/dev/null; " +
                 "done"
 
+    const val SECONDARY_QUERY_SENTINEL = "MULTIROUTE_SECONDARY_OK"
+
     /** One secondary user (app-clone space / work profile) and the packages installed in it. */
     data class SecondaryUserInstalls(
         val userId: Int,
         val packageUids: Map<String, Int>
     )
+
+    /** Result of querying secondary-user installs, distinguishing empty devices from failed/timed-out shells. */
+    data class SecondaryUserScanResult(
+        val installs: List<SecondaryUserInstalls>,
+        val succeeded: Boolean
+    )
+
+    fun parseSecondaryUserListingWithSentinel(
+        lines: Collection<String>,
+        sentinel: String = SECONDARY_QUERY_SENTINEL
+    ): SecondaryUserScanResult {
+        val succeeded = lines.any { it.trim() == sentinel }
+        if (!succeeded) return SecondaryUserScanResult(emptyList(), succeeded = false)
+        val body = lines.filterNot { it.trim() == sentinel }
+        return SecondaryUserScanResult(parseSecondaryUserListing(body), succeeded = true)
+    }
 
     /** Parses [buildSecondaryUserListingQuery] output; malformed blocks are skipped. */
     fun parseSecondaryUserListing(lines: Collection<String>): List<SecondaryUserInstalls> {
