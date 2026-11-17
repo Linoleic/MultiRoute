@@ -131,4 +131,54 @@ class HookPolicyHelpersTest {
             tracker.onCapabilities("wlan0", "\"Home5G\"", unlocked = true, nowMs = 13_000L) { true }
         )
     }
+
+    @Test
+    fun adbTriggerConfigStoreOnlyRequestsTrackerResetOnFirstInitOrPolicyChange() {
+        val store = HookPolicyHelpers.AdbTriggerConfigStore()
+        val tracker = HookPolicyHelpers.WifiAdbTransitionTracker<String>(debounceMs = 2000L)
+
+        val initialConfig = HookPolicyHelpers.AdbTriggerConfig(
+            restoreOnBoot = true,
+            autoOnWifi = false,
+            takeOverSystem = false,
+            trustedSsids = setOf("Home5G")
+        )
+        assertTrue(store.update(initialConfig))
+        assertTrue(store.isInitialized())
+        assertTrue(store.snapshot().shouldWakeOnUnlock())
+        assertTrue(store.snapshot().shouldWakeForSsid("Home5G"))
+        assertFalse(store.snapshot().shouldWakeForSsid("CoffeeShop"))
+
+        // Initial connection to CoffeeShop is skipped and remembered; Home5G wakes once.
+        assertNull(
+            tracker.onCapabilities("wlan1", "\"CoffeeShop\"", unlocked = true, nowMs = 1_000L) {
+                store.snapshot().shouldWakeForSsid(it)
+            }
+        )
+        assertEquals(
+            "Home5G",
+            tracker.onCapabilities("wlan0", "\"Home5G\"", unlocked = true, nowMs = 2_000L) {
+                store.snapshot().shouldWakeForSsid(it)
+            }
+        )
+
+        // Identical config re-broadcast must NOT reset the tracker, preventing RSSI wakeup loops.
+        assertFalse(store.update(initialConfig.copy()))
+        assertNull(
+            tracker.onCapabilities("wlan0", "\"Home5G\"", unlocked = true, nowMs = 6_000L) {
+                store.snapshot().shouldWakeForSsid(it)
+            }
+        )
+
+        // Changing policy (adding CoffeeShop or enabling autoOnWifi) MUST reset so connected Wi-Fi re-evaluates.
+        val expandedConfig = initialConfig.copy(trustedSsids = setOf("Home5G", "CoffeeShop"))
+        assertTrue(store.update(expandedConfig))
+        tracker.reset()
+        assertEquals(
+            "CoffeeShop",
+            tracker.onCapabilities("wlan1", "\"CoffeeShop\"", unlocked = true, nowMs = 9_000L) {
+                store.snapshot().shouldWakeForSsid(it)
+            }
+        )
+    }
 }

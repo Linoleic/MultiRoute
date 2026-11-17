@@ -111,4 +111,43 @@ internal object HookPolicyHelpers {
             acknowledgedSsids.clear()
         }
     }
+
+    /**
+     * Snapshot of the wireless ADB trigger policy synchronized into system_server.
+     */
+    internal data class AdbTriggerConfig(
+        val restoreOnBoot: Boolean = false,
+        val autoOnWifi: Boolean = false,
+        val takeOverSystem: Boolean = false,
+        val trustedSsids: Set<String> = emptySet()
+    ) {
+        fun shouldWakeForSsid(ssid: String): Boolean =
+            autoOnWifi || takeOverSystem || (restoreOnBoot && ssid in trustedSsids)
+
+        fun shouldWakeOnUnlock(): Boolean =
+            restoreOnBoot || takeOverSystem || autoOnWifi
+    }
+
+    /**
+     * Holds the latest synchronized [AdbTriggerConfig] and reports whether a config update changed
+     * initialization or effective policy so callers only reset [WifiAdbTransitionTracker] when needed.
+     */
+    internal class AdbTriggerConfigStore {
+        private var initialized = false
+        private var config = AdbTriggerConfig()
+
+        @Synchronized
+        fun update(newConfig: AdbTriggerConfig): Boolean {
+            val shouldReset = !initialized || config != newConfig
+            config = newConfig
+            initialized = true
+            return shouldReset
+        }
+
+        @Synchronized
+        fun isInitialized(): Boolean = initialized
+
+        @Synchronized
+        fun snapshot(): AdbTriggerConfig = config
+    }
 }

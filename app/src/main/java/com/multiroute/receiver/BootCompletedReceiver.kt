@@ -37,7 +37,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val appContext = context.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                WirelessAdbController.publishTriggerSync(appContext)
                 if (reason == REASON_WIFI_CONNECTED) {
                     if (!routesOnly) {
                         val adbResult = WirelessAdbController.handleTrigger(appContext, AdbTriggerSource.WIFI)
@@ -45,6 +44,11 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     }
                     return@launch
                 }
+
+                // Only non-Wi-Fi wakeups (boot/upgrade/unlock) need to push current trigger config
+                // back to system_server; Wi-Fi wakeups originate from system_server itself and
+                // echoing ACTION_ADB_TRIGGER_CHANGED there would risk churning trigger state.
+                WirelessAdbController.publishTriggerSync(appContext)
 
                 coroutineScope {
                     val routesDeferred = async {

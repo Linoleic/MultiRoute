@@ -53,3 +53,6 @@ HANDOFF.md
 
 # Python release tooling
 __pycache__/
+
+# External assistant temp attachments
+.codex-attachments/

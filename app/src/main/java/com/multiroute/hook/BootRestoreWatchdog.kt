@@ -82,17 +82,7 @@ internal class BootRestoreWatchdog(
     private var lastScenarioWakeAt = 0L
 
     private val wifiAdbTracker = HookPolicyHelpers.WifiAdbTransitionTracker<Network>()
-
-    @Volatile
-    private var adbTriggerInitialized = false
-    @Volatile
-    private var adbRestoreOnBoot = false
-    @Volatile
-    private var adbAutoOnWifi = false
-    @Volatile
-    private var adbTakeOverSystem = false
-    @Volatile
-    private var adbTrustedSsids: Set<String> = emptySet()
+    private val adbTriggerConfig = HookPolicyHelpers.AdbTriggerConfigStore()
 
     fun schedule() {
         Thread {
@@ -207,18 +197,23 @@ internal class BootRestoreWatchdog(
                         }
                         ModuleStateParser.ACTION_DISCONNECT_SLAVE_WIFI -> onDisconnectSlaveWifi()
                         ModuleStateParser.ACTION_ADB_TRIGGER_CHANGED -> {
-                            adbRestoreOnBoot = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_RESTORE_ON_BOOT, false)
-                            adbAutoOnWifi = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_AUTO_ON_WIFI, false)
-                            adbTakeOverSystem = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_TAKE_OVER_SYSTEM, false)
-                            adbTrustedSsids = intent.getStringArrayListExtra(ModuleStateParser.EXTRA_ADB_TRUSTED_SSIDS)
-                                ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
-                            adbTriggerInitialized = true
-                            wifiAdbTracker.reset()
+                            val syncedConfig = HookPolicyHelpers.AdbTriggerConfig(
+                                restoreOnBoot = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_RESTORE_ON_BOOT, false),
+                                autoOnWifi = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_AUTO_ON_WIFI, false),
+                                takeOverSystem = intent.getBooleanExtra(ModuleStateParser.EXTRA_ADB_TAKE_OVER_SYSTEM, false),
+                                trustedSsids = intent.getStringArrayListExtra(ModuleStateParser.EXTRA_ADB_TRUSTED_SSIDS)
+                                    ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+                            )
+                            val resetTracker = adbTriggerConfig.update(syncedConfig)
+                            if (resetTracker) {
+                                wifiAdbTracker.reset()
+                            }
                             xposed.log(
                                 Log.INFO,
                                 HOOK_TAG,
-                                "[AdbTrigger] Synced config: boot=$adbRestoreOnBoot, wifi=$adbAutoOnWifi, " +
-                                    "takeover=$adbTakeOverSystem, ssids=${adbTrustedSsids.size}"
+                                "[AdbTrigger] Synced config: boot=${syncedConfig.restoreOnBoot}, " +
+                                    "wifi=${syncedConfig.autoOnWifi}, takeover=${syncedConfig.takeOverSystem}, " +
+                                    "ssids=${syncedConfig.trustedSsids.size}, trackerReset=$resetTracker"
                             )
                         }
                     }
@@ -246,20 +241,24 @@ internal class BootRestoreWatchdog(
     }
 
     private fun refreshAdbConfigFromRemotePrefs() {
-        if (adbTriggerInitialized) return
+        if (adbTriggerConfig.isInitialized()) return
         val prefs = runCatching { xposed.getRemotePreferences(PREF_NAME) }.getOrNull() ?: return
         val hasAnyKey = prefs.contains(RouteConfigProvider.KEY_ADB_RESTORE_ON_BOOT) ||
             prefs.contains(RouteConfigProvider.KEY_ADB_AUTO_ON_WIFI) ||
             prefs.contains(RouteConfigProvider.KEY_ADB_TAKE_OVER_SYSTEM)
         if (!hasAnyKey) return
-        adbRestoreOnBoot = prefs.getBoolean(RouteConfigProvider.KEY_ADB_RESTORE_ON_BOOT, false)
-        adbAutoOnWifi = prefs.getBoolean(RouteConfigProvider.KEY_ADB_AUTO_ON_WIFI, false)
-        adbTakeOverSystem = prefs.getBoolean(RouteConfigProvider.KEY_ADB_TAKE_OVER_SYSTEM, false)
-        adbTrustedSsids = runCatching {
-            prefs.getStringSet(RouteConfigProvider.KEY_ADB_TRUSTED_SSIDS, emptySet())
-                ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
-        }.getOrNull() ?: emptySet()
-        adbTriggerInitialized = true
+        val syncedConfig = HookPolicyHelpers.AdbTriggerConfig(
+            restoreOnBoot = prefs.getBoolean(RouteConfigProvider.KEY_ADB_RESTORE_ON_BOOT, false),
+            autoOnWifi = prefs.getBoolean(RouteConfigProvider.KEY_ADB_AUTO_ON_WIFI, false),
+            takeOverSystem = prefs.getBoolean(RouteConfigProvider.KEY_ADB_TAKE_OVER_SYSTEM, false),
+            trustedSsids = runCatching {
+                prefs.getStringSet(RouteConfigProvider.KEY_ADB_TRUSTED_SSIDS, emptySet())
+                    ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+            }.getOrNull() ?: emptySet()
+        )
+        if (adbTriggerConfig.update(syncedConfig)) {
+            wifiAdbTracker.reset()
+        }
     }
 
     private fun registerUserUnlockedReceiver() {
@@ -273,7 +272,7 @@ internal class BootRestoreWatchdog(
                 override fun onReceive(ctx: Context?, intent: Intent?) {
                     if (intent?.action != Intent.ACTION_USER_UNLOCKED) return
                     refreshAdbConfigFromRemotePrefs()
-                    if (!adbTriggerInitialized || adbRestoreOnBoot || adbTakeOverSystem || adbAutoOnWifi) {
+                    if (!adbTriggerConfig.isInitialized() || adbTriggerConfig.snapshot().shouldWakeOnUnlock()) {
                         xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Device unlocked; waking app to check wireless ADB")
                         dispatchRestoreBroadcast(reason = REASON_USER_UNLOCKED)
                     }
@@ -307,14 +306,15 @@ internal class BootRestoreWatchdog(
             fun onWifiCapabilities(network: Network, capabilities: NetworkCapabilities) {
                 val unlocked = runCatching { context.getSystemService(UserManager::class.java)?.isUserUnlocked == true }
                     .getOrDefault(false)
+                refreshAdbConfigFromRemotePrefs()
+                val config = adbTriggerConfig.snapshot()
                 val matchedSsid = wifiAdbTracker.onCapabilities(
                     network = network,
                     rawSsid = extractRawSsid(capabilities),
                     unlocked = unlocked,
                     nowMs = System.currentTimeMillis()
                 ) { ssid ->
-                    refreshAdbConfigFromRemotePrefs()
-                    adbAutoOnWifi || adbTakeOverSystem || (adbRestoreOnBoot && ssid in adbTrustedSsids)
+                    config.shouldWakeForSsid(ssid)
                 } ?: return
 
                 xposed.log(Log.INFO, HOOK_TAG, "[AdbTrigger] Wi-Fi connected ($matchedSsid); waking app")
