@@ -5,7 +5,7 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
-## Unreleased
+## v1.8.2 - 2026-11-17
 
 **中文**
 
