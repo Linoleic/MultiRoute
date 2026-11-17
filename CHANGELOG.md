@@ -20,6 +20,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 - 加固跨用户/应用分身包查询（完成哨兵与失败重试）及 VPN UID 范围排除策略，避免分身或次级用户规则同步异常。
 - 解决 HyperOS 重启后无线调试恢复不触发问题，并在系统受信任 Wi-Fi（如 Android 17 自动启用 TLS）下明确区分触发来源与接管覆盖结果。
+- 修复双 Wi-Fi 下按 `Network` 独立跟踪 SSID 跃迁时被重复配置同步触发反复唤醒的问题，并在开机脚本等待循环前后补全包卸载自清理检查。
 
 **English**
 
@@ -33,6 +34,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 - Hardened secondary-user/clone listing with a completion sentinel and retry, along with VPN UID range policy checks.
 - Fixed wireless ADB recovery being skipped on HyperOS reboots and clarified activation source vs. system trusted-network overrides on Android 17.
+- Tracked Wi-Fi SSID transitions per `Network` without resetting on unchanged config syncs to eliminate dual-Wi-Fi RSSI wakeup loops, and rechecked package-uninstall cleanup across the boot script wait loop.
 
 ## v1.8.1 - 2026-11-14
 
