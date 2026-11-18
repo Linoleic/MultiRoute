@@ -3,6 +3,7 @@ package com.multiroute.ui.main
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -57,7 +58,7 @@ internal fun ModuleIndicatorIcon(indicator: ModuleIndicator, modifier: Modifier 
             ModuleIndicator.READY -> Icons.Default.CheckCircle
             ModuleIndicator.RESTART_REQUIRED -> Icons.Default.Error
             ModuleIndicator.ERROR -> Icons.Default.Cancel
-            else -> Icons.Default.Help
+            else -> Icons.AutoMirrored.Filled.Help
         }, contentDescription = null, tint = moduleIndicatorColor(indicator), modifier = modifier
     )
 }
@@ -85,7 +86,7 @@ private fun statusDescription(state: MainUiState): String = when (moduleIndicato
 internal fun ModuleStatusButton(state: MainUiState, onClick: () -> Unit) {
     val indicator = moduleIndicator(state.diagnosticInfo, state.isEnvironmentRefreshing, state.environmentRefreshFailed)
     val description = stringResource(R.string.module_status_accessibility, statusDescription(state))
-    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(description) } }, state = rememberTooltipState()) {
         IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
             ModuleIndicatorIcon(indicator, Modifier.size(22.dp))

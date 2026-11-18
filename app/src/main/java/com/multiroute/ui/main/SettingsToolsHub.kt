@@ -13,10 +13,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,18 +45,22 @@ private enum class PreferencePage(@StringRes val title: Int, @StringRes val summ
     DUAL_WIFI(R.string.settings_dual_wifi_card_title, R.string.settings_dual_wifi_card_desc, Icons.Default.Wifi),
     HOTSPOT(R.string.settings_hotspot_card_title, R.string.settings_hotspot_card_desc_inactive, Icons.Default.WifiTethering),
     WIRELESS(R.string.adb_helper_title, R.string.tools_adb_summary, Icons.Default.Terminal),
-    LOGS(R.string.settings_logs_title, R.string.tools_logs_summary, Icons.Default.Article)
+    LOGS(R.string.settings_logs_title, R.string.tools_logs_summary, Icons.AutoMirrored.Filled.Article)
 }
 
 internal enum class DestinationLayout { BottomBar, CompactRail, StandardRail }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: DestinationLayout) {
     val labels = listOf(R.string.tab_routing, R.string.tab_channels, R.string.tab_tools, R.string.tab_settings)
     val icons = listOf(Icons.Default.Apps, Icons.Default.Hub, Icons.Default.Build, Icons.Default.Tune)
     if (layout != DestinationLayout.BottomBar) {
         val compact = layout == DestinationLayout.CompactRail
-        NavigationRail(Modifier.fillMaxHeight()) {
+        NavigationRail(
+            modifier = Modifier.fillMaxHeight(),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()).selectableGroup(),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -70,7 +76,7 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
                             contentAlignment = Alignment.Center
                         ) {
                             Surface(
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                                shape = androidx.compose.foundation.shape.CircleShape,
                                 color = if (current) MaterialTheme.colorScheme.secondaryContainer
                                 else androidx.compose.ui.graphics.Color.Transparent,
                                 contentColor = if (current) MaterialTheme.colorScheme.onSecondaryContainer
@@ -92,10 +98,14 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
                 }
             }
         }
-    } else NavigationBar {
+    } else ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         labels.forEachIndexed { index, label ->
-            NavigationBarItem(selected == index, { onSelect(index) },
-                icon = { Icon(icons[index], contentDescription = null) }, label = { Text(stringResource(label)) })
+            ShortNavigationBarItem(
+                selected = selected == index,
+                onClick = { onSelect(index) },
+                icon = { Icon(icons[index], contentDescription = null) },
+                label = { Text(stringResource(label)) }
+            )
         }
     }
 }
@@ -164,6 +174,7 @@ internal fun SettingsToolsHub(uiState: MainUiState, viewModel: MainScreenViewMod
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PreferenceOverview(
     uiState: MainUiState, viewModel: MainScreenViewModel, tools: Boolean,
@@ -171,18 +182,37 @@ private fun PreferenceOverview(
     overviewScroll: androidx.compose.foundation.lazy.LazyListState,
     onSelect: (PreferencePage) -> Unit
 ) {
+    val groupBounds = remember(pages, tools) {
+        if (!tools) pages.associateWith { pages.indexOf(it) to pages.size }
+        else mapOf(
+            PreferencePage.CELLULAR to (0 to 3),
+            PreferencePage.DUAL_WIFI to (1 to 3),
+            PreferencePage.HOTSPOT to (2 to 3),
+            PreferencePage.WIRELESS to (0 to 2),
+            PreferencePage.LOGS to (1 to 2)
+        )
+    }
     LazyColumn(
         state = overviewScroll,
         modifier = if (dualPane) Modifier.width(300.dp).fillMaxHeight() else Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (!dualPane && !tools) 12.dp else ListItemDefaults.SegmentedGap)
     ) {
-        item {
-            Text(stringResource(if (tools) R.string.tab_tools else R.string.tab_settings),
-                style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 8.dp))
+        item(key = "overview-heading") {
+            Text(
+                stringResource(if (tools) R.string.tab_tools else R.string.tab_settings),
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
         }
-        items(pages, key = { it.name }) { page ->
-            if (tools && page == PreferencePage.CELLULAR) SettingsSectionLabel(R.string.tools_network_management)
-            if (tools && page == PreferencePage.WIRELESS) SettingsSectionLabel(R.string.tools_debugging)
+        itemsIndexed(pages, key = { _, page -> page.name }) { _, page ->
+            if (tools && page == PreferencePage.CELLULAR) {
+                SettingsSectionLabel(R.string.tools_network_management)
+            }
+            if (tools && page == PreferencePage.WIRELESS) {
+                Spacer(Modifier.height(10.dp))
+                SettingsSectionLabel(R.string.tools_debugging)
+            }
             val summary = when (page) {
                 PreferencePage.APPEARANCE -> {
                     val theme = when (ThemeSettings.mode) {
@@ -217,12 +247,23 @@ private fun PreferenceOverview(
                         else -> Unit
                     }
                 }
-            } else SettingsEntry(stringResource(page.title), summary, page.icon,
-                selected = current == page, onClick = { onSelect(page) })
+            } else {
+                val (groupIndex, groupCount) = groupBounds[page] ?: (0 to 1)
+                SettingsEntry(
+                    title = stringResource(page.title),
+                    summary = summary,
+                    icon = page.icon,
+                    selected = current == page,
+                    index = groupIndex,
+                    count = groupCount,
+                    onClick = { onSelect(page) }
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PreferenceDetail(
     uiState: MainUiState, viewModel: MainScreenViewModel, page: PreferencePage,
@@ -243,7 +284,7 @@ private fun PreferenceDetail(
                 modifier = Modifier.weight(1f))
             if (wifiViewModel != null) IconButton(onClick = wifiViewModel::checkCapability,
                 enabled = wifiState?.status?.isScanning != true) {
-                if (wifiState?.status?.isScanning == true) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                if (wifiState?.status?.isScanning == true) LoadingIndicator(Modifier.size(24.dp))
                 else Icon(Icons.Default.Refresh, stringResource(R.string.dual_wifi_recheck))
             }
         }
@@ -275,27 +316,53 @@ private fun PreferenceDetail(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun SettingsEntry(title: String, summary: String, icon: ImageVector, selected: Boolean = false, onClick: () -> Unit) {
-    val background by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-        label = "preferenceSelection")
-    Surface(shape = MaterialTheme.shapes.large, color = background) {
-        ListItem(modifier = Modifier.clickable(onClick = onClick),
-            headlineContent = { Text(title) }, supportingContent = { Text(summary, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
-    }
+internal fun SettingsEntry(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    selected: Boolean = false,
+    index: Int = 0,
+    count: Int = 1,
+    onClick: () -> Unit
+) {
+    SegmentedListItem(
+        selected = selected,
+        onClick = onClick,
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        colors = ListItemDefaults.segmentedColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            selectedLeadingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            selectedSupportingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            selectedTrailingContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        ),
+        leadingContent = {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.primary
+            )
+        },
+        supportingContent = { Text(summary, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        content = { Text(title, style = MaterialTheme.typography.bodyLarge) }
+    )
 }
 
 @Composable
 internal fun PreferenceChoiceRow(title: String, choices: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
     var show by rememberSaveable { mutableStateOf(false) }
-    ListItem(modifier = Modifier.clickable { show = true }, headlineContent = { Text(title) },
+    ListItem(
+        onClick = { show = true },
         supportingContent = { Text(choices.firstOrNull { it.first == selected }?.second.orEmpty()) },
-        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
-        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+        content = { Text(title) }
+    )
     if (show) AlertDialog(onDismissRequest = { show = false }, title = { Text(title) }, text = {
         Column {
             choices.forEach { (value, label) ->

@@ -1,11 +1,9 @@
 package com.multiroute.ui.main
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -18,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -29,6 +26,18 @@ import com.multiroute.model.NetworkChannel
 import com.multiroute.theme.RoutingDimensions
 import com.multiroute.util.NetworkUtils
 
+private data class ChannelPickerEntry(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val note: String? = null,
+    val icon: ImageVector,
+    val selected: Boolean? = null,
+    val enabled: Boolean = true,
+    val onClick: () -> Unit
+)
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ChannelSelectBottomSheet(
     app: AppItem,
@@ -37,57 +46,72 @@ internal fun ChannelSelectBottomSheet(
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val offline = app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.matchesTarget(app) }
-    ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
-        item {
-            ChannelPickerHeader(app.appName, app.packageName, app)
-            Text(
-                text = stringResource(R.string.ui_assign_channel),
-                modifier = Modifier.padding(
-                    horizontal = RoutingDimensions.contentPadding,
-                    vertical = RoutingDimensions.rowVerticalPadding
-                ).semantics { heading() },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        item {
-            ChannelOption(
+    val entries = buildList {
+        add(
+            ChannelPickerEntry(
+                key = "default",
                 title = stringResource(R.string.ui_default_follow_system),
                 subtitle = stringResource(R.string.ui_default_follow_system_desc),
                 icon = Icons.Default.Language,
                 selected = app.targetChannelId == CHANNEL_DEFAULT,
                 onClick = { onSelectChannel(CHANNEL_DEFAULT) }
             )
-        }
-        items(channels, key = { "channel:${it.id}" }) { channel ->
+        )
+        channels.forEach { channel ->
             val forbidden = isForbidden(channel)
-            ChannelOption(
-                title = NetworkUtils.channelLabel(LocalContext.current, channel),
-                subtitle = if (forbidden) stringResource(R.string.channel_vpn_self_forbidden)
-                else channelOptionSubtitle(channel),
-                icon = getTransportIcon(channel.transportType),
-                selected = channel.matchesTarget(app),
-                enabled = !forbidden,
-                onClick = { onSelectChannel(channel.id) }
+            add(
+                ChannelPickerEntry(
+                    key = "channel:${channel.id}",
+                    title = NetworkUtils.channelLabel(context, channel),
+                    subtitle = if (forbidden) stringResource(R.string.channel_vpn_self_forbidden)
+                    else channelOptionSubtitle(channel),
+                    icon = getTransportIcon(channel.transportType),
+                    selected = channel.matchesTarget(app),
+                    enabled = !forbidden,
+                    onClick = { onSelectChannel(channel.id) }
+                )
             )
         }
-        if (offline) item {
-            ChannelOption(
-                title = stringResource(
-                    R.string.ui_channel_offline,
-                    NetworkUtils.savedTargetLabel(LocalContext.current, app.targetChannelId)
-                ),
-                subtitle = stringResource(R.string.ui_iface_offline_note),
-                icon = Icons.Default.CloudOff,
-                selected = true,
-                enabled = false,
-                onClick = {}
+        if (offline) {
+            add(
+                ChannelPickerEntry(
+                    key = "offline",
+                    title = stringResource(
+                        R.string.ui_channel_offline,
+                        NetworkUtils.savedTargetLabel(context, app.targetChannelId)
+                    ),
+                    subtitle = stringResource(R.string.ui_iface_offline_note),
+                    icon = Icons.Default.CloudOff,
+                    selected = true,
+                    enabled = false,
+                    onClick = {}
+                )
             )
+        }
+    }
+
+    ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
+        item(key = "header") {
+            ChannelPickerHeader(app.appName, app.packageName, app)
+            Text(
+                text = stringResource(R.string.ui_assign_channel),
+                modifier = Modifier.padding(
+                    top = RoutingDimensions.rowVerticalPadding,
+                    bottom = RoutingDimensions.textGap
+                ).semantics { heading() },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
+            ChannelOption(entry = entry, index = index, count = entries.size)
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun BatchChannelSelectBottomSheet(
     selectedCount: Int,
@@ -96,41 +120,52 @@ internal fun BatchChannelSelectBottomSheet(
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    ChannelPickerSheet(singleChoice = false, onDismiss = onDismiss) {
-        item {
-            ChannelPickerHeader(
-                title = stringResource(R.string.ui_choose_target_channel),
-                subtitle = stringResource(R.string.ui_batch_assign_desc, selectedCount)
-            )
-        }
-        item {
-            ChannelOption(
+    val context = LocalContext.current
+    val entries = buildList {
+        add(
+            ChannelPickerEntry(
+                key = "default",
                 title = stringResource(R.string.ui_default_no_routing),
                 subtitle = stringResource(R.string.ui_clear_assigned_desc, selectedCount),
                 icon = Icons.Default.Language,
                 onClick = { onSelectChannel(CHANNEL_DEFAULT) }
             )
-        }
-        items(channels, key = { "channel:${it.id}" }) { channel ->
+        )
+        channels.forEach { channel ->
             val blocked = blockedVpnCounts[channel.id] ?: 0
             val available = selectedCount > blocked
-            ChannelOption(
-                title = NetworkUtils.channelLabel(LocalContext.current, channel),
-                subtitle = channelOptionSubtitle(channel),
-                note = when {
-                    !available -> stringResource(R.string.routing_batch_vpn_unavailable)
-                    blocked > 0 -> stringResource(R.string.routing_batch_vpn_skipped, blocked)
-                    else -> null
-                },
-                icon = getTransportIcon(channel.transportType),
-                enabled = available,
-                onClick = { onSelectChannel(channel.id) }
+            add(
+                ChannelPickerEntry(
+                    key = "channel:${channel.id}",
+                    title = NetworkUtils.channelLabel(context, channel),
+                    subtitle = channelOptionSubtitle(channel),
+                    note = when {
+                        !available -> stringResource(R.string.routing_batch_vpn_unavailable)
+                        blocked > 0 -> stringResource(R.string.routing_batch_vpn_skipped, blocked)
+                        else -> null
+                    },
+                    icon = getTransportIcon(channel.transportType),
+                    enabled = available,
+                    onClick = { onSelectChannel(channel.id) }
+                )
             )
+        }
+    }
+
+    ChannelPickerSheet(singleChoice = false, onDismiss = onDismiss) {
+        item(key = "header") {
+            ChannelPickerHeader(
+                title = stringResource(R.string.ui_choose_target_channel),
+                subtitle = stringResource(R.string.ui_batch_assign_desc, selectedCount)
+            )
+        }
+        itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
+            ChannelOption(entry = entry, index = index, count = entries.size)
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ChannelPickerSheet(
     singleChoice: Boolean,
@@ -139,11 +174,18 @@ private fun ChannelPickerSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxWidth().then(if (singleChoice) Modifier.selectableGroup() else Modifier),
-            contentPadding = PaddingValues(bottom = RoutingDimensions.contentPadding),
+            contentPadding = PaddingValues(
+                start = RoutingDimensions.contentPadding,
+                end = RoutingDimensions.contentPadding,
+                bottom = RoutingDimensions.contentPadding + 8.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             content = content
         )
     }
@@ -152,10 +194,7 @@ private fun ChannelPickerSheet(
 @Composable
 private fun ChannelPickerHeader(title: String, subtitle: String, app: AppItem? = null) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(
-            horizontal = RoutingDimensions.contentPadding,
-            vertical = RoutingDimensions.rowVerticalPadding
-        ),
+        modifier = Modifier.fillMaxWidth().padding(bottom = RoutingDimensions.rowVerticalPadding),
         horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -170,77 +209,77 @@ private fun ChannelPickerHeader(title: String, subtitle: String, app: AppItem? =
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ChannelOption(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    selected: Boolean? = null,
-    enabled: Boolean = true,
-    note: String? = null,
-    onClick: () -> Unit
+    entry: ChannelPickerEntry,
+    index: Int,
+    count: Int
 ) {
-    val action = if (selected != null) {
-        Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
-    } else {
-        Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-    }
-    if (selected == true) {
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-        ) {
-            ChannelOptionContent(title, subtitle, icon, selected, enabled, note, action)
+    val shapes = ListItemDefaults.segmentedShapes(index = index, count = count)
+    val colors = ListItemDefaults.segmentedColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedLeadingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedTrailingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedSupportingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        disabledLeadingContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        disabledTrailingContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        disabledSupportingContentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+    )
+    val supporting: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(entry.subtitle, style = MaterialTheme.typography.bodyMedium)
+            if (entry.note != null) {
+                Text(
+                    entry.note,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (entry.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+            }
         }
-    } else {
-        ChannelOptionContent(title, subtitle, icon, selected, enabled, note, action)
     }
-}
-
-@Composable
-private fun ChannelOptionContent(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    selected: Boolean?,
-    enabled: Boolean,
-    note: String?,
-    action: Modifier
-) {
-    val supportingColor = if (selected == true) MaterialTheme.colorScheme.onSecondaryContainer
-    else MaterialTheme.colorScheme.onSurfaceVariant
-    Row(
-        modifier = Modifier.fillMaxWidth().then(action).heightIn(min = RoutingDimensions.touchTarget).padding(
-            horizontal = RoutingDimensions.contentPadding,
-            vertical = RoutingDimensions.rowVerticalPadding
-        ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
-    ) {
-        Icon(icon, contentDescription = null, tint = supportingColor)
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)
-        ) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = supportingColor)
-            if (note != null) Text(note, style = MaterialTheme.typography.bodyMedium, color = supportingColor)
-        }
-        if (selected != null) {
-            RadioButton(selected = selected, enabled = enabled, onClick = null)
+    val leading: @Composable () -> Unit = {
+        Icon(entry.icon, contentDescription = null)
+    }
+    val trailing: @Composable () -> Unit = {
+        if (entry.selected != null) {
+            RadioButton(selected = entry.selected, enabled = entry.enabled, onClick = null)
         } else {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = supportingColor,
                 modifier = Modifier.size(20.dp)
             )
         }
     }
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = RoutingDimensions.contentPadding),
-        color = MaterialTheme.colorScheme.outlineVariant
-    )
+    if (entry.selected != null) {
+        SegmentedListItem(
+            selected = entry.selected,
+            onClick = entry.onClick,
+            shapes = shapes,
+            enabled = entry.enabled,
+            colors = colors,
+            leadingContent = leading,
+            supportingContent = supporting,
+            trailingContent = trailing,
+            content = { Text(entry.title, style = MaterialTheme.typography.bodyLarge) }
+        )
+    } else {
+        SegmentedListItem(
+            onClick = entry.onClick,
+            shapes = shapes,
+            enabled = entry.enabled,
+            colors = colors,
+            leadingContent = leading,
+            supportingContent = supporting,
+            trailingContent = trailing,
+            content = { Text(entry.title, style = MaterialTheme.typography.bodyLarge) }
+        )
+    }
 }
 
 private fun NetworkChannel.matchesTarget(app: AppItem) = id == app.targetChannelId || interfaceName == app.targetChannelId

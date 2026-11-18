@@ -2,7 +2,6 @@ package com.multiroute.ui.main
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -91,28 +90,47 @@ private fun toolIcon(tool: NetworkTool) = when (tool) {
     NetworkTool.HOTSPOT -> Icons.Default.WifiTethering
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal fun LazyListScope.activationCandidateItems(candidates: List<ActivationCandidate>, onOpen: (NetworkTool) -> Unit) {
     val (establishing, inactive) = candidates.partition { it.state == ActivationState.STARTING || it.state == ActivationState.WAITING }
     if (inactive.isNotEmpty()) {
         item(key = "inactive-heading") { SettingsSectionLabel(R.string.channels_pending) }
-        items(inactive, key = { "pending-${it.target}" }) { candidate -> ActivationEntry(candidate, onOpen) }
+        item(key = "inactive-group") {
+            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                inactive.forEachIndexed { index, candidate ->
+                    ActivationEntry(candidate, index, inactive.size, onOpen)
+                }
+            }
+        }
     }
     if (establishing.isNotEmpty()) {
         item(key = "establishing-heading") { SettingsSectionLabel(R.string.channels_establishing) }
-        items(establishing, key = { "establishing-${it.target}" }) { candidate -> ActivationEntry(candidate, onOpen) }
+        item(key = "establishing-group") {
+            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                establishing.forEachIndexed { index, candidate ->
+                    ActivationEntry(candidate, index, establishing.size, onOpen)
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun ActivationEntry(candidate: ActivationCandidate, onOpen: (NetworkTool) -> Unit) {
+private fun ActivationEntry(candidate: ActivationCandidate, index: Int, count: Int, onOpen: (NetworkTool) -> Unit) {
     val summary = when (candidate.state) {
         ActivationState.CHECK_SUPPORT -> R.string.channels_check_support
         ActivationState.STARTING -> R.string.channels_starting
         ActivationState.WAITING -> R.string.channels_waiting
         ActivationState.INACTIVE -> R.string.channels_open_management
     }
-    SettingsEntry(stringResource(toolTitle(candidate.target)), stringResource(summary), toolIcon(candidate.target),
-        onClick = { onOpen(candidate.target) })
+    SettingsEntry(
+        title = stringResource(toolTitle(candidate.target)),
+        summary = stringResource(summary),
+        icon = toolIcon(candidate.target),
+        index = index,
+        count = count,
+        onClick = { onOpen(candidate.target) }
+    )
 }
 
 @Composable

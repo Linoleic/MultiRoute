@@ -48,7 +48,7 @@ enum class AdbModeChoice {
     TCP
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WirelessAdbCard(showTitle: Boolean = true) {
     val context = LocalContext.current
@@ -142,7 +142,11 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
         (currentChoice == AdbModeChoice.TCP && isPortValid && parsedPort != activePort)
     )
 
-    ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (showTitle) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -156,9 +160,8 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
+                        LoadingIndicator(
+                            modifier = Modifier.size(18.dp),
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
@@ -316,60 +319,88 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
-                Row(
+                val toggleColors = ToggleButtonDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                val selectOff: () -> Unit = {
+                    if (isEnabled) {
+                        confirmOff = true
+                    } else {
+                        selectedChoice = AdbModeChoice.OFF
+                    }
+                }
+                val selectTls: () -> Unit = {
+                    selectedChoice = AdbModeChoice.TLS
+                    selectedMode = AdbMode.TLS
+                    scope.launch(Dispatchers.IO) {
+                        WirelessAdbController.updateConfig(context, AdbMode.TLS, parsedPort ?: 5555)
+                    }
+                }
+                val selectTcp: () -> Unit = {
+                    selectedChoice = AdbModeChoice.TCP
+                    selectedMode = AdbMode.TCP
+                    scope.launch(Dispatchers.IO) {
+                        WirelessAdbController.updateConfig(context, AdbMode.TCP, parsedPort ?: 5555)
+                    }
+                }
+                ButtonGroup(
+                    overflowIndicator = { ButtonGroupDefaults.OverflowIndicator(it) },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                 ) {
-                    FilterChip(
-                        selected = currentChoice == AdbModeChoice.OFF,
-                        onClick = {
-                            if (isEnabled) {
-                                confirmOff = true
-                            } else {
-                                selectedChoice = AdbModeChoice.OFF
-                            }
-                        },
-                        enabled = !busy && !loading,
-                        label = {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    customItem(
+                        buttonGroupContent = {
+                            ToggleButton(
+                                checked = currentChoice == AdbModeChoice.OFF,
+                                onCheckedChange = { selectOff() },
+                                enabled = !busy && !loading,
+                                modifier = Modifier.weight(1f),
+                                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                                colors = toggleColors
+                            ) {
                                 Text(stringResource(R.string.adb_mode_off))
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        menuContent = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.adb_mode_off)) }, onClick = selectOff)
+                        }
                     )
-                    FilterChip(
-                        selected = currentChoice == AdbModeChoice.TLS,
-                        onClick = {
-                            selectedChoice = AdbModeChoice.TLS
-                            selectedMode = AdbMode.TLS
-                            scope.launch(Dispatchers.IO) {
-                                WirelessAdbController.updateConfig(context, AdbMode.TLS, parsedPort ?: 5555)
-                            }
-                        },
-                        enabled = !busy && !loading,
-                        label = {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    customItem(
+                        buttonGroupContent = {
+                            ToggleButton(
+                                checked = currentChoice == AdbModeChoice.TLS,
+                                onCheckedChange = { selectTls() },
+                                enabled = !busy && !loading,
+                                modifier = Modifier.weight(1f),
+                                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
+                                colors = toggleColors
+                            ) {
                                 Text(stringResource(R.string.adb_mode_tls))
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        menuContent = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.adb_mode_tls)) }, onClick = selectTls)
+                        }
                     )
-                    FilterChip(
-                        selected = currentChoice == AdbModeChoice.TCP,
-                        onClick = {
-                            selectedChoice = AdbModeChoice.TCP
-                            selectedMode = AdbMode.TCP
-                            scope.launch(Dispatchers.IO) {
-                                WirelessAdbController.updateConfig(context, AdbMode.TCP, parsedPort ?: 5555)
-                            }
-                        },
-                        enabled = !busy && !loading,
-                        label = {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    customItem(
+                        buttonGroupContent = {
+                            ToggleButton(
+                                checked = currentChoice == AdbModeChoice.TCP,
+                                onCheckedChange = { selectTcp() },
+                                enabled = !busy && !loading,
+                                modifier = Modifier.weight(1f),
+                                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                                colors = toggleColors
+                            ) {
                                 Text(stringResource(R.string.adb_mode_tcp))
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        menuContent = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.adb_mode_tcp)) }, onClick = selectTcp)
+                        }
                     )
                 }
                 Text(
@@ -459,7 +490,8 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         }
                     },
                     enabled = !loading && !busy && (currentChoice != AdbModeChoice.TCP || isPortValid),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Text(
                         stringResource(

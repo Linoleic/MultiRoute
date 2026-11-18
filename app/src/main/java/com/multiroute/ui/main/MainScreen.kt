@@ -20,6 +20,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
@@ -73,7 +75,7 @@ import com.multiroute.util.ModuleStatus
 import kotlinx.coroutines.flow.StateFlow
 import com.multiroute.util.SuHelper
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MainScreen(
     onItemClick: (androidx.navigation3.runtime.NavKey) -> Unit = {},
@@ -186,24 +188,51 @@ fun MainScreen(
                             }
                             if (useScenarioIcon) {
                                 TooltipBox(
-                                    positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                                    positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
                                     tooltip = { PlainTooltip { Text(actionLabel) } },
                                     state = rememberTooltipState()
                                 ) {
-                                    IconButton(onClick = onScenarioAction) {
+                                    FilledTonalIconButton(
+                                        onClick = onScenarioAction,
+                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                            containerColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                                MaterialTheme.colorScheme.secondaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                            },
+                                            contentColor = scenarioColor
+                                        )
+                                    ) {
                                         Icon(
                                             if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
-                                            contentDescription = actionLabel,
-                                            tint = scenarioColor
+                                            contentDescription = actionLabel
                                         )
                                     }
                                 }
                             } else {
-                                TextButton(onClick = onScenarioAction, modifier = Modifier.widthIn(max = 180.dp)) {
+                                FilledTonalButton(
+                                    onClick = onScenarioAction,
+                                    modifier = Modifier.widthIn(max = 180.dp),
+                                    shapes = ButtonDefaults.shapes(),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        },
+                                        contentColor = scenarioColor
+                                    )
+                                ) {
+                                    Icon(
+                                        if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
                                     Text(
                                         text = actionLabel,
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = scenarioColor,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -394,7 +423,7 @@ fun MainScreen(
 /**
  * Tab 0: 应用分流规则列表 (支持单项配置与批量分配)
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AppRulesTab(
     uiState: MainUiState,
@@ -411,6 +440,7 @@ fun AppRulesTab(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppRulesContent(
     uiState: MainUiState,
@@ -418,25 +448,34 @@ private fun AppRulesContent(
     stackChannel: Boolean,
     modifier: Modifier
 ) {
-    Column(modifier) {
+    val toggleColors = ToggleButtonDefaults.colors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    )
+    val toggleShapes = ToggleButtonDefaults.shapesFor(ToggleButtonDefaults.MinHeight)
+    val listBottomPadding = if (uiState.isSelectionMode) 96.dp else RoutingDimensions.contentPadding
+
+    Box(modifier) {
         LazyColumn(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(horizontal = RoutingDimensions.contentPadding),
-            contentPadding = PaddingValues(bottom = RoutingDimensions.contentPadding)
+            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            contentPadding = PaddingValues(bottom = listBottomPadding)
         ) {
             // 搜索与过滤器
-            item {
+            item(key = "routing-controls") {
                 Column(
-                    modifier = Modifier.padding(vertical = RoutingDimensions.rowVerticalPadding),
-                    verticalArrangement = Arrangement.spacedBy(RoutingDimensions.rowVerticalPadding)
+                    modifier = Modifier.padding(top = RoutingDimensions.rowVerticalPadding, bottom = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
                         value = uiState.searchQuery,
                         onValueChange = { viewModel.setSearchQuery(it) },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text(stringResource(R.string.ui_search_hint)) },
+                        placeholder = { Text(stringResource(R.string.ui_search_hint)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
@@ -454,6 +493,13 @@ private fun AppRulesContent(
                                 }
                             }
                         },
+                        shape = CircleShape,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
+                        ),
                         singleLine = true
                     )
 
@@ -464,54 +510,67 @@ private fun AppRulesContent(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FilterChip(
-                            selected = uiState.filterChannelId == null,
-                            onClick = { viewModel.setFilterChannelId(null) },
-                            label = { Text(stringResource(com.multiroute.R.string.filter_all)) }
-                        )
-                        FilterChip(
-                            selected = uiState.filterChannelId == "configured",
-                            onClick = {
+                        ToggleButton(
+                            checked = uiState.filterChannelId == null,
+                            onCheckedChange = { viewModel.setFilterChannelId(null) },
+                            shapes = toggleShapes,
+                            colors = toggleColors,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(stringResource(R.string.filter_all))
+                        }
+                        ToggleButton(
+                            checked = uiState.filterChannelId == "configured",
+                            onCheckedChange = {
                                 viewModel.setFilterChannelId(
                                     if (uiState.filterChannelId == "configured") null else "configured"
                                 )
                             },
-                            label = { Text(stringResource(com.multiroute.R.string.ui_filter_routed, uiState.configuredAppsCount)) },
-                            leadingIcon = {
-                                if (uiState.filterChannelId == "configured") {
-                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                }
+                            shapes = toggleShapes,
+                            colors = toggleColors,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            if (uiState.filterChannelId == "configured") {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
                             }
-                        )
+                            Text(stringResource(R.string.ui_filter_routed, uiState.configuredAppsCount))
+                        }
 
                         // 动态按在线物理通道过滤 (排除热点下行通道)
                         for (channel in uiState.channels.filter { !it.isHotspot }) {
-                            FilterChip(
-                                selected = uiState.filterChannelId == channel.id,
-                                onClick = {
+                            ToggleButton(
+                                checked = uiState.filterChannelId == channel.id,
+                                onCheckedChange = {
                                     viewModel.setFilterChannelId(
                                         if (uiState.filterChannelId == channel.id) null else channel.id
                                     )
                                 },
-                                label = { Text(channel.shortName) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = getTransportIcon(channel.transportType),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            )
+                                shapes = toggleShapes,
+                                colors = toggleColors,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = getTransportIcon(channel.transportType),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(channel.shortName)
+                            }
                         }
 
-                        FilterChip(
-                            selected = uiState.showSystemApps,
-                            onClick = { viewModel.toggleShowSystemApps() },
-                            label = { Text(stringResource(com.multiroute.R.string.filter_system_apps)) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Android, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                        )
+                        ToggleButton(
+                            checked = uiState.showSystemApps,
+                            onCheckedChange = { viewModel.toggleShowSystemApps() },
+                            shapes = toggleShapes,
+                            colors = toggleColors,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Android, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.filter_system_apps))
+                        }
                     }
 
                     if (uiState.isSelectionMode) {
@@ -545,15 +604,30 @@ private fun AppRulesContent(
                 }
             }
 
-            if (uiState.isSyncing) item {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-                RoutingListStatus(stringResource(R.string.routing_syncing))
+            if (uiState.isSyncing) item(key = "routing-syncing") {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                    RoutingListStatus(stringResource(R.string.routing_syncing))
+                }
             }
 
-            if (uiState.isLoadingApps) item {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-                RoutingListStatus(stringResource(R.string.routing_loading_apps))
-            } else if (uiState.isInstalledAppsIncomplete) item {
+            if (uiState.isLoadingApps) item(key = "routing-loading") {
+                if (uiState.apps.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ContainedLoadingIndicator()
+                        RoutingListStatus(stringResource(R.string.routing_loading_apps))
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                        RoutingListStatus(stringResource(R.string.routing_loading_apps))
+                    }
+                }
+            } else if (uiState.isInstalledAppsIncomplete) item(key = "routing-incomplete") {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
@@ -570,7 +644,7 @@ private fun AppRulesContent(
 
             when {
                 uiState.isLoadingApps && uiState.apps.isEmpty() -> Unit
-                uiState.apps.isEmpty() -> item {
+                uiState.apps.isEmpty() -> item(key = "routing-empty") {
                     val hasFilters = uiState.searchQuery.isNotBlank() || uiState.filterChannelId != null
                     if (!uiState.isInstalledAppsIncomplete || hasFilters) {
                         RoutingListStatus(
@@ -590,65 +664,84 @@ private fun AppRulesContent(
                         }
                     }
                 }
-                else -> items(uiState.apps, key = { it.ruleKey }) { app ->
+                else -> itemsIndexed(uiState.apps, key = { _, app -> app.ruleKey }) { index, app ->
                     AppItemRow(
                         app = app,
                         channels = uiState.channels,
                         stackChannel = stackChannel,
+                        index = index,
+                        count = uiState.apps.size,
                         isSelectionMode = uiState.isSelectionMode,
                         isSelected = app.ruleKey in uiState.selectedRuleKeys,
                         onToggleSelect = { viewModel.toggleSelectApp(app.ruleKey) },
                         onClick = { viewModel.openAppSheet(app) },
                         onLongClick = { viewModel.enterSelectionMode(app.ruleKey) }
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }
 
-        // 批量操作吸底操作栏 (在多选模式激活时显示)
+        // 批量操作悬浮工具栏 (Material 3 Expressive HorizontalFloatingToolbar)
         AnimatedVisibility(
             visible = uiState.isSelectionMode,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            enter = FloatingToolbarDefaults.verticalEnterTransition(Alignment.Bottom),
+            exit = FloatingToolbarDefaults.verticalExitTransition(Alignment.Bottom),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = RoutingDimensions.contentPadding, vertical = 16.dp)
         ) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface
+            val selectedCount = uiState.selectedRuleKeys.size
+            val hasSelection = selectedCount > 0
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                HorizontalFloatingToolbar(
+                    expanded = true,
+                    colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
                 ) {
-                    OutlinedButton(
-                        onClick = { viewModel.exitSelectionMode() },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(stringResource(com.multiroute.R.string.ui_cancel))
+                    IconButton(onClick = { viewModel.exitSelectionMode() }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = stringResource(R.string.ui_cancel)
+                        )
                     }
-
-                    Button(
-                        onClick = { viewModel.openBatchAssignSheet() },
-                        modifier = Modifier.weight(2f),
-                        enabled = uiState.selectedRuleKeys.isNotEmpty(),
-                        shape = RoundedCornerShape(12.dp)
+                    IconButton(
+                        onClick = viewModel::selectAllFilteredApps,
+                        enabled = uiState.apps.isNotEmpty()
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            if (uiState.selectedRuleKeys.isEmpty()) stringResource(com.multiroute.R.string.ui_select_apps_to_assign)
-                            else stringResource(com.multiroute.R.string.ui_assign_channel_n, uiState.selectedRuleKeys.size)
+                            imageVector = Icons.Default.DoneAll,
+                            contentDescription = stringResource(R.string.ui_select_all)
                         )
                     }
+                }
+                ElevatedButton(
+                    onClick = { viewModel.openBatchAssignSheet() },
+                    enabled = hasSelection,
+                    modifier = Modifier.height(FloatingToolbarDefaults.ContainerSize),
+                    shapes = ButtonDefaults.shapes(),
+                    elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 3.dp),
+                    colors = ButtonDefaults.elevatedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    contentPadding = PaddingValues(horizontal = 20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (!hasSelection) stringResource(R.string.ui_select_apps_to_assign)
+                        else stringResource(R.string.ui_assign_channel_n, selectedCount),
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -658,6 +751,7 @@ private fun AppRulesContent(
 /**
  * Tab 1: 在线通道、出口测试与未就绪通道的管理入口
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChannelsTab(
     uiState: MainUiState,
@@ -670,133 +764,129 @@ fun ChannelsTab(
     ObserveChannelTraffic(viewModel)
     val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
 
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                SettingsSectionLabel(stringResource(com.multiroute.R.string.ui_active_channels, uiState.channels.size))
-            }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = RoutingDimensions.contentPadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp)
+            ) {
+                item(key = "channels-heading") {
+                    SettingsSectionLabel(stringResource(com.multiroute.R.string.ui_active_channels, uiState.channels.size))
+                }
 
-            if (uiState.channels.isEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        )
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = stringResource(com.multiroute.R.string.ui_no_active_network),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error
+                if (uiState.channels.isEmpty()) {
+                    item(key = "channels-empty") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                             )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.ui_no_active_network),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
+                } else {
+                    items(uiState.channels, key = { it.id }) { channel ->
+                        ChannelDetailCard(
+                            channel = channel,
+                            testResult = uiState.testResults[channel.id],
+                            trafficFlow = viewModel.channelTraffic,
+                            onClick = { viewModel.selectChannelForDetail(channel) }
+                        )
+                    }
                 }
-            } else {
-                items(uiState.channels, key = { it.id }) { channel ->
-                    ChannelDetailCard(
-                        channel = channel,
-                        testResult = uiState.testResults[channel.id],
-                        trafficFlow = viewModel.channelTraffic,
-                        onClick = { viewModel.selectChannelForDetail(channel) }
-                    )
+
+                activationCandidateItems(candidates) { target ->
+                    viewModel.openNetworkTool(target)
                 }
             }
 
-            activationCandidateItems(candidates) { target ->
-                viewModel.openNetworkTool(target)
-            }
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-        }
-
-        // 界面下方：测试节点提示条与诊断操作区
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            // 界面下方：测试节点提示条与诊断操作区
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             ) {
-                // 当前测试节点提示条（精简文案并支持点击切换）
-                Surface(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { viewModel.openTestServerDialog() },
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(8.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    // 当前测试节点提示条（点击切换）
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { viewModel.openTestServerDialog() },
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.medium
                     ) {
                         Row(
-                            modifier = Modifier.weight(1f, fill = false),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Dns,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.outline
-                            )
+                            Row(
+                                modifier = Modifier.weight(1f, fill = false),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Dns,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = stringResource(com.multiroute.R.string.ui_test_node_2, uiState.testServerConfig.displayName(LocalContext.current)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             Text(
-                                text = stringResource(com.multiroute.R.string.ui_test_node_2, uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current)),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = stringResource(com.multiroute.R.string.ui_change),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
-                        Text(
-                            text = stringResource(com.multiroute.R.string.ui_change),
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
                     }
-                }
 
-                // 精简文案的诊断测试按钮
-                Button(
-                    onClick = { viewModel.runChannelTests() },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !uiState.isTesting && uiState.channels.isNotEmpty(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    if (uiState.isTesting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(com.multiroute.R.string.ui_testing_channels))
-                    } else {
-                        Icon(Icons.Default.Speed, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(com.multiroute.R.string.ui_test_channels))
+                    // Expressive 诊断测试按钮
+                    Button(
+                        onClick = { viewModel.runChannelTests() },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !uiState.isTesting && uiState.channels.isNotEmpty(),
+                        shapes = ButtonDefaults.shapes()
+                    ) {
+                        if (uiState.isTesting) {
+                            CircularWavyProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(com.multiroute.R.string.ui_testing_channels))
+                        } else {
+                            Icon(Icons.Default.Speed, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(com.multiroute.R.string.ui_test_channels))
+                        }
                     }
                 }
             }
@@ -854,78 +944,192 @@ private fun RoutingListStatus(message: String, modifier: Modifier = Modifier) {
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+private data class ChannelAccentColors(
+    val rowContainer: Color,
+    val badgeContainer: Color,
+    val badgeContent: Color
+)
+
+@Composable
+private fun channelAccentColors(app: AppItem, current: NetworkChannel?): ChannelAccentColors {
+    val base = MaterialTheme.colorScheme.surfaceContainerLow
+    if (app.targetChannelId == CHANNEL_DEFAULT) {
+        return ChannelAccentColors(
+            rowContainer = base,
+            badgeContainer = MaterialTheme.colorScheme.surfaceContainerHigh,
+            badgeContent = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    val (tint, badgeContainer, badgeContent) = when {
+        current == null -> Triple(
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.36f),
+            MaterialTheme.colorScheme.error,
+            MaterialTheme.colorScheme.onError
+        )
+        app.targetChannelId.startsWith("wlan") -> Triple(
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.onPrimary
+        )
+        app.targetChannelId.startsWith("rmnet") || com.multiroute.cellular.CellularTargets.isSim(app.targetChannelId) -> Triple(
+            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f),
+            MaterialTheme.colorScheme.tertiary,
+            MaterialTheme.colorScheme.onTertiary
+        )
+        else -> Triple(
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.50f),
+            MaterialTheme.colorScheme.secondary,
+            MaterialTheme.colorScheme.onSecondary
+        )
+    }
+    return ChannelAccentColors(
+        rowContainer = tint.compositeOver(base),
+        badgeContainer = badgeContainer,
+        badgeContent = badgeContent
+    )
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppItemRow(
     app: AppItem,
     channels: List<NetworkChannel>,
     stackChannel: Boolean,
+    index: Int = 0,
+    count: Int = 1,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
     onToggleSelect: () -> Unit = {},
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {}
 ) {
-    val action = if (isSelectionMode) {
-        Modifier.toggleable(value = isSelected, role = Role.Checkbox, onValueChange = { onToggleSelect() })
+    val shapes = ListItemDefaults.segmentedShapes(index = index, count = count)
+    val isCustom = app.targetChannelId != CHANNEL_DEFAULT
+    val current = channels.firstOrNull { it.id == app.targetChannelId || it.interfaceName == app.targetChannelId }
+    val accent = channelAccentColors(app, current)
+    val colors = ListItemDefaults.segmentedColors(
+        containerColor = accent.rowContainer,
+        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedSupportingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedLeadingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedTrailingContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    )
+    val titleStyle = if (isCustom) {
+        MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
     } else {
-        Modifier.combinedClickable(
-            role = Role.Button,
-            onClickLabel = stringResource(R.string.routing_open_assignment),
-            onLongClickLabel = stringResource(R.string.routing_select_for_batch),
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
+        MaterialTheme.typography.bodyLarge
     }
-    val supportingColor = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
-    else MaterialTheme.colorScheme.onSurfaceVariant
-    Row(
-        modifier = Modifier.fillMaxWidth()
-            .then(if (isSelected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
-            .then(action)
-            .heightIn(min = RoutingDimensions.touchTarget)
-            .padding(
-                horizontal = RoutingDimensions.rowVerticalPadding,
-                vertical = RoutingDimensions.rowVerticalPadding
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
-    ) {
-        if (isSelectionMode) Checkbox(checked = isSelected, onCheckedChange = null)
-        AppIcon(drawable = app.icon, size = 32.dp)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)) {
-            Text(
-                text = app.appName,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
-            )
+    val leading: @Composable () -> Unit = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (isSelectionMode) {
+                Checkbox(checked = isSelected, onCheckedChange = null)
+            }
+            AppIcon(drawable = app.icon, size = 36.dp)
+        }
+    }
+    val supporting: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)) {
             Text(
                 text = app.packageName,
                 style = MaterialTheme.typography.bodySmall,
-                color = supportingColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (stackChannel) AppChannelLabel(app, channels, supportingColor)
+            if (stackChannel) AppChannelBadge(app, current, accent, isSelected)
         }
-        if (!stackChannel) {
-            Box(Modifier.weight(0.6f), contentAlignment = Alignment.CenterEnd) {
-                AppChannelLabel(app, channels, supportingColor)
+    }
+    val trailing: (@Composable () -> Unit)? = if (!stackChannel) {
+        { AppChannelBadge(app, current, accent, isSelected) }
+    } else {
+        null
+    }
+
+    if (isSelectionMode) {
+        SegmentedListItem(
+            checked = isSelected,
+            onCheckedChange = { onToggleSelect() },
+            shapes = shapes,
+            colors = colors,
+            leadingContent = leading,
+            supportingContent = supporting,
+            trailingContent = trailing,
+            content = {
+                Text(
+                    text = app.appName,
+                    style = titleStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-        }
+        )
+    } else {
+        SegmentedListItem(
+            onClick = onClick,
+            onLongClick = onLongClick,
+            onLongClickLabel = stringResource(R.string.routing_select_for_batch),
+            shapes = shapes,
+            colors = colors,
+            leadingContent = leading,
+            supportingContent = supporting,
+            trailingContent = trailing,
+            content = {
+                Text(
+                    text = app.appName,
+                    style = titleStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        )
     }
 }
 
 @Composable
-private fun AppChannelLabel(app: AppItem, channels: List<NetworkChannel>, color: Color) {
+private fun AppChannelBadge(
+    app: AppItem,
+    current: NetworkChannel?,
+    accent: ChannelAccentColors,
+    isSelected: Boolean
+) {
     val context = LocalContext.current
-    val current = channels.firstOrNull { it.id == app.targetChannelId || it.interfaceName == app.targetChannelId }
-    val label = when {
-        app.targetChannelId == CHANNEL_DEFAULT -> stringResource(R.string.vm_system_default)
-        current != null -> NetworkUtils.channelLabel(context, current)
-        else -> stringResource(R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(context, app.targetChannelId))
+    if (app.targetChannelId == CHANNEL_DEFAULT) {
+        Text(
+            text = stringResource(R.string.vm_system_default),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
     }
-    Text(label, style = MaterialTheme.typography.bodyMedium, color = color)
+    val label = if (current != null) NetworkUtils.channelLabel(context, current)
+    else stringResource(R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(context, app.targetChannelId))
+    Surface(
+        shape = CircleShape,
+        color = accent.badgeContainer,
+        contentColor = accent.badgeContent
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = if (current != null) getTransportIcon(current.transportType) else Icons.Default.CloudOff,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+    }
 }
 
 @Preview(name = "Routing rows, compact large text", locale = "zh-rCN", widthDp = 360, fontScale = 1.5f, showBackground = true)
@@ -936,13 +1140,17 @@ private fun AppItemRowPreview() {
         Surface {
             BoxWithConstraints {
                 val stackChannel = maxWidth < 360.dp || LocalDensity.current.fontScale >= 1.5f
-                Column {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
+                ) {
                     AppItemRow(
                         app = AppItem("com.example.reader", "Reader", null, targetChannelId = CHANNEL_DEFAULT, isSystemApp = false),
                         channels = emptyList(),
-                        stackChannel = stackChannel
+                        stackChannel = stackChannel,
+                        index = 0,
+                        count = 2
                     )
-                    HorizontalDivider()
                     AppItemRow(
                         app = AppItem(
                             "com.example.long.application.name",
@@ -953,6 +1161,8 @@ private fun AppItemRowPreview() {
                         ),
                         channels = emptyList(),
                         stackChannel = stackChannel,
+                        index = 1,
+                        count = 2,
                         isSelectionMode = true,
                         isSelected = true
                     )
@@ -1074,15 +1284,22 @@ fun ChannelDetailCard(
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     onClick: () -> Unit
 ) {
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(14.dp)
+    val cardContainer = if (channel.isDefault) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f).compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = cardContainer
+        )
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1092,13 +1309,13 @@ fun ChannelDetailCard(
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(40.dp)
                             .background(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                color = MaterialTheme.colorScheme.primaryContainer,
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
@@ -1106,7 +1323,7 @@ fun ChannelDetailCard(
                         Icon(
                             imageVector = getTransportIcon(channel.transportType),
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1156,14 +1373,14 @@ fun ChannelDetailCard(
                     }
                     if (channel.isDefault) {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary
                         ) {
                             Text(
                                 text = stringResource(com.multiroute.R.string.vm_system_default),
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 maxLines = 1,
                                 softWrap = false
                             )
@@ -1232,18 +1449,18 @@ fun ChannelDetailCard(
                 val isFailed = NetworkUtils.isFailure(testResult)
                 val isInfo = testResult.startsWith(NetworkUtils.INFO_PREFIX)
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = when {
-                        isFailed -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                        isInfo -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
-                        else -> Color(0xFFE8F5E9)
+                        isFailed -> MaterialTheme.colorScheme.errorContainer
+                        isInfo -> MaterialTheme.colorScheme.tertiaryContainer
+                        else -> MaterialTheme.colorScheme.primaryContainer
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
                             imageVector = when {
@@ -1254,18 +1471,18 @@ fun ChannelDetailCard(
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = when {
-                                isFailed -> MaterialTheme.colorScheme.error
-                                isInfo -> MaterialTheme.colorScheme.tertiary
-                                else -> Color(0xFF2E7D32)
+                                isFailed -> MaterialTheme.colorScheme.onErrorContainer
+                                isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
+                                else -> MaterialTheme.colorScheme.onPrimaryContainer
                             }
                         )
                         Text(
-                            text = NetworkUtils.egressResultLabel(androidx.compose.ui.platform.LocalContext.current, testResult),
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            text = NetworkUtils.egressResultLabel(LocalContext.current, testResult),
+                            style = MaterialTheme.typography.labelMedium,
                             color = when {
-                                isFailed -> MaterialTheme.colorScheme.error
+                                isFailed -> MaterialTheme.colorScheme.onErrorContainer
                                 isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
-                                else -> Color(0xFF1B5E20)
+                                else -> MaterialTheme.colorScheme.onPrimaryContainer
                             }
                         )
                     }

@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,9 +30,10 @@ internal fun ModuleDiagnosticsPanel(uiState: MainUiState, viewModel: MainScreenV
     var expanded by rememberSaveable { mutableStateOf(false) }
     Spacer(modifier = Modifier.height(4.dp))
     // 模块与路由核心诊断卡片
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -98,7 +100,7 @@ internal fun ModuleDiagnosticsPanel(uiState: MainUiState, viewModel: MainScreenV
             // 2. Root 运行环境检测
             DiagnosticItem(
                 label = stringResource(com.multiroute.R.string.settings_root_env),
-                value = if (diag?.isRootGranted == true) stringResource(com.multiroute.R.string.diag_root_ready, diag?.suVersion?.ifEmpty { "KernelSU" } ?: "KernelSU") else stringResource(com.multiroute.R.string.diag_root_missing)
+                value = if (diag?.isRootGranted == true) stringResource(com.multiroute.R.string.diag_root_ready, diag.suVersion.ifEmpty { "KernelSU" }) else stringResource(com.multiroute.R.string.diag_root_missing)
             )
 
             TextButton(onClick = { expanded = !expanded }) {
@@ -195,11 +197,13 @@ internal fun AppearanceSettingsPanel(uiState: MainUiState, viewModel: MainScreen
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun NetworkSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewModel) {
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -301,16 +305,45 @@ internal fun NetworkSettingsPanel(uiState: MainUiState, viewModel: MainScreenVie
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline
                     )
-                    Row(
+                    val holdOffOptions = listOf(1, 2, 3, 5, 8)
+                    val toggleColors = ToggleButtonDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    val leadingShapes = ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    val middleShapes = ButtonGroupDefaults.connectedMiddleButtonShapes()
+                    val trailingShapes = ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    ButtonGroup(
+                        overflowIndicator = { ButtonGroupDefaults.OverflowIndicator(it) },
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                     ) {
-                        listOf(1, 2, 3, 5, 8).forEach { secs ->
-                            FilterChip(
-                                selected = uiState.failoverHoldOffSeconds == secs,
-                                onClick = { viewModel.updateFailoverHoldOffSeconds(secs) },
-                                label = { Text("${secs}s") }
+                        holdOffOptions.forEachIndexed { index, secs ->
+                            val shapes = when (index) {
+                                0 -> leadingShapes
+                                holdOffOptions.lastIndex -> trailingShapes
+                                else -> middleShapes
+                            }
+                            customItem(
+                                buttonGroupContent = {
+                                    ToggleButton(
+                                        checked = uiState.failoverHoldOffSeconds == secs,
+                                        onCheckedChange = { viewModel.updateFailoverHoldOffSeconds(secs) },
+                                        modifier = Modifier.weight(1f),
+                                        shapes = shapes,
+                                        colors = toggleColors
+                                    ) {
+                                        Text("${secs}s")
+                                    }
+                                },
+                                menuContent = {
+                                    DropdownMenuItem(
+                                        text = { Text("${secs}s") },
+                                        onClick = { viewModel.updateFailoverHoldOffSeconds(secs) }
+                                    )
+                                }
                             )
                         }
                     }
@@ -350,12 +383,14 @@ internal fun NetworkSettingsPanel(uiState: MainUiState, viewModel: MainScreenVie
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun TestNodeSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewModel) {
     // 公网出口测试设置
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -386,7 +421,7 @@ internal fun TestNodeSettingsPanel(uiState: MainUiState, viewModel: MainScreenVi
 
                 FilledTonalButton(
                     onClick = { viewModel.openTestServerDialog() },
-                    shape = RoundedCornerShape(10.dp)
+                    shapes = ButtonDefaults.shapes()
                 ) {
                     Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
@@ -455,9 +490,10 @@ internal fun RuleActionsMenu(uiState: MainUiState, viewModel: MainScreenViewMode
 @Composable
 internal fun AboutSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewModel, showTitle: Boolean = true) {
     // 关于卡片
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -604,7 +640,7 @@ internal fun AboutSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewM
                         }
                     }
                     Icon(
-                        imageVector = Icons.Default.OpenInNew,
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = stringResource(com.multiroute.R.string.cd_open_link),
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(18.dp)
