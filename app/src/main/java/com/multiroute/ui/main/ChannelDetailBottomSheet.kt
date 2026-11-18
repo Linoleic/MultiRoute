@@ -49,12 +49,44 @@ fun ChannelDetailBottomSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
+        ChannelDetailContent(
+            channel = channel,
+            routedApps = routedApps,
+            testResult = testResult,
+            isTestingSingle = isTestingSingle,
+            trafficFlow = trafficFlow,
+            testServerName = testServerName,
+            testServerUrl = testServerUrl,
+            showCloseButton = true,
+            onTestChannel = onTestChannel,
+            onDismiss = onDismiss
+        )
+    }
+}
+
+/**
+ * 通道详情核心内容（供手机底部抽屉与平板/宽横屏右侧详情面板共用）
+ */
+@Composable
+internal fun ChannelDetailContent(
+    channel: NetworkChannel,
+    routedApps: List<AppItem>,
+    testResult: String?,
+    isTestingSingle: Boolean,
+    trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
+    testServerName: String = "",
+    testServerUrl: String = "",
+    showCloseButton: Boolean = true,
+    modifier: Modifier = Modifier,
+    onTestChannel: () -> Unit,
+    onDismiss: () -> Unit = {}
+) {
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 36.dp),
+                .padding(top = if (showCloseButton) 0.dp else 16.dp, bottom = if (showCloseButton) 36.dp else 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 头部：通道基本信息与状态
@@ -140,12 +172,14 @@ fun ChannelDetailBottomSheet(
                     }
                 }
 
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(com.multiroute.R.string.ui_close),
-                        tint = MaterialTheme.colorScheme.outline
-                    )
+                if (showCloseButton) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = stringResource(com.multiroute.R.string.ui_close),
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                    }
                 }
             }
 
@@ -463,15 +497,16 @@ fun ChannelDetailBottomSheet(
                 }
             }
 
-            OutlinedButton(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(stringResource(com.multiroute.R.string.ui_close))
+            if (showCloseButton) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(stringResource(com.multiroute.R.string.ui_close))
+                }
             }
         }
-    }
 }
 
 @Composable

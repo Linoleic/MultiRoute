@@ -1,11 +1,14 @@
 package com.multiroute.ui.main
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,6 +22,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.compositeOver
@@ -53,137 +60,234 @@ fun ChannelsTab(
     ObserveNetworkManagement(viewModel)
     ObserveChannelTraffic(viewModel)
     val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
+    val listState = rememberLazyListState()
+    var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = RoutingDimensions.contentPadding),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp)
-            ) {
-                item(key = "channels-heading") {
-                    SettingsSectionLabel(stringResource(R.string.ui_active_channels, uiState.channels.size))
-                }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val dualPane = maxWidth >= 840.dp
+        val compactLandscape = maxHeight < 500.dp && maxWidth >= 560.dp
+        val activeDetail = if (dualPane) {
+            uiState.channels.firstOrNull { it.id == inspectedChannelId } ?: uiState.channels.firstOrNull()
+        } else {
+            null
+        }
 
-                if (uiState.channels.isEmpty()) {
-                    item(key = "channels-empty") {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.large,
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                            )
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.ui_no_active_network),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error
+        val listPane: @Composable (Modifier) -> Unit = { paneModifier ->
+            Column(modifier = paneModifier) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = RoutingDimensions.contentPadding),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp)
+                ) {
+                    item(key = "channels-heading") {
+                        SettingsSectionLabel(stringResource(R.string.ui_active_channels, uiState.channels.size))
+                    }
+
+                    if (uiState.channels.isEmpty()) {
+                        item(key = "channels-empty") {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.large,
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                                 )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.ui_no_active_network),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
+                    } else {
+                        items(uiState.channels, key = { it.id }) { channel ->
+                            ChannelDetailCard(
+                                channel = channel,
+                                testResult = uiState.testResults[channel.id],
+                                trafficFlow = viewModel.channelTraffic,
+                                selected = dualPane && activeDetail?.id == channel.id,
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = AppMotion.itemFade(),
+                                    fadeOutSpec = AppMotion.itemFade(),
+                                    placementSpec = AppMotion.itemPlacement()
+                                ),
+                                onClick = {
+                                    if (dualPane) {
+                                        inspectedChannelId = channel.id
+                                    } else {
+                                        viewModel.selectChannelForDetail(channel)
+                                    }
+                                }
+                            )
+                        }
                     }
-                } else {
-                    items(uiState.channels, key = { it.id }) { channel ->
-                        ChannelDetailCard(
-                            channel = channel,
-                            testResult = uiState.testResults[channel.id],
-                            trafficFlow = viewModel.channelTraffic,
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = AppMotion.itemFade(),
-                                fadeOutSpec = AppMotion.itemFade(),
-                                placementSpec = AppMotion.itemPlacement()
-                            ),
-                            onClick = { viewModel.selectChannelForDetail(channel) }
-                        )
+
+                    activationCandidateItems(candidates) { target ->
+                        viewModel.openNetworkTool(target)
                     }
                 }
 
-                activationCandidateItems(candidates) { target ->
-                    viewModel.openNetworkTool(target)
+                ChannelsTestFooter(
+                    uiState = uiState,
+                    viewModel = viewModel,
+                    compactRow = compactLandscape && !dualPane
+                )
+            }
+        }
+
+        if (dualPane) {
+            Row(Modifier.fillMaxSize()) {
+                listPane(Modifier.width(380.dp).fillMaxHeight())
+                VerticalDivider(Modifier.fillMaxHeight())
+                AnimatedContent(
+                    targetState = activeDetail,
+                    contentKey = { it?.id },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    transitionSpec = { AppMotion.content() },
+                    label = "channelDetailPane"
+                ) { channel ->
+                    if (channel == null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = stringResource(R.string.ui_no_active_network),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        val routedApps = remember(channel.id, uiState.apps) {
+                            uiState.apps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
+                        }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                            ChannelDetailContent(
+                                channel = channel,
+                                routedApps = routedApps,
+                                testResult = uiState.testResults[channel.id],
+                                isTestingSingle = uiState.isTestingSingleChannel,
+                                trafficFlow = viewModel.channelTraffic,
+                                testServerName = uiState.testServerConfig.displayName(LocalContext.current),
+                                testServerUrl = uiState.testServerConfig.activeUrl,
+                                showCloseButton = false,
+                                modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
+                                onTestChannel = { viewModel.testSingleChannel(channel) }
+                            )
+                        }
+                    }
                 }
             }
+        } else {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                listPane(Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize())
+            }
+        }
+    }
+}
 
-            // 界面下方：测试节点提示条与诊断操作区
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ChannelsTestFooter(
+    uiState: MainUiState,
+    viewModel: MainScreenViewModel,
+    compactRow: Boolean
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = if (compactRow) 18.dp else 24.dp, topEnd = if (compactRow) 18.dp else 24.dp)
+    ) {
+        val serverPill: @Composable (Modifier) -> Unit = { pillModifier ->
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                modifier = pillModifier,
+                onClick = { viewModel.openTestServerDialog() },
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = MaterialTheme.shapes.medium
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compactRow) 10.dp else 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 当前测试节点提示条（点击切换）
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { viewModel.openTestServerDialog() },
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shape = MaterialTheme.shapes.medium
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f, fill = false),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Dns,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = stringResource(R.string.ui_test_node_2, uiState.testServerConfig.displayName(LocalContext.current)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = stringResource(R.string.ui_change),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Dns,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = stringResource(R.string.ui_test_node_2, uiState.testServerConfig.displayName(LocalContext.current)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-
-                    // Expressive 诊断测试按钮
-                    Button(
-                        onClick = { viewModel.runChannelTests() },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        enabled = !uiState.isTesting && uiState.channels.isNotEmpty(),
-                        shapes = ButtonDefaults.shapes()
-                    ) {
-                        if (uiState.isTesting) {
-                            CircularWavyProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.ui_testing_channels))
-                        } else {
-                            Icon(Icons.Default.Speed, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.ui_test_channels))
-                        }
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.ui_change),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
+            }
+        }
+        val testButton: @Composable (Modifier) -> Unit = { btnModifier ->
+            Button(
+                onClick = { viewModel.runChannelTests() },
+                modifier = btnModifier.heightIn(min = if (compactRow) 42.dp else 48.dp),
+                enabled = !uiState.isTesting && uiState.channels.isNotEmpty(),
+                shapes = ButtonDefaults.shapes()
+            ) {
+                if (uiState.isTesting) {
+                    CircularWavyProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.ui_testing_channels), maxLines = 1)
+                } else {
+                    Icon(Icons.Default.Speed, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.ui_test_channels), maxLines = 1)
+                }
+            }
+        }
+
+        if (compactRow) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                serverPill(Modifier.weight(1f))
+                testButton(Modifier)
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                serverPill(Modifier.fillMaxWidth())
+                testButton(Modifier.fillMaxWidth())
             }
         }
     }
@@ -198,14 +302,17 @@ fun ChannelDetailCard(
     channel: NetworkChannel,
     testResult: String?,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
+    selected: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val cardContainer by animateColorAsState(
-        targetValue = if (channel.isDefault) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f).compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
+        targetValue = when {
+            selected -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                .compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
+            channel.isDefault -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+                .compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
         },
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "channelCardContainer"
@@ -214,6 +321,7 @@ fun ChannelDetailCard(
         modifier = modifier.fillMaxWidth(),
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
+        border = if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(
             containerColor = cardContainer
         )

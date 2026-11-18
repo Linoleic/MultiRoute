@@ -14,8 +14,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -67,12 +70,18 @@ fun AppRulesTab(
     viewModel: MainScreenViewModel
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.TopCenter) {
-        val stackChannel = maxWidth < 360.dp || LocalDensity.current.fontScale >= 1.5f
+        val wideGrid = maxWidth >= 840.dp
+        val compactControls = maxWidth >= 600.dp
+        val stackChannel = (!wideGrid && maxWidth < 360.dp) || LocalDensity.current.fontScale >= 1.5f
         AppRulesContent(
             uiState = uiState,
             viewModel = viewModel,
             stackChannel = stackChannel,
-            modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize()
+            wideGrid = wideGrid,
+            compactControls = compactControls,
+            modifier = Modifier
+                .widthIn(max = if (wideGrid) 1240.dp else RoutingDimensions.contentMaxWidth)
+                .fillMaxSize()
         )
     }
 }
@@ -83,6 +92,8 @@ private fun AppRulesContent(
     uiState: MainUiState,
     viewModel: MainScreenViewModel,
     stackChannel: Boolean,
+    wideGrid: Boolean,
+    compactControls: Boolean,
     modifier: Modifier
 ) {
     val toggleColors = ToggleButtonDefaults.colors(
@@ -92,6 +103,7 @@ private fun AppRulesContent(
         checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer
     )
     val toggleShapes = ToggleButtonDefaults.shapesFor(ToggleButtonDefaults.MinHeight)
+    val gridState = rememberLazyGridState()
     val listBottomPadding by animateDpAsState(
         targetValue = if (uiState.isSelectionMode) 96.dp else RoutingDimensions.contentPadding,
         animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
@@ -99,50 +111,108 @@ private fun AppRulesContent(
     )
 
     Box(modifier) {
-        LazyColumn(
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(if (wideGrid) 2 else 1),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = RoutingDimensions.contentPadding),
-            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (wideGrid) 10.dp else ListItemDefaults.SegmentedGap),
             contentPadding = PaddingValues(bottom = listBottomPadding)
         ) {
             // 搜索与过滤器
-            item(key = "routing-controls") {
+            item(key = "routing-controls", span = { GridItemSpan(maxLineSpan) }) {
                 Column(
-                    modifier = Modifier.padding(top = RoutingDimensions.rowVerticalPadding, bottom = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.padding(
+                        top = if (compactControls) 4.dp else RoutingDimensions.rowVerticalPadding,
+                        bottom = if (compactControls) 4.dp else 6.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(if (compactControls) 8.dp else 10.dp)
                 ) {
-                    OutlinedTextField(
-                        value = uiState.searchQuery,
-                        onValueChange = { viewModel.setSearchQuery(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text(stringResource(R.string.ui_search_hint)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        trailingIcon = {
-                            if (uiState.searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = stringResource(R.string.cd_clear_search)
+                    val searchField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                        OutlinedTextField(
+                            value = uiState.searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            modifier = fieldModifier,
+                            placeholder = { Text(stringResource(R.string.ui_search_hint)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            trailingIcon = {
+                                if (uiState.searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = stringResource(R.string.cd_clear_search)
+                                        )
+                                    }
+                                }
+                            },
+                            shape = CircleShape,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary
+                            ),
+                            singleLine = true
+                        )
+                    }
+                    val batchAction: @Composable () -> Unit = {
+                        AnimatedContent(
+                            targetState = uiState.isSelectionMode,
+                            transitionSpec = { AppMotion.content() },
+                            label = "batchHeaderRow"
+                        ) { selectionMode ->
+                            if (selectionMode) {
+                                val allFilteredSelected = uiState.apps.isNotEmpty() &&
+                                    uiState.apps.all { it.ruleKey in uiState.selectedRuleKeys }
+                                TextButton(
+                                    onClick = viewModel::selectAllFilteredApps,
+                                    enabled = uiState.apps.isNotEmpty()
+                                ) {
+                                    Text(stringResource(if (allFilteredSelected) R.string.ui_deselect_all else R.string.ui_select_all))
+                                }
+                            } else {
+                                Row(
+                                    modifier = if (compactControls) Modifier else Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.ui_app_list, uiState.apps.size),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        modifier = (if (compactControls) Modifier else Modifier.weight(1f))
+                                            .semantics { heading() }
                                     )
+                                    TextButton(
+                                        onClick = { viewModel.enterSelectionMode() },
+                                        enabled = uiState.apps.isNotEmpty()
+                                    ) {
+                                        Text(stringResource(R.string.ui_batch_assign))
+                                    }
                                 }
                             }
-                        },
-                        shape = CircleShape,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary
-                        ),
-                        singleLine = true
-                    )
+                        }
+                    }
+
+                    if (compactControls) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            searchField(Modifier.weight(1f))
+                            batchAction()
+                        }
+                    } else {
+                        searchField(Modifier.fillMaxWidth())
+                    }
 
                     Row(
                         modifier = Modifier
@@ -214,51 +284,20 @@ private fun AppRulesContent(
                         }
                     }
 
-                    AnimatedContent(
-                        targetState = uiState.isSelectionMode,
-                        transitionSpec = { AppMotion.content() },
-                        label = "batchHeaderRow"
-                    ) { selectionMode ->
-                        if (selectionMode) {
-                            val allFilteredSelected = uiState.apps.isNotEmpty() &&
-                                uiState.apps.all { it.ruleKey in uiState.selectedRuleKeys }
-                            TextButton(
-                                onClick = viewModel::selectAllFilteredApps,
-                                enabled = uiState.apps.isNotEmpty()
-                            ) {
-                                Text(stringResource(if (allFilteredSelected) R.string.ui_deselect_all else R.string.ui_select_all))
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.ui_app_list, uiState.apps.size),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    modifier = Modifier.weight(1f).semantics { heading() }
-                                )
-                                TextButton(
-                                    onClick = { viewModel.enterSelectionMode() },
-                                    enabled = uiState.apps.isNotEmpty()
-                                ) {
-                                    Text(stringResource(R.string.ui_batch_assign))
-                                }
-                            }
-                        }
+                    if (!compactControls) {
+                        batchAction()
                     }
                 }
             }
 
-            if (uiState.isSyncing) item(key = "routing-syncing") {
+            if (uiState.isSyncing) item(key = "routing-syncing", span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                     RoutingListStatus(stringResource(R.string.routing_syncing))
                 }
             }
 
-            if (uiState.isLoadingApps) item(key = "routing-loading") {
+            if (uiState.isLoadingApps) item(key = "routing-loading", span = { GridItemSpan(maxLineSpan) }) {
                 if (uiState.apps.isEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
@@ -274,7 +313,7 @@ private fun AppRulesContent(
                         RoutingListStatus(stringResource(R.string.routing_loading_apps))
                     }
                 }
-            } else if (uiState.isInstalledAppsIncomplete) item(key = "routing-incomplete") {
+            } else if (uiState.isInstalledAppsIncomplete) item(key = "routing-incomplete", span = { GridItemSpan(maxLineSpan) }) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
@@ -291,23 +330,25 @@ private fun AppRulesContent(
 
             when {
                 uiState.isLoadingApps && uiState.apps.isEmpty() -> Unit
-                uiState.apps.isEmpty() -> item(key = "routing-empty") {
-                    val hasFilters = uiState.searchQuery.isNotBlank() || uiState.filterChannelId != null
-                    if (!uiState.isInstalledAppsIncomplete || hasFilters) {
-                        RoutingListStatus(
-                            stringResource(
-                                if (hasFilters || uiState.totalAppsCount > 0) R.string.ui_no_matching_apps
-                                else R.string.routing_no_apps
+                uiState.apps.isEmpty() -> item(key = "routing-empty", span = { GridItemSpan(maxLineSpan) }) {
+                    Column {
+                        val hasFilters = uiState.searchQuery.isNotBlank() || uiState.filterChannelId != null
+                        if (!uiState.isInstalledAppsIncomplete || hasFilters) {
+                            RoutingListStatus(
+                                stringResource(
+                                    if (hasFilters || uiState.totalAppsCount > 0) R.string.ui_no_matching_apps
+                                    else R.string.routing_no_apps
+                                )
                             )
-                        )
-                    }
-                    if (hasFilters) {
-                        TextButton(onClick = viewModel::clearSearchAndChannelFilter) {
-                            Text(stringResource(R.string.routing_clear_search_filters))
                         }
-                    } else if (uiState.totalAppsCount > 0 && !uiState.showSystemApps) {
-                        TextButton(onClick = viewModel::toggleShowSystemApps) {
-                            Text(stringResource(R.string.filter_system_apps))
+                        if (hasFilters) {
+                            TextButton(onClick = viewModel::clearSearchAndChannelFilter) {
+                                Text(stringResource(R.string.routing_clear_search_filters))
+                            }
+                        } else if (uiState.totalAppsCount > 0 && !uiState.showSystemApps) {
+                            TextButton(onClick = viewModel::toggleShowSystemApps) {
+                                Text(stringResource(R.string.filter_system_apps))
+                            }
                         }
                     }
                 }
@@ -321,8 +362,8 @@ private fun AppRulesContent(
                             fadeOutSpec = AppMotion.itemFade(),
                             placementSpec = AppMotion.itemPlacement()
                         ),
-                        index = index,
-                        count = uiState.apps.size,
+                        index = if (wideGrid) 0 else index,
+                        count = if (wideGrid) 1 else uiState.apps.size,
                         isSelectionMode = uiState.isSelectionMode,
                         isSelected = app.ruleKey in uiState.selectedRuleKeys,
                         onToggleSelect = { viewModel.toggleSelectApp(app.ruleKey) },
