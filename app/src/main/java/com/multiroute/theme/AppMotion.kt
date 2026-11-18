@@ -18,19 +18,6 @@ internal object AppMotion {
             scaleIn(initialScale = 0.96f, animationSpec = scheme.defaultSpatialSpec())) togetherWith
             fadeOut(scheme.fastEffectsSpec())
 
-    fun tab(forward: Boolean): ContentTransform {
-        val slideSpec = scheme.defaultSpatialSpec<IntOffset>()
-        val scaleSpec = scheme.defaultSpatialSpec<Float>()
-        val inEffects = scheme.defaultEffectsSpec<Float>()
-        val outEffects = scheme.fastEffectsSpec<Float>()
-        val enterOffset: (Int) -> Int = { if (forward) it / 16 else -it / 16 }
-        val exitOffset: (Int) -> Int = { if (forward) -it / 24 else it / 24 }
-        return (slideInHorizontally(slideSpec, enterOffset) +
-            scaleIn(initialScale = 0.97f, animationSpec = scaleSpec) +
-            fadeIn(inEffects)) togetherWith
-            (slideOutHorizontally(slideSpec, exitOffset) + fadeOut(outEffects))
-    }
-
     fun hierarchy(forward: Boolean): ContentTransform {
         val slideSpec = scheme.defaultSpatialSpec<IntOffset>()
         val scaleSpec = scheme.defaultSpatialSpec<Float>()

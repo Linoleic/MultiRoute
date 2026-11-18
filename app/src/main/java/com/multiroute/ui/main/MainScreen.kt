@@ -9,6 +9,9 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -36,6 +39,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.AppMotion
+import kotlinx.coroutines.flow.filterNotNull
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -76,6 +80,41 @@ fun MainScreen(
     }
 
     val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val pagerState = rememberPagerState(initialPage = uiState.selectedTab.coerceIn(0, 3)) { 4 }
+    var inToolDetail by remember { mutableStateOf(false) }
+    var programmaticTarget by remember { mutableStateOf<Int?>(null) }
+    val latestSelectedTab by rememberUpdatedState(uiState.selectedTab)
+    val tabScrollSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+
+    LaunchedEffect(uiState.selectedTab) {
+        val target = uiState.selectedTab.coerceIn(0, 3)
+        if (pagerState.currentPage != target) {
+            programmaticTarget = target
+            try {
+                pagerState.animateScrollToPage(
+                    page = target,
+                    animationSpec = tabScrollSpec
+                )
+            } finally {
+                if (programmaticTarget == target) {
+                    programmaticTarget = null
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState) {
+        snapshotFlow {
+            if (programmaticTarget != null) null else pagerState.currentPage
+        }
+            .filterNotNull()
+            .collect { page ->
+                if (page != latestSelectedTab) {
+                    viewModel.setSelectedTab(page)
+                }
+            }
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val useScenarioIcon = maxWidth < 340.dp ||
             (maxWidth < 480.dp && LocalDensity.current.fontScale >= 1.3f)
@@ -245,8 +284,16 @@ fun MainScreen(
                 }
                 BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     val wideContent = maxWidth >= 840.dp
-                    AnimatedContent(targetState = uiState.selectedTab, modifier = Modifier.fillMaxSize(),
-                        transitionSpec = { AppMotion.tab(forward = targetState > initialState) }, label = "mainDestination") { tab ->
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        key = { it },
+                        userScrollEnabled = !uiState.isSelectionMode && !(pagerState.currentPage == 2 && inToolDetail),
+                        flingBehavior = PagerDefaults.flingBehavior(
+                            state = pagerState,
+                            snapAnimationSpec = tabScrollSpec
+                        )
+                    ) { tab ->
                         tabStates.SaveableStateProvider(tab) {
                             when (tab) {
                                 0 -> AppRulesTab(
@@ -258,14 +305,18 @@ fun MainScreen(
                                     viewModel = viewModel,
                                     onNavigate = onItemClick
                                 )
-                                2 -> ToolsTab(uiState = uiState, viewModel = viewModel, onNavigate = onItemClick)
+                                2 -> ToolsTab(
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onNavigate = onItemClick,
+                                    onDetailOpenChanged = { inToolDetail = it }
+                                )
                                 3 -> SettingsTab(
                                     uiState = uiState,
                                     viewModel = viewModel,
                                     onNavigate = onItemClick
                                 )
                             }
-
                         }
                     }
 
@@ -412,9 +463,19 @@ fun SettingsTab(uiState: MainUiState, viewModel: MainScreenViewModel,
 }
 
 @Composable
-fun ToolsTab(uiState: MainUiState, viewModel: MainScreenViewModel,
-    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}) {
-    SettingsToolsHub(uiState, viewModel, tools = true, onNavigate = onNavigate)
+fun ToolsTab(
+    uiState: MainUiState,
+    viewModel: MainScreenViewModel,
+    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {},
+    onDetailOpenChanged: (Boolean) -> Unit = {}
+) {
+    SettingsToolsHub(
+        uiState = uiState,
+        viewModel = viewModel,
+        tools = true,
+        onNavigate = onNavigate,
+        onDetailOpenChanged = onDetailOpenChanged
+    )
 }
 
 /**

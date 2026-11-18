@@ -112,8 +112,13 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
 
 /** A destination is shared by phone navigation and the tablet detail pane. */
 @Composable
-internal fun SettingsToolsHub(uiState: MainUiState, viewModel: MainScreenViewModel, tools: Boolean,
-    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {}) {
+internal fun SettingsToolsHub(
+    uiState: MainUiState,
+    viewModel: MainScreenViewModel,
+    tools: Boolean,
+    onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {},
+    onDetailOpenChanged: (Boolean) -> Unit = {}
+) {
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val pages = if (tools) listOf(PreferencePage.CELLULAR, PreferencePage.DUAL_WIFI, PreferencePage.HOTSPOT, PreferencePage.WIRELESS, PreferencePage.LOGS)
         else listOf(PreferencePage.NETWORK, PreferencePage.APPEARANCE, PreferencePage.BACKUP, PreferencePage.ABOUT)
@@ -139,7 +144,10 @@ internal fun SettingsToolsHub(uiState: MainUiState, viewModel: MainScreenViewMod
         // A wide pane shows a useful default without changing narrow-window history.
         val current = if (!dualPane && !tools) null else pages.firstOrNull { it.name == (request?.name ?: selected) }
             ?: if (dualPane) pages.first() else null
-        BackHandler(enabled = returningToChannels || !dualPane && current != null) { closeDetail() }
+        val detailOpen = !dualPane && current != null
+        LaunchedEffect(detailOpen) { onDetailOpenChanged(detailOpen) }
+        DisposableEffect(Unit) { onDispose { onDetailOpenChanged(false) } }
+        BackHandler(enabled = returningToChannels || detailOpen) { closeDetail() }
         val overview: @Composable () -> Unit = {
             PreferenceOverview(uiState, viewModel, tools, pages, current, dualPane, overviewScroll,
                 onSelect = {
