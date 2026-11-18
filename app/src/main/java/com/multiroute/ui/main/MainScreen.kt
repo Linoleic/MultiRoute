@@ -1,5 +1,6 @@
 package com.multiroute.ui.main
 
+import android.content.ClipData
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -22,11 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +41,7 @@ import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.AppMotion
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -54,7 +56,8 @@ fun MainScreen(
     }
     var showDiagnostics by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     val importContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(uiState.configAppearanceImported) {
         if (uiState.configAppearanceImported) {
@@ -380,7 +383,9 @@ fun MainScreen(
                             logs = uiState.logsContent,
                             isLoading = uiState.isLoadingLogs,
                             onCopy = {
-                                clipboardManager.setText(AnnotatedString(uiState.logsContent))
+                                scope.launch {
+                                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("logs", uiState.logsContent)))
+                                }
                                 viewModel.closeLogsDialog()
                             },
                             onDismiss = { viewModel.closeLogsDialog() }

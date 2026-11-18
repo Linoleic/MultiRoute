@@ -1,5 +1,6 @@
 package com.multiroute.ui.main
 
+import android.content.ClipData
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
@@ -22,10 +23,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,7 +53,7 @@ enum class AdbModeChoice {
 @Composable
 fun WirelessAdbCard(showTitle: Boolean = true) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val owner = LocalLifecycleOwner.current
     var expanded by rememberSaveable { mutableStateOf(false) }
     var revision by remember { mutableIntStateOf(0) }
@@ -74,6 +75,17 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
     var initializedPrefs by remember { mutableStateOf(false) }
     var expandAllAddresses by rememberSaveable { mutableStateOf(false) }
     var expandedAddressIndices by rememberSaveable { mutableStateOf(setOf<Int>()) }
+
+    fun copyAdbCommand(cmd: String) {
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("adb", cmd)))
+        }
+        Toast.makeText(
+            context,
+            context.getString(R.string.adb_helper_copied, cmd),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
 
     fun perform(action: suspend () -> AdbActionResult) {
         scope.launch {
@@ -855,14 +867,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                             }
 
                                             IconButton(
-                                                onClick = {
-                                                    clipboard.setText(AnnotatedString(copyCmd))
-                                                    Toast.makeText(
-                                                        context,
-                                                        context.getString(R.string.adb_helper_copied, copyCmd),
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                },
+                                                onClick = { copyAdbCommand(copyCmd) },
                                                 enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true && snapshot.port != null,
                                                 modifier = Modifier.size(32.dp)
                                             ) {
@@ -931,14 +936,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                                 }
 
                                                 IconButton(
-                                                    onClick = {
-                                                        clipboard.setText(AnnotatedString(copyCmd))
-                                                        Toast.makeText(
-                                                            context,
-                                                            context.getString(R.string.adb_helper_copied, copyCmd),
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    },
+                                                    onClick = { copyAdbCommand(copyCmd) },
                                                     enabled = !loading && !busy && snapshot.enabled == true && snapshot.listening == true && snapshot.port != null,
                                                     modifier = Modifier.size(32.dp)
                                                 ) {

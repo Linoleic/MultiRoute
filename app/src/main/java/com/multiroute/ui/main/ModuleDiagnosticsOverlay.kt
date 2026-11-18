@@ -138,6 +138,11 @@ internal fun ModuleDiagnosticsOverlay(
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.padding(24.dp).widthIn(max = 640.dp).fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) { content() }
-    } else ModalBottomSheet(onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) { content() }
+    } else ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+        )
+    ) { content() }
 }

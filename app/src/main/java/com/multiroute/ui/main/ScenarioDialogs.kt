@@ -49,7 +49,10 @@ fun ScenarioBottomSheet(
     val selectedManualIds = enabledProfiles.map { it.id }.filter { it in manualIds }.toSet()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+        )
     ) {
         Column(
             modifier = Modifier

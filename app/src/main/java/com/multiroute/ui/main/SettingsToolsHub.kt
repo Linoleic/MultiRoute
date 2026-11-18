@@ -54,7 +54,7 @@ import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.ThemeSettings
 
-private enum class PreferencePage(@StringRes val title: Int, @StringRes val summary: Int, val icon: ImageVector) {
+private enum class PreferencePage(@param:StringRes val title: Int, @param:StringRes val summary: Int, val icon: ImageVector) {
     NETWORK(R.string.settings_network, R.string.settings_network_summary, Icons.Default.Route),
     APPEARANCE(R.string.settings_appearance_language, R.string.settings_appearance_summary, Icons.Default.Palette),
     BACKUP(R.string.settings_backup_title, R.string.settings_backup_summary, Icons.Default.Backup),
