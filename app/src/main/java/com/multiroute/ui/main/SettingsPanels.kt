@@ -1,11 +1,17 @@
 package com.multiroute.ui.main
 
-import androidx.compose.animation.AnimatedVisibility
-import com.multiroute.theme.AppMotion
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import com.multiroute.theme.AppMotion
+import com.multiroute.util.NetworkUtils
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
@@ -648,5 +654,132 @@ internal fun AboutSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewM
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel, showTitle: Boolean = true) {
+    val context = LocalContext.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (showTitle) Text(
+                text = stringResource(com.multiroute.R.string.config_card_title),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = stringResource(com.multiroute.R.string.config_card_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = { viewModel.exportConfigToFile() },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_export_file)) }
+                TextButton(
+                    onClick = { viewModel.exportConfigToClipboard() },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_export_clipboard)) }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            // A file picker instead of a path: Storage Access Framework hands us read access to whatever
+            // the user chooses, so no root and no typing are needed.
+            val picker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri -> uri?.let { viewModel.importConfigFromUri(it) } }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = { picker.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_import_pick)) }
+                TextButton(
+                    onClick = { viewModel.requestImportFromClipboard() },
+                    enabled = !uiState.isConfigBusy
+                ) { Text(stringResource(com.multiroute.R.string.config_import_clipboard)) }
+            }
+        }
+    }
+
+    if (uiState.showConfigImportConfirm) {
+        AlertDialog(
+            onDismissRequest = { if (!uiState.isConfigBusy) viewModel.cancelConfigImport() },
+            title = { Text(stringResource(com.multiroute.R.string.config_import_title)) },
+            text = {
+                Column(
+                    Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(stringResource(com.multiroute.R.string.config_import_message))
+                    uiState.configImportPreview?.let { preview ->
+                        Text(
+                            stringResource(
+                                com.multiroute.R.string.config_preview_counts,
+                                preview.document.assignments.size,
+                                preview.document.profiles.size
+                            )
+                        )
+                        preview.document.sections.forEach { section ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable(enabled = !uiState.isConfigBusy) {
+                                    viewModel.toggleConfigImportSection(section)
+                                },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = section in uiState.configImportSections,
+                                    enabled = !uiState.isConfigBusy,
+                                    onCheckedChange = { viewModel.toggleConfigImportSection(section) }
+                                )
+                                Text(
+                                    stringResource(
+                                        when (section) {
+                                            com.multiroute.data.ConfigTransfer.Section.ASSIGNMENTS -> com.multiroute.R.string.config_section_assignments
+                                            com.multiroute.data.ConfigTransfer.Section.SCENARIOS -> com.multiroute.R.string.config_section_scenarios
+                                            com.multiroute.data.ConfigTransfer.Section.ROUTING -> com.multiroute.R.string.config_section_routing
+                                            com.multiroute.data.ConfigTransfer.Section.DUAL_WIFI -> com.multiroute.R.string.config_section_dual_wifi
+                                            com.multiroute.data.ConfigTransfer.Section.HOTSPOT -> com.multiroute.R.string.config_section_hotspot
+                                            com.multiroute.data.ConfigTransfer.Section.APPEARANCE -> com.multiroute.R.string.config_section_appearance
+                                            com.multiroute.data.ConfigTransfer.Section.TEST_SERVER -> com.multiroute.R.string.config_section_test_server
+                                        }
+                                    )
+                                )
+                            }
+                        }
+                        if (preview.document.ignored > 0) Text(stringResource(com.multiroute.R.string.config_ignored_entries, preview.document.ignored))
+                        if (preview.missingApps.isNotEmpty()) Text(stringResource(com.multiroute.R.string.config_missing_apps, preview.missingApps.joinToString()))
+                        if (preview.unavailableChannels.isNotEmpty()) Text(
+                            stringResource(
+                                com.multiroute.R.string.config_offline_channels,
+                                preview.unavailableChannels.joinToString { NetworkUtils.savedTargetLabel(context, it) }
+                            )
+                        )
+                        if (preview.incompatibleScheme) Text(stringResource(com.multiroute.R.string.config_scheme_fallback))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.confirmConfigImport() },
+                    enabled = !uiState.isConfigBusy && uiState.configImportSections.isNotEmpty()
+                ) {
+                    Text(stringResource(com.multiroute.R.string.config_import_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.cancelConfigImport() },
+                    enabled = !uiState.isConfigBusy
+                ) {
+                    Text(stringResource(com.multiroute.R.string.ui_cancel))
+                }
+            }
+        )
     }
 }
