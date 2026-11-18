@@ -77,6 +77,7 @@ class RouteConfigProvider : ContentProvider() {
         // --- and so everything the app needs at startup is read from one place.
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_DYNAMIC_COLOR = "dynamic_color"
+        const val KEY_PREDICTIVE_BACK = "predictive_back_enabled"
         const val KEY_LANGUAGE = "language"
 
         // Mirror of wireless ADB trigger flags so RemotePreferences in system_server can consult them.
@@ -105,6 +106,17 @@ class RouteConfigProvider : ContentProvider() {
         fun setDynamicColor(context: Context, enabled: Boolean) {
             context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_DYNAMIC_COLOR, enabled).apply()
+        }
+
+        /** Predictive back animations and edge-swipe previews (Android 13+); on by default. */
+        fun isPredictiveBackEnabled(context: Context): Boolean {
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            return sp.getBoolean(KEY_PREDICTIVE_BACK, true)
+        }
+
+        fun setPredictiveBackEnabled(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PREDICTIVE_BACK, enabled).apply()
         }
 
         /** BCP-47 tag such as `zh-CN` or `en`, or empty for "follow the system". */

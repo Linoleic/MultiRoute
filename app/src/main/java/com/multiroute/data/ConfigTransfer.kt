@@ -83,6 +83,7 @@ object ConfigTransfer {
         root.put("appearance", JSONObject()
             .put("themeMode", RouteConfigProvider.getThemeMode(context))
             .put("dynamicColor", RouteConfigProvider.isDynamicColor(context))
+            .put("predictiveBack", RouteConfigProvider.isPredictiveBackEnabled(context))
             .put("language", RouteConfigProvider.getLanguage(context)))
         val last = RouteConfigProvider.getLastSecondaryWifi(context)
         val network = if (last["ssid"] is String) JSONObject()
@@ -153,10 +154,14 @@ object ConfigTransfer {
         if (version >= 2) {
             if (root.has("appearance")) {
                 val a = root.obj("appearance")
-                ruleSettings[Section.APPEARANCE] = mapOf(
-                    RouteConfigProvider.KEY_THEME_MODE to a.string("themeMode").also { require(it in setOf("system", "light", "dark")) },
-                    RouteConfigProvider.KEY_DYNAMIC_COLOR to a.boolean("dynamicColor"),
-                    RouteConfigProvider.KEY_LANGUAGE to a.string("language").also { require(it in setOf("", "zh-CN", "en")) })
+                ruleSettings[Section.APPEARANCE] = buildMap {
+                    put(RouteConfigProvider.KEY_THEME_MODE, a.string("themeMode").also { require(it in setOf("system", "light", "dark")) })
+                    put(RouteConfigProvider.KEY_DYNAMIC_COLOR, a.boolean("dynamicColor"))
+                    if (a.has("predictiveBack")) {
+                        put(RouteConfigProvider.KEY_PREDICTIVE_BACK, a.boolean("predictiveBack"))
+                    }
+                    put(RouteConfigProvider.KEY_LANGUAGE, a.string("language").also { require(it in setOf("", "zh-CN", "en")) })
+                }
                 sections += Section.APPEARANCE
             }
             if (root.has("dualWifi")) {

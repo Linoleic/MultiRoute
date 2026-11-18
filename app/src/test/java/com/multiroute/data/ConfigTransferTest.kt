@@ -142,6 +142,14 @@ class ConfigTransferTest {
             .put("themeMode", "dark").put("dynamicColor", false).put("language", "en")).toString())!!
         assertEquals(setOf(ConfigTransfer.Section.APPEARANCE), parsed.sections)
         assertEquals("dark", parsed.rulesSettings.getValue(ConfigTransfer.Section.APPEARANCE)[RouteConfigProvider.KEY_THEME_MODE])
+
+        val withPredictiveBack = ConfigTransfer.parse(document().put("appearance", JSONObject()
+            .put("themeMode", "light").put("dynamicColor", true)
+            .put("predictiveBack", false).put("language", "zh-CN")).toString())!!
+        assertEquals(
+            false,
+            withPredictiveBack.rulesSettings.getValue(ConfigTransfer.Section.APPEARANCE)[RouteConfigProvider.KEY_PREDICTIVE_BACK]
+        )
     }
 
     @Test

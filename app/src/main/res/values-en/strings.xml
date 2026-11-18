@@ -7,6 +7,7 @@
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_dynamic_color">Dynamic colour (Android 12+)</string>
+    <string name="settings_predictive_back">Predictive back gesture (Android 13+)</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_zh">简体中文</string>
     <string name="settings_language_en">English</string>

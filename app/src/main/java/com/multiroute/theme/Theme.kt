@@ -47,10 +47,12 @@ private val ExpressiveShapes = Shapes(
 object ThemeSettings {
     var mode by mutableStateOf("system")
     var dynamicColor by mutableStateOf(true)
+    var predictiveBack by mutableStateOf(true)
 
     fun load(context: Context) {
         mode = RouteConfigProvider.getThemeMode(context)
         dynamicColor = RouteConfigProvider.isDynamicColor(context)
+        predictiveBack = RouteConfigProvider.isPredictiveBackEnabled(context)
     }
 }
 

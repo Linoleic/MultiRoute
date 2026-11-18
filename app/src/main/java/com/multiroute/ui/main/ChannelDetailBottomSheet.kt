@@ -1,6 +1,5 @@
 package com.multiroute.ui.main
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -45,8 +44,6 @@ fun ChannelDetailBottomSheet(
     onTestChannel: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    BackHandler { onDismiss() }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),

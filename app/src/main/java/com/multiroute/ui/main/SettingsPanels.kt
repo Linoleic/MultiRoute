@@ -183,6 +183,24 @@ internal fun AppearanceSettingsPanel(uiState: MainUiState, viewModel: MainScreen
                 )
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = stringResource(com.multiroute.R.string.settings_predictive_back),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Switch(
+                    checked = com.multiroute.theme.ThemeSettings.predictiveBack,
+                    onCheckedChange = {
+                        RouteConfigProvider.setPredictiveBackEnabled(ctx, it)
+                        com.multiroute.theme.ThemeSettings.predictiveBack = it
+                    }
+                )
+            }
+
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
             PreferenceChoiceRow(

@@ -1,11 +1,29 @@
 package com.multiroute.ui.main
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import com.multiroute.theme.AppMotion
+import androidx.activity.BackEventCompat
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.annotation.StringRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -111,6 +129,7 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
 }
 
 /** A destination is shared by phone navigation and the tablet detail pane. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun SettingsToolsHub(
     uiState: MainUiState,
@@ -145,9 +164,37 @@ internal fun SettingsToolsHub(
         val current = if (!dualPane && !tools) null else pages.firstOrNull { it.name == (request?.name ?: selected) }
             ?: if (dualPane) pages.first() else null
         val detailOpen = !dualPane && current != null
+        val canBack = returningToChannels || detailOpen
+        val usePredictive = ThemeSettings.predictiveBack
+        val backProgress = remember { Animatable(0f) }
+        var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
+        val backScope = rememberCoroutineScope()
+        val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
         LaunchedEffect(detailOpen) { onDetailOpenChanged(detailOpen) }
+        LaunchedEffect(current) {
+            if (current != null && backProgress.value != 0f) {
+                backProgress.snapTo(0f)
+            }
+        }
+        LaunchedEffect(usePredictive) {
+            if (!usePredictive && backProgress.value != 0f) {
+                backProgress.snapTo(0f)
+            }
+        }
         DisposableEffect(Unit) { onDispose { onDetailOpenChanged(false) } }
-        BackHandler(enabled = returningToChannels || detailOpen) { closeDetail() }
+        BackHandler(enabled = canBack && !usePredictive) { closeDetail() }
+        PredictiveBackHandler(enabled = canBack && usePredictive) { events ->
+            try {
+                events.collect { event ->
+                    backEdge = event.swipeEdge
+                    backProgress.snapTo(event.progress.coerceIn(0f, 1f))
+                }
+                closeDetail()
+            } catch (e: CancellationException) {
+                backScope.launch { backProgress.animateTo(0f, animationSpec = settleSpec) }
+                throw e
+            }
+        }
         val overview: @Composable () -> Unit = {
             PreferenceOverview(uiState, viewModel, tools, pages, current, dualPane, overviewScroll,
                 onSelect = {
@@ -172,11 +219,81 @@ internal fun SettingsToolsHub(
                 }
             }
         } else {
-            AnimatedContent(targetState = current, modifier = Modifier.fillMaxSize(),
-                transitionSpec = { AppMotion.hierarchy(forward = targetState != null) },
-                label = "preferenceNavigation") { page ->
-                if (page == null) overview()
-                else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) { detail(page) }
+            val detailTransition = updateTransition(targetState = current, label = "preferenceNavigation")
+            val showOverview = !returningToChannels &&
+                (detailTransition.currentState == null || detailTransition.targetState == null || backProgress.value > 0f)
+            val popReveal by animateFloatAsState(
+                targetValue = if (current == null) 1f else backProgress.value,
+                animationSpec = settleSpec,
+                label = "overviewReveal"
+            )
+            Box(Modifier.fillMaxSize()) {
+                if (showOverview) {
+                    val reveal = if (current == null && backProgress.value == 0f && detailTransition.currentState == null) {
+                        1f
+                    } else if (current != null) {
+                        backProgress.value
+                    } else {
+                        popReveal
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val scale = 0.94f + 0.06f * reveal
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                    ) {
+                        overview()
+                        if (reveal < 1f) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.22f * (1f - reveal)))
+                            )
+                        }
+                    }
+                }
+                val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+                val inEffects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+                val outEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+                detailTransition.AnimatedContent(
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        if (targetState != null) {
+                            (slideInHorizontally(spatial) { it / 4 } + fadeIn(inEffects)) togetherWith ExitTransition.None
+                        } else if (usePredictive) {
+                            EnterTransition.None togetherWith (scaleOut(targetScale = 0.86f, animationSpec = settleSpec) +
+                                slideOutHorizontally(spatial) { if (backEdge == BackEventCompat.EDGE_RIGHT) -it / 6 else it / 6 } +
+                                fadeOut(outEffects))
+                        } else {
+                            EnterTransition.None togetherWith (slideOutHorizontally(spatial) { it / 4 } + fadeOut(outEffects))
+                        }
+                    }
+                ) { page ->
+                    if (page != null) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = backProgress.value
+                                    if (p > 0f) {
+                                        val scale = 1f - 0.12f * p
+                                        scaleX = scale
+                                        scaleY = scale
+                                        val edgeDir = if (backEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
+                                        translationX = edgeDir * 24.dp.toPx() * p
+                                        shape = RoundedCornerShape(28.dp * p)
+                                        clip = true
+                                        shadowElevation = (12.dp * p).toPx()
+                                    }
+                                }
+                                .background(MaterialTheme.colorScheme.surface),
+                            contentAlignment = Alignment.TopCenter
+                        ) { detail(page) }
+                    }
+                }
             }
         }
     }
