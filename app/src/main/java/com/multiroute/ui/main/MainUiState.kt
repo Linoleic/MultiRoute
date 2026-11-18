@@ -33,6 +33,8 @@ data class NavigationUiState(
 
 data class AppRoutingUiState(
     val isLoadingApps: Boolean = true,
+    /** True when one or more installed-app enumeration sources could not be read. */
+    val isInstalledAppsIncomplete: Boolean = false,
     val apps: List<AppItem> = emptyList(),
     val totalAppsCount: Int = 0,
     val configuredAppsCount: Int = 0,
@@ -127,6 +129,7 @@ data class MainUiState(
 
     // App routing & selection
     val isLoadingApps: Boolean get() = routing.isLoadingApps
+    val isInstalledAppsIncomplete: Boolean get() = routing.isInstalledAppsIncomplete
     val apps: List<AppItem> get() = routing.apps
     val totalAppsCount: Int get() = routing.totalAppsCount
     val configuredAppsCount: Int get() = routing.configuredAppsCount

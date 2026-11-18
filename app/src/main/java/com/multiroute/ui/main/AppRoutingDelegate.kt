@@ -62,6 +62,15 @@ internal class AppRoutingDelegate(
             app.packageName.contains("shadowsocks", ignoreCase = true)
     }
 
+    fun blockedBatchVpnCounts(channels: List<NetworkChannel>, selectedRuleKeys: Set<String>): Map<String, Int> {
+        val vpnChannels = channels.filter { it.isVpn }
+        if (vpnChannels.isEmpty()) return emptyMap()
+        val selectedApps = allApps.filter { it.ruleKey in selectedRuleKeys }
+        return vpnChannels.associate { channel ->
+            channel.id to selectedApps.count { isVpnSelfLoop(channel, it) }
+        }
+    }
+
     fun enterSelectionMode(initialPackage: String? = null) {
         val selected = if (initialPackage != null) setOf(initialPackage) else emptySet()
         uiStateFlow.update {
@@ -136,7 +145,14 @@ internal class AppRoutingDelegate(
         }
         // Selection is keyed by rule key (`pkg` or `pkg@userId`), so a clone-space install and the
         // primary install of the same package can be assigned independently.
-        if (keys.isEmpty()) return
+        if (keys.isEmpty()) {
+            if (rawKeys.isNotEmpty()) {
+                uiStateFlow.update {
+                    it.copy(snackBarMessage = application.getString(R.string.routing_batch_vpn_unavailable))
+                }
+            }
+            return
+        }
 
         // While a plan is being edited the selection lands in that plan instead of the base configuration -
         // that is what edit mode is for, and it keeps the routing screen meaning "the default plan".
@@ -186,6 +202,11 @@ internal class AppRoutingDelegate(
 
     fun setSearchQuery(query: String) {
         uiStateFlow.update { it.copy(routing = it.routing.copy(searchQuery = query)) }
+        filterApps()
+    }
+
+    fun clearSearchAndChannelFilter() {
+        uiStateFlow.update { it.copy(routing = it.routing.copy(searchQuery = "", filterChannelId = null)) }
         filterApps()
     }
 
@@ -301,14 +322,16 @@ internal class AppRoutingDelegate(
     fun loadInstalledApps() {
         loadAppsJob?.cancel()
         loadAppsJob = scope.launch {
-            if (allApps.isEmpty()) {
+            if (allApps.isEmpty() || uiStateFlow.value.routing.isInstalledAppsIncomplete) {
                 uiStateFlow.update { it.copy(routing = it.routing.copy(isLoadingApps = true)) }
             }
 
             val pm = application.packageManager
             val previousSecondary = allApps.filter { it.userId > 0 }
-            val (loaded, secondaryScanFailed) = withContext(Dispatchers.IO) {
+            val (loaded, enumerationIncomplete, secondaryScanFailed) = withContext(Dispatchers.IO) {
                 val packageMap = mutableMapOf<String, AppItem>()
+                var launcherScanFailed = false
+                var installedAppsScanFailed = false
 
                 try {
                     val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -335,6 +358,7 @@ internal class AppRoutingDelegate(
                 } catch (c: CancellationException) {
                     throw c
                 } catch (t: Throwable) {
+                    launcherScanFailed = true
                     Log.w(TAG, "Launcher activity enumeration failed: ${t.message}")
                 }
 
@@ -360,6 +384,7 @@ internal class AppRoutingDelegate(
                 } catch (c: CancellationException) {
                     throw c
                 } catch (t: Throwable) {
+                    installedAppsScanFailed = true
                     Log.w(TAG, "Installed package enumeration failed: ${t.message}")
                 }
 
@@ -401,7 +426,11 @@ internal class AppRoutingDelegate(
                     }
                 }
 
-                packageMap.values.toList() to secondaryFailed
+                // Treat any failed source as a partial snapshot. The launcher query can
+                // still provide a fallback list when installed-app access is restricted,
+                // and retained clone entries are useful but cannot prove that scan complete.
+                val incomplete = launcherScanFailed || installedAppsScanFailed || secondaryFailed
+                Triple(packageMap.values.toList(), incomplete, secondaryFailed)
             }
 
             if (secondaryScanFailed) {
@@ -417,7 +446,12 @@ internal class AppRoutingDelegate(
                     .thenBy { it.appName.lowercase() }
             )
             filterApps()
-            uiStateFlow.update { it.copy(routing = it.routing.copy(isLoadingApps = false)) }
+            uiStateFlow.update {
+                it.copy(routing = it.routing.copy(
+                    isLoadingApps = false,
+                    isInstalledAppsIncomplete = enumerationIncomplete
+                ))
+            }
         }
     }
 

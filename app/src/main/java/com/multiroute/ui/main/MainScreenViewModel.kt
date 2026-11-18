@@ -103,6 +103,13 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun refreshInstalledApps() = appRoutingDelegate.loadInstalledApps()
 
+    fun clearSearchAndChannelFilter() = appRoutingDelegate.clearSearchAndChannelFilter()
+
+    fun isVpnSelfLoop(channel: NetworkChannel, app: AppItem) = appRoutingDelegate.isVpnSelfLoop(channel, app)
+
+    fun blockedBatchVpnCounts(channels: List<NetworkChannel>, selectedRuleKeys: Set<String>) =
+        appRoutingDelegate.blockedBatchVpnCounts(channels, selectedRuleKeys)
+
     override fun onCleared() {
         super.onCleared()
         envDelegate.unregisterNetworkCallbacks()

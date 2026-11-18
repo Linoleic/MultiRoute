@@ -35,7 +35,7 @@
     <string name="tab_routing">App routing</string>
     <string name="tab_channels">Channels</string>
     <string name="tab_settings">Settings</string>
-    <string name="ui_search_hint">Search app name or package...</string>
+    <string name="ui_search_hint">Search apps or packages</string>
     <string name="filter_all">All</string>
     <string name="filter_configured">Configured</string>
     <string name="filter_system_apps">System apps</string>
@@ -90,6 +90,16 @@
     <string name="ui_egress_diag_desc">Per-channel diagnostics query the selected server to report the public IP and its location. Pick a public node or use your own endpoint.</string>
     <string name="ui_test_server_desc">Channel egress diagnostic server; supports presets or custom URL.</string>
     <string name="ui_no_matching_apps">No matching apps</string>
+    <string name="routing_loading_apps">Reading the app list…</string>
+    <string name="routing_no_apps">No apps to list</string>
+    <string name="routing_apps_incomplete">Some apps could not be read. The list may be incomplete.</string>
+    <string name="routing_retry_apps">Retry</string>
+    <string name="routing_clear_search_filters">Clear search and channel filter</string>
+    <string name="routing_open_assignment">Choose routing channel</string>
+    <string name="routing_select_for_batch">Start batch selection</string>
+    <string name="routing_syncing">Syncing routing rules…</string>
+    <string name="routing_batch_vpn_skipped">Selected apps skipped to prevent a VPN loop: %1$d.</string>
+    <string name="routing_batch_vpn_unavailable">None of the selected apps can use this VPN channel.</string>
     <string name="ui_no_active_network">No active network connection; check Wi-Fi or cellular</string>
     <string name="ui_module_channel_state">Module and routing state</string>
     <string name="ui_module_state">LSPosed module state</string>

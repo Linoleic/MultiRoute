@@ -35,7 +35,7 @@
     <string name="tab_routing">分流规则</string>
     <string name="tab_channels">网络通道</string>
     <string name="tab_settings">设置</string>
-    <string name="ui_search_hint">搜索应用名称或包名...</string>
+    <string name="ui_search_hint">搜索应用或包名</string>
     <string name="filter_all">全部</string>
     <string name="filter_configured">配置</string>
     <string name="filter_system_apps">系统应用</string>
@@ -90,6 +90,16 @@
     <string name="ui_egress_diag_desc">多通道独立出口诊断将向所选服务器发起请求以探查公网 IP 及归属地。可选用公共节点或自定义服务地址。</string>
     <string name="ui_test_server_desc">通道出口诊断查询节点，支持内置预设或自定义地址。</string>
     <string name="ui_no_matching_apps">未找到符合条件的应用</string>
+    <string name="routing_loading_apps">正在读取应用列表…</string>
+    <string name="routing_no_apps">没有可列出的应用</string>
+    <string name="routing_apps_incomplete">部分应用读取失败，列表可能不全。</string>
+    <string name="routing_retry_apps">重新读取</string>
+    <string name="routing_clear_search_filters">清除搜索和通道筛选</string>
+    <string name="routing_open_assignment">选择分流通道</string>
+    <string name="routing_select_for_batch">进入批量选择</string>
+    <string name="routing_syncing">正在同步分流规则…</string>
+    <string name="routing_batch_vpn_skipped">为避免 VPN 回环，将跳过 %1$d 个已选应用。</string>
+    <string name="routing_batch_vpn_unavailable">所选应用均无法分配到此 VPN 通道。</string>
     <string name="ui_no_active_network">未检测到活跃的网络连接，请检查 Wi-Fi 或蜂窝数据连接</string>
     <string name="ui_module_channel_state">模块与路由状态</string>
     <string name="ui_module_state">LSPosed 模块状态</string>
