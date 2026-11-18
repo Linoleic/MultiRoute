@@ -117,6 +117,7 @@ fun ChannelsTab(
                                 testResult = uiState.testResults[channel.id],
                                 trafficFlow = viewModel.channelTraffic,
                                 selected = dualPane && activeDetail?.id == channel.id,
+                                compact = dualPane,
                                 modifier = Modifier.animateItem(
                                     fadeInSpec = AppMotion.itemFade(),
                                     fadeOutSpec = AppMotion.itemFade(),
@@ -303,6 +304,7 @@ fun ChannelDetailCard(
     testResult: String?,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     selected: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -435,12 +437,14 @@ fun ChannelDetailCard(
                     }
                 }
 
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = stringResource(R.string.ui_tap_details),
-                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+                if (!compact) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = stringResource(R.string.ui_tap_details),
+                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -458,19 +462,31 @@ fun ChannelDetailCard(
                     } else {
                         stringResource(R.string.ui_intranet_ip, channel.ipAddress ?: stringResource(R.string.ui_no_intranet_ip))
                     },
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = stringResource(R.string.ui_tap_details),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                if (compact) {
+                    if (trafficFlow != null) {
+                        ChannelTrafficRateRow(
+                            interfaceName = channel.interfaceName,
+                            trafficFlow = trafficFlow
+                        )
+                    }
+                } else {
+                    Text(
+                        text = stringResource(R.string.ui_tap_details),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
-            // 实时吞吐与速率波形
-            if (trafficFlow != null) {
+            // 实时吞吐与速率波形（单栏下展示迷你波形；双栏左侧仅留紧凑速率，完整波形在右侧详情面板展示）
+            if (!compact && trafficFlow != null) {
                 ChannelTrafficCardSection(
                     interfaceName = channel.interfaceName,
                     trafficFlow = trafficFlow

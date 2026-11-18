@@ -70,21 +70,27 @@ internal fun ObserveChannelTraffic(viewModel: MainScreenViewModel) {
     }
 }
 
+@Composable
+private fun rememberChannelTrafficStats(
+    interfaceName: String,
+    trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>
+): ChannelTrafficStats? {
+    val stats by remember(interfaceName, trafficFlow) {
+        trafficFlow.map { it[interfaceName] }.distinctUntilChanged()
+    }.collectAsState(initial = trafficFlow.value[interfaceName])
+    return stats
+}
+
 /**
- * Compact live speed strip and 30s sparkline embedded inside each channel card.
- * Collects only its own [interfaceName] slice so 1 Hz ticks recompose strictly this strip.
+ * Inline live download/upload speed badges used inside compact dual-pane channel cards.
  */
 @Composable
-fun ChannelTrafficCardSection(
+fun ChannelTrafficRateRow(
     interfaceName: String,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
     modifier: Modifier = Modifier
 ) {
-    val stats by remember(interfaceName, trafficFlow) {
-        trafficFlow.map { it[interfaceName] }.distinctUntilChanged()
-    }.collectAsState(initial = trafficFlow.value[interfaceName])
-
-    val currentStats = stats
+    val currentStats = rememberChannelTrafficStats(interfaceName, trafficFlow)
     val rxColor = MaterialTheme.colorScheme.primary
     val txColor = MaterialTheme.colorScheme.tertiary
     val rxSpeedText = if (currentStats != null && currentStats.hasSpeedSample) {
@@ -97,6 +103,37 @@ fun ChannelTrafficCardSection(
     } else {
         "--"
     }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CompactRateBadge(
+            isDownload = true,
+            speedText = rxSpeedText,
+            tint = rxColor
+        )
+        CompactRateBadge(
+            isDownload = false,
+            speedText = txSpeedText,
+            tint = txColor
+        )
+    }
+}
+
+/**
+ * Compact live speed strip and 30s sparkline embedded inside each channel card.
+ * Collects only its own [interfaceName] slice so 1 Hz ticks recompose strictly this strip.
+ */
+@Composable
+fun ChannelTrafficCardSection(
+    interfaceName: String,
+    trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
+    modifier: Modifier = Modifier
+) {
+    val currentStats = rememberChannelTrafficStats(interfaceName, trafficFlow)
+    val rxColor = MaterialTheme.colorScheme.primary
+    val txColor = MaterialTheme.colorScheme.tertiary
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -107,22 +144,11 @@ fun ChannelTrafficCardSection(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CompactRateBadge(
-                    isDownload = true,
-                    speedText = rxSpeedText,
-                    tint = rxColor
-                )
-                CompactRateBadge(
-                    isDownload = false,
-                    speedText = txSpeedText,
-                    tint = txColor
-                )
-            }
+            ChannelTrafficRateRow(
+                interfaceName = interfaceName,
+                trafficFlow = trafficFlow,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             ChannelTrafficSparkline(
                 history = currentStats?.history.orEmpty(),
@@ -144,13 +170,9 @@ fun ChannelTrafficDetailCard(
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
     modifier: Modifier = Modifier
 ) {
-    val stats by remember(interfaceName, trafficFlow) {
-        trafficFlow.map { it[interfaceName] }.distinctUntilChanged()
-    }.collectAsState(initial = trafficFlow.value[interfaceName])
-
+    val currentStats = rememberChannelTrafficStats(interfaceName, trafficFlow)
     val rxColor = MaterialTheme.colorScheme.primary
     val txColor = MaterialTheme.colorScheme.tertiary
-    val currentStats = stats
 
     Card(
         modifier = modifier.fillMaxWidth(),
