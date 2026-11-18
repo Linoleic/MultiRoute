@@ -58,7 +58,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platforms;android-36'
+          packages: 'platforms;android-37'
 
       - name: Require the signing secrets
         # A release must be signed with the project key, so unlike the build workflow this one refuses to

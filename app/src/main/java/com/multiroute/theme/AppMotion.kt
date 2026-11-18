@@ -1,28 +1,32 @@
 package com.multiroute.theme
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MotionScheme
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 
-/** Shared, restrained motion for recurring tool interactions. Compose applies system duration scale. */
+/** Expressive spring-driven motion aligned with Material 3 Expressive defaults. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal object AppMotion {
-    private const val FadeMillis = 140
-    private const val PageMillis = 220
+    private val scheme = MotionScheme.expressive()
 
     fun content(): ContentTransform =
-        fadeIn(tween(FadeMillis)) togetherWith fadeOut(tween(FadeMillis))
+        fadeIn(scheme.fastEffectsSpec()) togetherWith fadeOut(scheme.fastEffectsSpec())
 
     fun hierarchy(forward: Boolean): ContentTransform {
         val direction = if (forward) 1 else -1
-        return ((slideInHorizontally(tween(PageMillis)) { direction * it / 12 } + fadeIn(tween(PageMillis)))
-            togetherWith (slideOutHorizontally(tween(PageMillis)) { -direction * it / 12 } + fadeOut(tween(FadeMillis))))
-
+        val slideSpec = scheme.defaultSpatialSpec<IntOffset>()
+        val fadeSpec = scheme.fastEffectsSpec<Float>()
+        return (slideInHorizontally(slideSpec) { direction * it / 10 } + fadeIn(fadeSpec)) togetherWith
+            (slideOutHorizontally(slideSpec) { -direction * it / 10 } + fadeOut(fadeSpec))
     }
 
-    val size = spring<IntSize>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-    fun expand(): EnterTransition = expandVertically(size, expandFrom = Alignment.Top) + fadeIn(tween(FadeMillis))
-    fun collapse(): ExitTransition = shrinkVertically(size, shrinkTowards = Alignment.Top) + fadeOut(tween(FadeMillis))
+    val size = scheme.defaultSpatialSpec<IntSize>()
+    fun expand(): EnterTransition =
+        expandVertically(size, expandFrom = Alignment.Top) + fadeIn(scheme.fastEffectsSpec())
+
+    fun collapse(): ExitTransition =
+        shrinkVertically(size, shrinkTowards = Alignment.Top) + fadeOut(scheme.fastEffectsSpec())
 }

@@ -4,10 +4,13 @@ import android.content.Context
 import android.app.Activity
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -17,14 +20,24 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.multiroute.data.RouteConfigProvider
 
 private val DarkColorScheme = darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
 
 private val LightColorScheme = lightColorScheme(primary = Purple40, secondary = PurpleGrey40, tertiary = Pink40)
+
+private val ExpressiveShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
 
 /**
  * Appearance settings as observable state, so switching the theme recomposes through the crossfade
@@ -41,6 +54,7 @@ object ThemeSettings {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MultiRouteTheme(
     // The stored preference wins; "system" (the default) follows the device.
@@ -61,8 +75,10 @@ fun MultiRouteTheme(
         }
     }
     // Animate colors, not the application subtree: theme changes must preserve navigation and scroll state.
-    MaterialTheme(
+    MaterialExpressiveTheme(
         colorScheme = animatedScheme(colorSchemeFor(context, darkTheme, dynamicColor)),
+        motionScheme = MotionScheme.expressive(),
+        shapes = ExpressiveShapes,
         typography = Typography,
         content = content,
     )

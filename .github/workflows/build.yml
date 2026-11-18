@@ -47,7 +47,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platforms;android-36'
+          packages: 'platforms;android-37'
 
       - name: Test release notes extraction
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'

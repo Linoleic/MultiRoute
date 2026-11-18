@@ -140,7 +140,7 @@ val hotspotHookDigest = MessageDigest.getInstance("SHA-256").apply {
 
 android {
     namespace = "com.multiroute"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         // The Xposed module repository only accepts an application id whose namespace the author can
         // prove ownership of: `com.multiroute` would need multiroute.com, which is not ours, so the
