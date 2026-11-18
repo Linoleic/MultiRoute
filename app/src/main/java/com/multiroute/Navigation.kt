@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.multiroute.theme.AppMotion
 import com.multiroute.ui.main.MainScreen
 import com.multiroute.ui.wifi.DualWifiScreen
 
@@ -16,6 +17,9 @@ fun MainNavigation() {
   NavDisplay(
     backStack = backStack,
     onBack = { backStack.removeLastOrNull() },
+    transitionSpec = { AppMotion.hierarchy(forward = true) },
+    popTransitionSpec = { AppMotion.hierarchy(forward = false) },
+    predictivePopTransitionSpec = { AppMotion.predictivePop() },
     entryProvider =
       entryProvider {
         entry<Main> {

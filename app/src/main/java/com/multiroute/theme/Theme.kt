@@ -92,8 +92,13 @@ private fun colorSchemeFor(context: Context, darkTheme: Boolean, dynamicColor: B
         else -> LightColorScheme
     }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun themeColor(value: Color): Color = animateColorAsState(value, label = "themeColor").value
+private fun themeColor(value: Color): Color = animateColorAsState(
+    targetValue = value,
+    animationSpec = MotionScheme.expressive().defaultEffectsSpec(),
+    label = "themeColor"
+).value
 
 @Composable
 private fun animatedScheme(target: ColorScheme): ColorScheme = target.copy(

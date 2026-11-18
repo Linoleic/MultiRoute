@@ -1,6 +1,7 @@
 package com.multiroute.theme
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MotionScheme
 import androidx.compose.ui.Alignment
@@ -13,15 +14,54 @@ internal object AppMotion {
     private val scheme = MotionScheme.expressive()
 
     fun content(): ContentTransform =
-        fadeIn(scheme.fastEffectsSpec()) togetherWith fadeOut(scheme.fastEffectsSpec())
+        (fadeIn(scheme.defaultEffectsSpec()) +
+            scaleIn(initialScale = 0.96f, animationSpec = scheme.defaultSpatialSpec())) togetherWith
+            fadeOut(scheme.fastEffectsSpec())
+
+    fun tab(forward: Boolean): ContentTransform {
+        val slideSpec = scheme.defaultSpatialSpec<IntOffset>()
+        val scaleSpec = scheme.defaultSpatialSpec<Float>()
+        val inEffects = scheme.defaultEffectsSpec<Float>()
+        val outEffects = scheme.fastEffectsSpec<Float>()
+        val enterOffset: (Int) -> Int = { if (forward) it / 16 else -it / 16 }
+        val exitOffset: (Int) -> Int = { if (forward) -it / 24 else it / 24 }
+        return (slideInHorizontally(slideSpec, enterOffset) +
+            scaleIn(initialScale = 0.97f, animationSpec = scaleSpec) +
+            fadeIn(inEffects)) togetherWith
+            (slideOutHorizontally(slideSpec, exitOffset) + fadeOut(outEffects))
+    }
 
     fun hierarchy(forward: Boolean): ContentTransform {
-        val direction = if (forward) 1 else -1
         val slideSpec = scheme.defaultSpatialSpec<IntOffset>()
-        val fadeSpec = scheme.fastEffectsSpec<Float>()
-        return (slideInHorizontally(slideSpec) { direction * it / 10 } + fadeIn(fadeSpec)) togetherWith
-            (slideOutHorizontally(slideSpec) { -direction * it / 10 } + fadeOut(fadeSpec))
+        val scaleSpec = scheme.defaultSpatialSpec<Float>()
+        val inEffects = scheme.defaultEffectsSpec<Float>()
+        val outEffects = scheme.fastEffectsSpec<Float>()
+        return if (forward) {
+            (slideInHorizontally(slideSpec) { it / 5 } + fadeIn(inEffects)) togetherWith
+                (slideOutHorizontally(slideSpec) { -it / 8 } +
+                    scaleOut(targetScale = 0.96f, animationSpec = scaleSpec) +
+                    fadeOut(outEffects))
+        } else {
+            (slideInHorizontally(slideSpec) { -it / 8 } +
+                scaleIn(initialScale = 0.96f, animationSpec = scaleSpec) +
+                fadeIn(inEffects)) togetherWith
+                (slideOutHorizontally(slideSpec) { it / 5 } + fadeOut(outEffects))
+        }
     }
+
+    fun predictivePop(): ContentTransform {
+        val slideSpec = scheme.defaultSpatialSpec<IntOffset>()
+        val scaleSpec = scheme.defaultSpatialSpec<Float>()
+        val inEffects = scheme.defaultEffectsSpec<Float>()
+        val outEffects = scheme.fastEffectsSpec<Float>()
+        return (scaleIn(initialScale = 0.94f, animationSpec = scaleSpec) + fadeIn(inEffects)) togetherWith
+            (scaleOut(targetScale = 0.90f, animationSpec = scaleSpec) +
+                slideOutHorizontally(slideSpec) { it / 6 } +
+                fadeOut(outEffects))
+    }
+
+    fun itemFade(): FiniteAnimationSpec<Float> = scheme.fastEffectsSpec()
+    fun itemPlacement(): FiniteAnimationSpec<IntOffset> = scheme.defaultSpatialSpec()
 
     val size = scheme.defaultSpatialSpec<IntSize>()
     fun expand(): EnterTransition =

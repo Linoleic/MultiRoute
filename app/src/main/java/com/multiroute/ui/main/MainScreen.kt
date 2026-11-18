@@ -45,7 +45,10 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -125,128 +128,148 @@ fun MainScreen(
         Scaffold(
             modifier = modifier.fillMaxSize(),
             topBar = {
+                val topBarContainer by animateColorAsState(
+                    targetValue = if (uiState.isSelectionMode) MaterialTheme.colorScheme.surfaceContainer
+                    else MaterialTheme.colorScheme.surface,
+                    animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                    label = "topBarContainer"
+                )
                 TopAppBar(
                     title = {
-                        Column {
-                            val editingName = uiState.scenarioEditId?.let { id ->
-                                uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
+                        AnimatedContent(
+                            targetState = uiState.isSelectionMode,
+                            transitionSpec = { AppMotion.content() },
+                            label = "topBarTitle"
+                        ) { selectionMode ->
+                            Column {
+                                val editingName = uiState.scenarioEditId?.let { id ->
+                                    uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
+                                }
+                                Text(
+                                    text = if (selectionMode) {
+                                        editingName?.let {
+                                            stringResource(com.multiroute.R.string.scenario_editing, it)
+                                        } ?: stringResource(com.multiroute.R.string.ui_batch_title)
+                                    } else "MultiRoute",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = if (selectionMode) 2 else 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (selectionMode) {
+                                        stringResource(com.multiroute.R.string.ui_selected_apps_count, uiState.selectedRuleKeys.size)
+                                    } else {
+                                        when (uiState.selectedTab) {
+                                            0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
+                                            1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
+                                            2 -> stringResource(com.multiroute.R.string.tools_subtitle)
+                                            else -> stringResource(com.multiroute.R.string.settings_subtitle)
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
                             }
-                            Text(
-                                text = if (uiState.isSelectionMode) {
-                                    editingName?.let {
-                                        stringResource(com.multiroute.R.string.scenario_editing, it)
-                                    } ?: stringResource(com.multiroute.R.string.ui_batch_title)
-                                } else "MultiRoute",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                maxLines = if (uiState.isSelectionMode) 2 else 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (uiState.isSelectionMode) {
-                                    stringResource(com.multiroute.R.string.ui_selected_apps_count, uiState.selectedRuleKeys.size)
-                                } else {
-                                    when (uiState.selectedTab) {
-                                        0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
-                                        1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
-                                        2 -> stringResource(com.multiroute.R.string.tools_subtitle)
-                                        else -> stringResource(com.multiroute.R.string.settings_subtitle)
-                                    }
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
                         }
                     },
                     actions = {
-                        if (uiState.isSelectionMode) {
-                            IconButton(onClick = { viewModel.exitSelectionMode() }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = stringResource(com.multiroute.R.string.cd_exit_multi)
-                                )
-                            }
-                        } else {
-                            val editingName = uiState.scenarioEditId?.let { id ->
-                                uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
-                            }
-                            val actionLabel = editingName?.let {
-                                stringResource(R.string.scenario_editing, it)
-                            } ?: uiState.activeScenarioName?.let {
-                                stringResource(R.string.scenario_current, it)
-                            } ?: stringResource(R.string.scenario_default)
-                            val onScenarioAction: () -> Unit = {
-                                if (uiState.scenarioEditId != null) {
-                                    viewModel.finishEditingScenario()
-                                } else {
-                                    viewModel.openScenarioSheet()
-                                }
-                            }
-                            val scenarioColor = if (uiState.activeScenarioName != null || editingName != null) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                            if (useScenarioIcon) {
-                                TooltipBox(
-                                    positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-                                    tooltip = { PlainTooltip { Text(actionLabel) } },
-                                    state = rememberTooltipState()
-                                ) {
-                                    FilledTonalIconButton(
-                                        onClick = onScenarioAction,
-                                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                            containerColor = if (uiState.activeScenarioName != null || editingName != null) {
-                                                MaterialTheme.colorScheme.secondaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.surfaceContainerHigh
-                                            },
-                                            contentColor = scenarioColor
-                                        )
-                                    ) {
+                        AnimatedContent(
+                            targetState = uiState.isSelectionMode,
+                            transitionSpec = { AppMotion.content() },
+                            label = "topBarActions"
+                        ) { selectionMode ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (selectionMode) {
+                                    IconButton(onClick = { viewModel.exitSelectionMode() }) {
                                         Icon(
-                                            if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
-                                            contentDescription = actionLabel
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = stringResource(com.multiroute.R.string.cd_exit_multi)
                                         )
                                     }
-                                }
-                            } else {
-                                FilledTonalButton(
-                                    onClick = onScenarioAction,
-                                    modifier = Modifier.widthIn(max = 180.dp),
-                                    shapes = ButtonDefaults.shapes(),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = if (uiState.activeScenarioName != null || editingName != null) {
-                                            MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    val editingName = uiState.scenarioEditId?.let { id ->
+                                        uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
+                                    }
+                                    val actionLabel = editingName?.let {
+                                        stringResource(R.string.scenario_editing, it)
+                                    } ?: uiState.activeScenarioName?.let {
+                                        stringResource(R.string.scenario_current, it)
+                                    } ?: stringResource(R.string.scenario_default)
+                                    val onScenarioAction: () -> Unit = {
+                                        if (uiState.scenarioEditId != null) {
+                                            viewModel.finishEditingScenario()
                                         } else {
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
-                                        },
-                                        contentColor = scenarioColor
-                                    )
-                                ) {
-                                    Icon(
-                                        if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = actionLabel,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                            viewModel.openScenarioSheet()
+                                        }
+                                    }
+                                    val scenarioColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                    if (useScenarioIcon) {
+                                        TooltipBox(
+                                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+                                            tooltip = { PlainTooltip { Text(actionLabel) } },
+                                            state = rememberTooltipState()
+                                        ) {
+                                            FilledTonalIconButton(
+                                                onClick = onScenarioAction,
+                                                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                    containerColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                                        MaterialTheme.colorScheme.secondaryContainer
+                                                    } else {
+                                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                                    },
+                                                    contentColor = scenarioColor
+                                                )
+                                            ) {
+                                                Icon(
+                                                    if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
+                                                    contentDescription = actionLabel
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        FilledTonalButton(
+                                            onClick = onScenarioAction,
+                                            modifier = Modifier.widthIn(max = 180.dp),
+                                            shapes = ButtonDefaults.shapes(),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            colors = ButtonDefaults.filledTonalButtonColors(
+                                                containerColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                                    MaterialTheme.colorScheme.secondaryContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                                },
+                                                contentColor = scenarioColor
+                                            )
+                                        ) {
+                                            Icon(
+                                                if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = actionLabel,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    ModuleStatusButton(uiState) {
+                                        showDiagnostics = true
+                                        viewModel.refreshEnvironment()
+                                    }
+                                    if (uiState.selectedTab == 0) RuleActionsMenu(uiState, viewModel)
                                 }
                             }
-                            ModuleStatusButton(uiState) {
-                                showDiagnostics = true
-                                viewModel.refreshEnvironment()
-                            }
-                            if (uiState.selectedTab == 0) RuleActionsMenu(uiState, viewModel)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                        containerColor = topBarContainer
                     )
                 )
             },
@@ -264,7 +287,7 @@ fun MainScreen(
                 BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     val wideContent = maxWidth >= 840.dp
                     AnimatedContent(targetState = uiState.selectedTab, modifier = Modifier.fillMaxSize(),
-                        transitionSpec = { AppMotion.content() }, label = "mainDestination") { tab ->
+                        transitionSpec = { AppMotion.tab(forward = targetState > initialState) }, label = "mainDestination") { tab ->
                         tabStates.SaveableStateProvider(tab) {
                             when (tab) {
                                 0 -> AppRulesTab(
@@ -455,7 +478,11 @@ private fun AppRulesContent(
         checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer
     )
     val toggleShapes = ToggleButtonDefaults.shapesFor(ToggleButtonDefaults.MinHeight)
-    val listBottomPadding = if (uiState.isSelectionMode) 96.dp else RoutingDimensions.contentPadding
+    val listBottomPadding by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (uiState.isSelectionMode) 96.dp else RoutingDimensions.contentPadding,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "listBottomPadding"
+    )
 
     Box(modifier) {
         LazyColumn(
@@ -573,31 +600,37 @@ private fun AppRulesContent(
                         }
                     }
 
-                    if (uiState.isSelectionMode) {
-                        val allFilteredSelected = uiState.apps.isNotEmpty() &&
-                            uiState.apps.all { it.ruleKey in uiState.selectedRuleKeys }
-                        TextButton(
-                            onClick = viewModel::selectAllFilteredApps,
-                            enabled = uiState.apps.isNotEmpty()
-                        ) {
-                            Text(stringResource(if (allFilteredSelected) R.string.ui_deselect_all else R.string.ui_select_all))
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.ui_app_list, uiState.apps.size),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.weight(1f).semantics { heading() }
-                            )
+                    AnimatedContent(
+                        targetState = uiState.isSelectionMode,
+                        transitionSpec = { AppMotion.content() },
+                        label = "batchHeaderRow"
+                    ) { selectionMode ->
+                        if (selectionMode) {
+                            val allFilteredSelected = uiState.apps.isNotEmpty() &&
+                                uiState.apps.all { it.ruleKey in uiState.selectedRuleKeys }
                             TextButton(
-                                onClick = { viewModel.enterSelectionMode() },
+                                onClick = viewModel::selectAllFilteredApps,
                                 enabled = uiState.apps.isNotEmpty()
                             ) {
-                                Text(stringResource(R.string.ui_batch_assign))
+                                Text(stringResource(if (allFilteredSelected) R.string.ui_deselect_all else R.string.ui_select_all))
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.ui_app_list, uiState.apps.size),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.weight(1f).semantics { heading() }
+                                )
+                                TextButton(
+                                    onClick = { viewModel.enterSelectionMode() },
+                                    enabled = uiState.apps.isNotEmpty()
+                                ) {
+                                    Text(stringResource(R.string.ui_batch_assign))
+                                }
                             }
                         }
                     }
@@ -669,6 +702,11 @@ private fun AppRulesContent(
                         app = app,
                         channels = uiState.channels,
                         stackChannel = stackChannel,
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = AppMotion.itemFade(),
+                            fadeOutSpec = AppMotion.itemFade(),
+                            placementSpec = AppMotion.itemPlacement()
+                        ),
                         index = index,
                         count = uiState.apps.size,
                         isSelectionMode = uiState.isSelectionMode,
@@ -684,8 +722,12 @@ private fun AppRulesContent(
         // 批量操作悬浮工具栏 (Material 3 Expressive HorizontalFloatingToolbar)
         AnimatedVisibility(
             visible = uiState.isSelectionMode,
-            enter = FloatingToolbarDefaults.verticalEnterTransition(Alignment.Bottom),
-            exit = FloatingToolbarDefaults.verticalExitTransition(Alignment.Bottom),
+            enter = slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it * 2 } +
+                scaleIn(initialScale = 0.92f, animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = slideOutVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it * 2 } +
+                scaleOut(targetScale = 0.92f, animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) +
+                fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = RoutingDimensions.contentPadding, vertical = 16.dp)
@@ -807,6 +849,11 @@ fun ChannelsTab(
                             channel = channel,
                             testResult = uiState.testResults[channel.id],
                             trafficFlow = viewModel.channelTraffic,
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = AppMotion.itemFade(),
+                                fadeOutSpec = AppMotion.itemFade(),
+                                placementSpec = AppMotion.itemPlacement()
+                            ),
                             onClick = { viewModel.selectChannelForDetail(channel) }
                         )
                     }
@@ -995,6 +1042,7 @@ private fun AppItemRow(
     app: AppItem,
     channels: List<NetworkChannel>,
     stackChannel: Boolean,
+    modifier: Modifier = Modifier,
     index: Int = 0,
     count: Int = 1,
     isSelectionMode: Boolean = false,
@@ -1007,8 +1055,13 @@ private fun AppItemRow(
     val isCustom = app.targetChannelId != CHANNEL_DEFAULT
     val current = channels.firstOrNull { it.id == app.targetChannelId || it.interfaceName == app.targetChannelId }
     val accent = channelAccentColors(app, current)
+    val animatedRowContainer by animateColorAsState(
+        targetValue = accent.rowContainer,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "appRowContainer"
+    )
     val colors = ListItemDefaults.segmentedColors(
-        containerColor = accent.rowContainer,
+        containerColor = animatedRowContainer,
         selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
         selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         selectedSupportingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -1021,12 +1074,25 @@ private fun AppItemRow(
         MaterialTheme.typography.bodyLarge
     }
     val leading: @Composable () -> Unit = {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (isSelectionMode) {
-                Checkbox(checked = isSelected, onCheckedChange = null)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AnimatedVisibility(
+                visible = isSelectionMode,
+                enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                    expandHorizontally(
+                        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                        expandFrom = Alignment.Start
+                    ),
+                exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                    shrinkHorizontally(
+                        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                        shrinkTowards = Alignment.Start
+                    )
+            ) {
+                // Keep trailing spacing inside AnimatedVisibility so Row.spacedBy doesn't
+                // stay present until exit finishes and snap the icon/text left in a second step.
+                Box(Modifier.padding(end = 12.dp)) {
+                    Checkbox(checked = isSelected, onCheckedChange = null)
+                }
             }
             AppIcon(drawable = app.icon, size = 36.dp)
         }
@@ -1048,46 +1114,40 @@ private fun AppItemRow(
         null
     }
 
-    if (isSelectionMode) {
-        SegmentedListItem(
-            checked = isSelected,
-            onCheckedChange = { onToggleSelect() },
-            shapes = shapes,
-            colors = colors,
-            leadingContent = leading,
-            supportingContent = supporting,
-            trailingContent = trailing,
-            content = {
-                Text(
-                    text = app.appName,
-                    style = titleStyle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+    // Keep a single SegmentedListItem call site across normal and selection modes so
+    // the checkbox AnimatedVisibility and selection colors animate continuously without remounting.
+    SegmentedListItem(
+        selected = isSelectionMode && isSelected,
+        onClick = { if (isSelectionMode) onToggleSelect() else onClick() },
+        onLongClick = { if (isSelectionMode) onToggleSelect() else onLongClick() },
+        onLongClickLabel = if (isSelectionMode) null else stringResource(R.string.routing_select_for_batch),
+        shapes = shapes,
+        modifier = modifier.then(
+            if (isSelectionMode) {
+                Modifier.semantics {
+                    role = Role.Checkbox
+                    toggleableState = ToggleableState(isSelected)
+                }
+            } else {
+                Modifier
             }
-        )
-    } else {
-        SegmentedListItem(
-            onClick = onClick,
-            onLongClick = onLongClick,
-            onLongClickLabel = stringResource(R.string.routing_select_for_batch),
-            shapes = shapes,
-            colors = colors,
-            leadingContent = leading,
-            supportingContent = supporting,
-            trailingContent = trailing,
-            content = {
-                Text(
-                    text = app.appName,
-                    style = titleStyle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        )
-    }
+        ),
+        colors = colors,
+        leadingContent = leading,
+        supportingContent = supporting,
+        trailingContent = trailing,
+        content = {
+            Text(
+                text = app.appName,
+                style = titleStyle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppChannelBadge(
     app: AppItem,
@@ -1096,38 +1156,54 @@ private fun AppChannelBadge(
     isSelected: Boolean
 ) {
     val context = LocalContext.current
-    if (app.targetChannelId == CHANNEL_DEFAULT) {
-        Text(
-            text = stringResource(R.string.vm_system_default),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        return
-    }
-    val label = if (current != null) NetworkUtils.channelLabel(context, current)
-    else stringResource(R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(context, app.targetChannelId))
-    Surface(
-        shape = CircleShape,
-        color = accent.badgeContainer,
-        contentColor = accent.badgeContent
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = if (current != null) getTransportIcon(current.transportType) else Icons.Default.CloudOff,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp)
-            )
+    AnimatedContent(
+        targetState = app.targetChannelId,
+        transitionSpec = { AppMotion.content() },
+        label = "channelBadge"
+    ) { targetChannelId ->
+        if (targetChannelId == CHANNEL_DEFAULT) {
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 1,
-                softWrap = false
+                text = stringResource(R.string.vm_system_default),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant
             )
+        } else {
+            val badgeContainer by animateColorAsState(
+                targetValue = accent.badgeContainer,
+                animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                label = "badgeContainer"
+            )
+            val badgeContent by animateColorAsState(
+                targetValue = accent.badgeContent,
+                animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                label = "badgeContent"
+            )
+            val label = if (current != null) NetworkUtils.channelLabel(context, current)
+            else stringResource(R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(context, targetChannelId))
+            Surface(
+                shape = CircleShape,
+                color = badgeContainer,
+                contentColor = badgeContent
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (current != null) getTransportIcon(current.transportType) else Icons.Default.CloudOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
         }
     }
 }
@@ -1277,20 +1353,26 @@ fun ConfigBackupCard(uiState: MainUiState, viewModel: MainScreenViewModel, showT
 /**
  * 单个通道卡片视图 (ChannelsTab，清晰展示 WLAN SSID 网络名称，点击可查看详情)
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChannelDetailCard(
     channel: NetworkChannel,
     testResult: String?,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val cardContainer = if (channel.isDefault) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f).compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
+    val cardContainer by animateColorAsState(
+        targetValue = if (channel.isDefault) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f).compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "channelCardContainer"
+    )
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
@@ -1445,46 +1527,52 @@ fun ChannelDetailCard(
             }
 
             // 公网出口测试结果
-            if (testResult != null) {
-                val isFailed = NetworkUtils.isFailure(testResult)
-                val isInfo = testResult.startsWith(NetworkUtils.INFO_PREFIX)
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = when {
-                        isFailed -> MaterialTheme.colorScheme.errorContainer
-                        isInfo -> MaterialTheme.colorScheme.tertiaryContainer
-                        else -> MaterialTheme.colorScheme.primaryContainer
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            AnimatedVisibility(
+                visible = testResult != null,
+                enter = AppMotion.expand(),
+                exit = AppMotion.collapse()
+            ) {
+                testResult?.let { resultText ->
+                    val isFailed = NetworkUtils.isFailure(resultText)
+                    val isInfo = resultText.startsWith(NetworkUtils.INFO_PREFIX)
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = when {
+                            isFailed -> MaterialTheme.colorScheme.errorContainer
+                            isInfo -> MaterialTheme.colorScheme.tertiaryContainer
+                            else -> MaterialTheme.colorScheme.primaryContainer
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = when {
-                                isFailed -> Icons.Default.ErrorOutline
-                                isInfo -> Icons.Default.Info
-                                else -> Icons.Default.CheckCircle
-                            },
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = when {
-                                isFailed -> MaterialTheme.colorScheme.onErrorContainer
-                                isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
-                                else -> MaterialTheme.colorScheme.onPrimaryContainer
-                            }
-                        )
-                        Text(
-                            text = NetworkUtils.egressResultLabel(LocalContext.current, testResult),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = when {
-                                isFailed -> MaterialTheme.colorScheme.onErrorContainer
-                                isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
-                                else -> MaterialTheme.colorScheme.onPrimaryContainer
-                            }
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = when {
+                                    isFailed -> Icons.Default.ErrorOutline
+                                    isInfo -> Icons.Default.Info
+                                    else -> Icons.Default.CheckCircle
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = when {
+                                    isFailed -> MaterialTheme.colorScheme.onErrorContainer
+                                    isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
+                                    else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                }
+                            )
+                            Text(
+                                text = NetworkUtils.egressResultLabel(LocalContext.current, resultText),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = when {
+                                    isFailed -> MaterialTheme.colorScheme.onErrorContainer
+                                    isInfo -> MaterialTheme.colorScheme.onTertiaryContainer
+                                    else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                }
+                            )
+                        }
                     }
                 }
             }
