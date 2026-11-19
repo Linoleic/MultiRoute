@@ -5,6 +5,26 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.9.0 - 2026-11-19
+
+**中文**
+
+### 变更
+
+- 界面升级至 Material 3 Expressive 风格，统一圆角、字体排版、弹性过渡动效与批量选择悬浮工具栏，并增强已分流应用的列表辨识度。
+- 主界面支持左右滑动切换标签页，并与底部/侧边导航实时联动（在批量选择或窄屏工具子页内自动锁定）。
+- 在**设置 → 外观与语言**中新增可切换的**预测式返回动画（Android 13+）**开关并支持配置备份导入导出，窄屏工具子页侧滑返回时可实时预览底层界面。
+- 优化平板、大屏与横屏布局：应用分流支持按宽度自适应多列网格，网络通道与工具/设置支持比例化左右双栏（通道双栏左侧精简为行内速率、右侧常驻完整流量图与详情），并收窄小屏及矮横屏下的顶栏与通道底部测速栏。
+
+**English**
+
+### Changed
+
+- Updated the UI to Material 3 Expressive with unified shapes, typography, spring motion, a floating batch-selection toolbar, and stronger visual distinction for routed apps.
+- Added horizontal swipe switching between main tabs synced with navigation controls (automatically locked during batch selection and narrow-screen tool subpages).
+- Added a toggleable **Predictive back gesture (Android 13+)** option under **Settings → Appearance & Language** (with configuration backup/restore support) and live underlying-screen preview when swiping back from narrow tool subpages.
+- Improved tablet, large-screen, and landscape layouts with adaptive multi-column app grids, proportional dual-pane channel and tool/settings views (inline rate summaries on the left, full traffic charts and details on the right), and more compact top and channel-test bars on small or short screens.
+
 ## v1.8.2 - 2026-11-17
 
 **中文**
