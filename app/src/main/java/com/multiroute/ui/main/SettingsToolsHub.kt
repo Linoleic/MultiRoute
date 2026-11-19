@@ -54,7 +54,7 @@ import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.ThemeSettings
 
-private enum class PreferencePage(@param:StringRes val title: Int, @param:StringRes val summary: Int, val icon: ImageVector) {
+internal enum class PreferencePage(@param:StringRes val title: Int, @param:StringRes val summary: Int, val icon: ImageVector) {
     NETWORK(R.string.settings_network, R.string.settings_network_summary, Icons.Default.Route),
     APPEARANCE(R.string.settings_appearance_language, R.string.settings_appearance_summary, Icons.Default.Palette),
     BACKUP(R.string.settings_backup_title, R.string.settings_backup_summary, Icons.Default.Backup),
@@ -136,9 +136,13 @@ internal fun SettingsToolsHub(
     viewModel: MainScreenViewModel,
     tools: Boolean,
     onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {},
-    onDetailOpenChanged: (Boolean) -> Unit = {}
+    onDetailOpenChanged: (Boolean) -> Unit = {},
+    controlledSelection: String? = null,
+    onControlledSelectionChange: ((String?) -> Unit)? = null
 ) {
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var localSelected by rememberSaveable { mutableStateOf<String?>(null) }
+    val selected = if (onControlledSelectionChange != null) controlledSelection else localSelected
+    val setSelected: (String?) -> Unit = onControlledSelectionChange ?: { localSelected = it }
     val pages = if (tools) listOf(PreferencePage.CELLULAR, PreferencePage.DUAL_WIFI, PreferencePage.HOTSPOT, PreferencePage.WIRELESS, PreferencePage.LOGS)
         else listOf(PreferencePage.NETWORK, PreferencePage.APPEARANCE, PreferencePage.BACKUP, PreferencePage.ABOUT)
     if (tools) ObserveNetworkManagement(viewModel)
@@ -147,13 +151,14 @@ internal fun SettingsToolsHub(
     val request = if (tools) uiState.requestedNetworkTool else null
     LaunchedEffect(request) {
         if (request != null) {
-            selected = request.name
+            setSelected(request.name)
             viewModel.consumeNetworkToolRequest()
         }
     }
     val returningToChannels = tools && uiState.networkToolReturnTab != null
     val closeDetail: () -> Unit = {
-        if (returningToChannels) viewModel.returnFromNetworkTool() else selected = null
+        setSelected(null)
+        if (returningToChannels) viewModel.returnFromNetworkTool()
     }
     val details = rememberSaveableStateHolder()
     val overviewScroll = rememberLazyListState()
@@ -164,43 +169,16 @@ internal fun SettingsToolsHub(
         val current = if (!dualPane && !tools) null else pages.firstOrNull { it.name == (request?.name ?: selected) }
             ?: if (dualPane) pages.first() else null
         val detailOpen = !dualPane && current != null
-        val canBack = returningToChannels || detailOpen
-        val usePredictive = ThemeSettings.predictiveBack
-        val backProgress = remember { Animatable(0f) }
-        var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
-        val backScope = rememberCoroutineScope()
-        val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+        val useExternalOverlay = !dualPane && onControlledSelectionChange != null
         LaunchedEffect(detailOpen) { onDetailOpenChanged(detailOpen) }
-        LaunchedEffect(current) {
-            if (current != null && backProgress.value != 0f) {
-                backProgress.snapTo(0f)
-            }
-        }
-        LaunchedEffect(usePredictive) {
-            if (!usePredictive && backProgress.value != 0f) {
-                backProgress.snapTo(0f)
-            }
-        }
         DisposableEffect(Unit) { onDispose { onDetailOpenChanged(false) } }
-        BackHandler(enabled = canBack && !usePredictive) { closeDetail() }
-        PredictiveBackHandler(enabled = canBack && usePredictive) { events ->
-            try {
-                events.collect { event ->
-                    backEdge = event.swipeEdge
-                    backProgress.snapTo(event.progress.coerceIn(0f, 1f))
-                }
-                closeDetail()
-            } catch (e: CancellationException) {
-                backScope.launch { backProgress.animateTo(0f, animationSpec = settleSpec) }
-                throw e
-            }
-        }
+
         val overview: @Composable () -> Unit = {
             PreferenceOverview(uiState, viewModel, tools, pages, current, dualPane, overviewScroll,
                 onSelect = {
                     when (it) {
                         PreferencePage.LOGS -> viewModel.openLogsDialog()
-                        else -> selected = it.name
+                        else -> setSelected(it.name)
                     }
                 })
         }
@@ -218,81 +196,159 @@ internal fun SettingsToolsHub(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) { detail(page) }
                 }
             }
+        } else if (useExternalOverlay) {
+            overview()
         } else {
-            val detailTransition = updateTransition(targetState = current, label = "preferenceNavigation")
-            val showOverview = !returningToChannels &&
-                (detailTransition.currentState == null || detailTransition.targetState == null || backProgress.value > 0f)
-            val popReveal by animateFloatAsState(
-                targetValue = if (current == null) 1f else backProgress.value,
-                animationSpec = settleSpec,
-                label = "overviewReveal"
-            )
-            Box(Modifier.fillMaxSize()) {
-                if (showOverview) {
-                    val reveal = if (current == null && backProgress.value == 0f && detailTransition.currentState == null) {
-                        1f
-                    } else if (current != null) {
-                        backProgress.value
-                    } else {
-                        popReveal
+            val canBack = returningToChannels || detailOpen
+            val usePredictive = ThemeSettings.predictiveBack
+            val backProgress = remember { Animatable(0f) }
+            var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
+            val backScope = rememberCoroutineScope()
+            val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+            LaunchedEffect(current) {
+                if (current != null && backProgress.value != 0f) backProgress.snapTo(0f)
+            }
+            LaunchedEffect(usePredictive) {
+                if (!usePredictive && backProgress.value != 0f) backProgress.snapTo(0f)
+            }
+            BackHandler(enabled = canBack && !usePredictive) { closeDetail() }
+            PredictiveBackHandler(enabled = canBack && usePredictive) { events ->
+                try {
+                    events.collect { event ->
+                        backEdge = event.swipeEdge
+                        backProgress.snapTo(event.progress.coerceIn(0f, 1f))
                     }
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val scale = 0.94f + 0.06f * reveal
-                                scaleX = scale
-                                scaleY = scale
-                            }
-                    ) {
-                        overview()
-                        if (reveal < 1f) {
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.22f * (1f - reveal)))
-                            )
-                        }
-                    }
+                    closeDetail()
+                } catch (e: CancellationException) {
+                    backScope.launch { backProgress.animateTo(0f, animationSpec = settleSpec) }
+                    throw e
                 }
-                val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
-                val inEffects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
-                val outEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-                detailTransition.AnimatedContent(
-                    modifier = Modifier.fillMaxSize(),
-                    transitionSpec = {
-                        if (targetState != null) {
-                            (slideInHorizontally(spatial) { it / 4 } + fadeIn(inEffects)) togetherWith ExitTransition.None
-                        } else if (usePredictive) {
-                            EnterTransition.None togetherWith (scaleOut(targetScale = 0.86f, animationSpec = settleSpec) +
-                                slideOutHorizontally(spatial) { if (backEdge == BackEventCompat.EDGE_RIGHT) -it / 6 else it / 6 } +
-                                fadeOut(outEffects))
-                        } else {
-                            EnterTransition.None togetherWith (slideOutHorizontally(spatial) { it / 4 } + fadeOut(outEffects))
+            }
+            AnimatedContent(
+                targetState = current,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    if (targetState != null) AppMotion.hierarchy(forward = true)
+                    else if (usePredictive) AppMotion.predictivePop()
+                    else AppMotion.hierarchy(forward = false)
+                },
+                label = "preferenceNavigation"
+            ) { page ->
+                if (page == null) overview()
+                else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) { detail(page) }
+            }
+        }
+    }
+}
+
+/**
+ * Full-screen overlay for narrow-window tool subpages so they cover the main TopAppBar
+ * without shifting Scaffold padding or causing vertical jumps during transitions.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun ToolDetailOverlay(
+    uiState: MainUiState,
+    viewModel: MainScreenViewModel,
+    selectedToolName: String?,
+    onClose: () -> Unit
+) {
+    val pages = listOf(
+        PreferencePage.CELLULAR,
+        PreferencePage.DUAL_WIFI,
+        PreferencePage.HOTSPOT,
+        PreferencePage.WIRELESS
+    )
+    val current = pages.firstOrNull { it.name == selectedToolName }
+    val returningToChannels = uiState.networkToolReturnTab != null
+    val wifiViewModel = androidx.lifecycle.viewmodel.compose.viewModel<com.multiroute.ui.wifi.DualWifiViewModel>(key = "tools-dual-wifi")
+    val wifiScroll = rememberLazyListState()
+    val details = rememberSaveableStateHolder()
+
+    val canBack = current != null || returningToChannels
+    val usePredictive = ThemeSettings.predictiveBack
+    val backProgress = remember { Animatable(0f) }
+    var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
+    val backScope = rememberCoroutineScope()
+    val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+
+    LaunchedEffect(current) {
+        if (current != null && backProgress.value != 0f) {
+            backProgress.snapTo(0f)
+        }
+    }
+    LaunchedEffect(usePredictive) {
+        if (!usePredictive && backProgress.value != 0f) {
+            backProgress.snapTo(0f)
+        }
+    }
+
+    BackHandler(enabled = canBack && !usePredictive) { onClose() }
+    PredictiveBackHandler(enabled = canBack && usePredictive) { events ->
+        try {
+            events.collect { event ->
+                backEdge = event.swipeEdge
+                backProgress.snapTo(event.progress.coerceIn(0f, 1f))
+            }
+            onClose()
+        } catch (e: CancellationException) {
+            backScope.launch { backProgress.animateTo(0f, animationSpec = settleSpec) }
+            throw e
+        }
+    }
+
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+    val inEffects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val outEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    AnimatedContent(
+        targetState = current,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val transform = if (targetState != null) {
+                (slideInHorizontally(spatial) { it / 4 } + fadeIn(inEffects)) togetherWith ExitTransition.None
+            } else if (usePredictive) {
+                EnterTransition.None togetherWith (scaleOut(targetScale = 0.86f, animationSpec = settleSpec) +
+                    slideOutHorizontally(spatial) { if (backEdge == BackEventCompat.EDGE_RIGHT) -it / 6 else it / 6 } +
+                    fadeOut(outEffects))
+            } else {
+                EnterTransition.None togetherWith (slideOutHorizontally(spatial) { it / 4 } + fadeOut(outEffects))
+            }
+            transform using null
+        },
+        label = "toolDetailOverlay"
+    ) { page ->
+        if (page != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val p = backProgress.value
+                        if (p > 0f) {
+                            val scale = 1f - 0.12f * p
+                            scaleX = scale
+                            scaleY = scale
+                            val edgeDir = if (backEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
+                            translationX = edgeDir * 24.dp.toPx() * p
+                            shape = RoundedCornerShape(28.dp * p)
+                            clip = true
+                            shadowElevation = (12.dp * p).toPx()
                         }
                     }
-                ) { page ->
-                    if (page != null) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    val p = backProgress.value
-                                    if (p > 0f) {
-                                        val scale = 1f - 0.12f * p
-                                        scaleX = scale
-                                        scaleY = scale
-                                        val edgeDir = if (backEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
-                                        translationX = edgeDir * 24.dp.toPx() * p
-                                        shape = RoundedCornerShape(28.dp * p)
-                                        clip = true
-                                        shadowElevation = (12.dp * p).toPx()
-                                    }
-                                }
-                                .background(MaterialTheme.colorScheme.surface),
-                            contentAlignment = Alignment.TopCenter
-                        ) { detail(page) }
-                    }
+                    .background(MaterialTheme.colorScheme.surface)
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                details.SaveableStateProvider(page.name) {
+                    PreferenceDetail(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        page = page,
+                        dualPane = false,
+                        onBack = onClose,
+                        wifiScroll = wifiScroll,
+                        sharedWifiViewModel = wifiViewModel
+                    )
                 }
             }
         }

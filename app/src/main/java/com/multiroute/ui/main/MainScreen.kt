@@ -85,6 +85,7 @@ fun MainScreen(
     val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val pagerState = rememberPagerState(initialPage = uiState.selectedTab.coerceIn(0, 3)) { 4 }
     var inToolDetail by remember { mutableStateOf(false) }
+    var selectedToolName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var programmaticTarget by remember { mutableStateOf<Int?>(null) }
     val latestSelectedTab by rememberUpdatedState(uiState.selectedTab)
     val tabScrollSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
@@ -119,8 +120,10 @@ fun MainScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val useScenarioIcon = maxWidth < 340.dp ||
+        val useCompactTopBar = maxWidth < 420.dp || maxHeight < 500.dp
+        val useScenarioIcon = maxWidth < 400.dp ||
             (maxWidth < 480.dp && LocalDensity.current.fontScale >= 1.3f)
+        val scenarioButtonMaxWidth = if (maxWidth < 480.dp) 136.dp else 180.dp
         val navigation = when {
             maxWidth >= 840.dp && maxHeight >= 480.dp -> DestinationLayout.StandardRail
             maxWidth >= 600.dp && maxWidth > maxHeight -> DestinationLayout.CompactRail
@@ -136,13 +139,14 @@ fun MainScreen(
                     label = "topBarContainer"
                 )
                 TopAppBar(
+                    expandedHeight = if (useCompactTopBar) 52.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                     title = {
-                        AnimatedContent(
-                            targetState = uiState.isSelectionMode,
-                            transitionSpec = { AppMotion.content() },
-                            label = "topBarTitle"
-                        ) { selectionMode ->
-                            Column {
+                        Column {
+                            AnimatedContent(
+                                targetState = uiState.isSelectionMode,
+                                transitionSpec = { AppMotion.content() using null },
+                                label = "topBarTitle"
+                            ) { selectionMode ->
                                 val editingName = uiState.scenarioEditId?.let { id ->
                                     uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
                                 }
@@ -156,11 +160,22 @@ fun MainScreen(
                                     maxLines = if (selectionMode) 2 else 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                            val subtitleKey = if (uiState.isSelectionMode) -1 else uiState.selectedTab
+                            val subtitleIn = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+                            val subtitleOut = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+                            AnimatedContent(
+                                targetState = subtitleKey,
+                                transitionSpec = {
+                                    (fadeIn(subtitleIn) togetherWith fadeOut(subtitleOut)) using null
+                                },
+                                label = "topBarSubtitle"
+                            ) { key ->
                                 Text(
-                                    text = if (selectionMode) {
+                                    text = if (key == -1) {
                                         stringResource(com.multiroute.R.string.ui_selected_apps_count, uiState.selectedRuleKeys.size)
                                     } else {
-                                        when (uiState.selectedTab) {
+                                        when (key) {
                                             0 -> stringResource(com.multiroute.R.string.ui_apps_summary, uiState.totalAppsCount, uiState.configuredAppsCount)
                                             1 -> stringResource(com.multiroute.R.string.ui_online_ifaces, uiState.channels.size)
                                             2 -> stringResource(com.multiroute.R.string.tools_subtitle)
@@ -168,7 +183,9 @@ fun MainScreen(
                                         }
                                     },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
+                                    color = MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -234,7 +251,7 @@ fun MainScreen(
                                     } else {
                                         FilledTonalButton(
                                             onClick = onScenarioAction,
-                                            modifier = Modifier.widthIn(max = 180.dp),
+                                            modifier = Modifier.widthIn(max = scenarioButtonMaxWidth),
                                             shapes = ButtonDefaults.shapes(),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             colors = ButtonDefaults.filledTonalButtonColors(
@@ -264,7 +281,19 @@ fun MainScreen(
                                         showDiagnostics = true
                                         viewModel.refreshEnvironment()
                                     }
-                                    if (uiState.selectedTab == 0) RuleActionsMenu(uiState, viewModel)
+                                    AnimatedVisibility(
+                                        visible = uiState.selectedTab == 0,
+                                        enter = expandHorizontally(
+                                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                                            expandFrom = Alignment.End
+                                        ) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                                        exit = shrinkHorizontally(
+                                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                                            shrinkTowards = Alignment.End
+                                        ) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec())
+                                    ) {
+                                        RuleActionsMenu(uiState, viewModel)
+                                    }
                                 }
                             }
                         }
@@ -312,7 +341,9 @@ fun MainScreen(
                                     uiState = uiState,
                                     viewModel = viewModel,
                                     onNavigate = onItemClick,
-                                    onDetailOpenChanged = { inToolDetail = it }
+                                    onDetailOpenChanged = { inToolDetail = it },
+                                    controlledSelection = selectedToolName,
+                                    onControlledSelectionChange = { selectedToolName = it }
                                 )
                                 3 -> SettingsTab(
                                     uiState = uiState,
@@ -455,6 +486,20 @@ fun MainScreen(
                 }
             }
         }
+        val showToolOverlay = pagerState.currentPage == 2 && maxWidth < 840.dp
+        if (showToolOverlay || selectedToolName != null && maxWidth < 840.dp) {
+            ToolDetailOverlay(
+                uiState = uiState,
+                viewModel = viewModel,
+                selectedToolName = if (pagerState.currentPage == 2) selectedToolName else null,
+                onClose = {
+                    selectedToolName = null
+                    if (uiState.networkToolReturnTab != null) {
+                        viewModel.returnFromNetworkTool()
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -472,14 +517,18 @@ fun ToolsTab(
     uiState: MainUiState,
     viewModel: MainScreenViewModel,
     onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit = {},
-    onDetailOpenChanged: (Boolean) -> Unit = {}
+    onDetailOpenChanged: (Boolean) -> Unit = {},
+    controlledSelection: String? = null,
+    onControlledSelectionChange: ((String?) -> Unit)? = null
 ) {
     SettingsToolsHub(
         uiState = uiState,
         viewModel = viewModel,
         tools = true,
         onNavigate = onNavigate,
-        onDetailOpenChanged = onDetailOpenChanged
+        onDetailOpenChanged = onDetailOpenChanged,
+        controlledSelection = controlledSelection,
+        onControlledSelectionChange = onControlledSelectionChange
     )
 }
 

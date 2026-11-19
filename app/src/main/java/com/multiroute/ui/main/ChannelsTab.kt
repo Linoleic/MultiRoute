@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -205,64 +207,61 @@ private fun ChannelsTestFooter(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(topStart = if (compactRow) 18.dp else 24.dp, topEnd = if (compactRow) 18.dp else 24.dp)
+        shape = RoundedCornerShape(topStart = if (compactRow) 16.dp else 20.dp, topEnd = if (compactRow) 16.dp else 20.dp)
     ) {
-        val serverPill: @Composable (Modifier) -> Unit = { pillModifier ->
-            Surface(
-                modifier = pillModifier,
-                onClick = { viewModel.openTestServerDialog() },
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = MaterialTheme.shapes.medium
+        val serverRow: @Composable (Modifier) -> Unit = { rowModifier ->
+            Row(
+                modifier = rowModifier
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable { viewModel.openTestServerDialog() }
+                    .padding(horizontal = 6.dp, vertical = if (compactRow) 8.dp else 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compactRow) 10.dp else 8.dp),
+                    modifier = Modifier.weight(1f, fill = false),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f, fill = false),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Dns,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = stringResource(R.string.ui_test_node_2, uiState.testServerConfig.displayName(LocalContext.current)),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Default.Dns,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Text(
-                        text = stringResource(R.string.ui_change),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        text = stringResource(R.string.ui_test_node_2, uiState.testServerConfig.displayName(LocalContext.current)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.ui_change),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
         val testButton: @Composable (Modifier) -> Unit = { btnModifier ->
             Button(
                 onClick = { viewModel.runChannelTests() },
-                modifier = btnModifier.heightIn(min = if (compactRow) 42.dp else 48.dp),
+                modifier = btnModifier.heightIn(min = 42.dp),
                 enabled = !uiState.isTesting && uiState.channels.isNotEmpty(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 shapes = ButtonDefaults.shapes()
             ) {
                 if (uiState.isTesting) {
                     CircularWavyProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.ui_testing_channels), maxLines = 1)
                 } else {
-                    Icon(Icons.Default.Speed, contentDescription = null)
+                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.ui_test_channels), maxLines = 1)
                 }
@@ -277,17 +276,17 @@ private fun ChannelsTestFooter(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                serverPill(Modifier.weight(1f))
+                serverRow(Modifier.weight(1f))
                 testButton(Modifier)
             }
         } else {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                serverPill(Modifier.fillMaxWidth())
+                serverRow(Modifier.fillMaxWidth())
                 testButton(Modifier.fillMaxWidth())
             }
         }
