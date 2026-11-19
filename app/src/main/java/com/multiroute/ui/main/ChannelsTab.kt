@@ -66,8 +66,14 @@ fun ChannelsTab(
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val dualPane = maxWidth >= 840.dp
-        val compactLandscape = maxHeight < 500.dp && maxWidth >= 560.dp
+        val dualPane = maxWidth >= RoutingDimensions.dualPaneMinWidth
+        val compactLandscape = maxHeight < 500.dp && maxWidth >= 520.dp
+        val leftPaneWidth = RoutingDimensions.dualPaneLeftWidth(
+            availableWidth = maxWidth,
+            minWidth = 310.dp,
+            maxWidth = 430.dp,
+            fraction = 0.38f
+        )
         val activeDetail = if (dualPane) {
             uiState.channels.firstOrNull { it.id == inspectedChannelId } ?: uiState.channels.firstOrNull()
         } else {
@@ -151,7 +157,7 @@ fun ChannelsTab(
 
         if (dualPane) {
             Row(Modifier.fillMaxSize()) {
-                listPane(Modifier.width(380.dp).fillMaxHeight())
+                listPane(Modifier.width(leftPaneWidth).fillMaxHeight())
                 VerticalDivider(Modifier.fillMaxHeight())
                 AnimatedContent(
                     targetState = activeDetail,

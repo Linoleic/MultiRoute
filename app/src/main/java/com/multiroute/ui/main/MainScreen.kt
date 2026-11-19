@@ -40,6 +40,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.AppMotion
+import com.multiroute.theme.RoutingDimensions
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
@@ -85,6 +86,7 @@ fun MainScreen(
     val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val pagerState = rememberPagerState(initialPage = uiState.selectedTab.coerceIn(0, 3)) { 4 }
     var inToolDetail by remember { mutableStateOf(false) }
+    var isWideContent by remember { mutableStateOf(false) }
     var selectedToolName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var programmaticTarget by remember { mutableStateOf<Int?>(null) }
     val latestSelectedTab by rememberUpdatedState(uiState.selectedTab)
@@ -315,7 +317,8 @@ fun MainScreen(
                     MainDestinations(uiState.selectedTab, viewModel::setSelectedTab, navigation)
                 }
                 BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    val wideContent = maxWidth >= 840.dp
+                    val wideContent = maxWidth >= RoutingDimensions.dualPaneMinWidth
+                    SideEffect { isWideContent = wideContent }
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize(),
@@ -486,8 +489,8 @@ fun MainScreen(
                 }
             }
         }
-        val showToolOverlay = pagerState.currentPage == 2 && maxWidth < 840.dp
-        if (showToolOverlay || selectedToolName != null && maxWidth < 840.dp) {
+        val showToolOverlay = pagerState.currentPage == 2 && !isWideContent
+        if (showToolOverlay || (selectedToolName != null && !isWideContent)) {
             ToolDetailOverlay(
                 uiState = uiState,
                 viewModel = viewModel,

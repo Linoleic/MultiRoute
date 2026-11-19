@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.multiroute.BuildConfig
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.theme.RoutingDimensions
 import com.multiroute.theme.ThemeSettings
 
 internal enum class PreferencePage(@param:StringRes val title: Int, @param:StringRes val summary: Int, val icon: ImageVector) {
@@ -164,7 +165,13 @@ internal fun SettingsToolsHub(
     val overviewScroll = rememberLazyListState()
     val wifiScroll = rememberLazyListState()
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val dualPane = maxWidth >= 840.dp
+        val dualPane = maxWidth >= RoutingDimensions.dualPaneMinWidth
+        val leftPaneWidth = RoutingDimensions.dualPaneLeftWidth(
+            availableWidth = maxWidth,
+            minWidth = 260.dp,
+            maxWidth = 360.dp,
+            fraction = 0.32f
+        )
         // A wide pane shows a useful default without changing narrow-window history.
         val current = if (!dualPane && !tools) null else pages.firstOrNull { it.name == (request?.name ?: selected) }
             ?: if (dualPane) pages.first() else null
@@ -174,7 +181,7 @@ internal fun SettingsToolsHub(
         DisposableEffect(Unit) { onDispose { onDetailOpenChanged(false) } }
 
         val overview: @Composable () -> Unit = {
-            PreferenceOverview(uiState, viewModel, tools, pages, current, dualPane, overviewScroll,
+            PreferenceOverview(uiState, viewModel, tools, pages, current, dualPane, leftPaneWidth, overviewScroll,
                 onSelect = {
                     when (it) {
                         PreferencePage.LOGS -> viewModel.openLogsDialog()
@@ -360,6 +367,7 @@ internal fun ToolDetailOverlay(
 private fun PreferenceOverview(
     uiState: MainUiState, viewModel: MainScreenViewModel, tools: Boolean,
     pages: List<PreferencePage>, current: PreferencePage?, dualPane: Boolean,
+    leftPaneWidth: androidx.compose.ui.unit.Dp,
     overviewScroll: androidx.compose.foundation.lazy.LazyListState,
     onSelect: (PreferencePage) -> Unit
 ) {
@@ -375,7 +383,7 @@ private fun PreferenceOverview(
     }
     LazyColumn(
         state = overviewScroll,
-        modifier = if (dualPane) Modifier.width(300.dp).fillMaxHeight() else Modifier.fillMaxSize(),
+        modifier = if (dualPane) Modifier.width(leftPaneWidth).fillMaxHeight() else Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(if (!dualPane && !tools) 12.dp else ListItemDefaults.SegmentedGap)
     ) {

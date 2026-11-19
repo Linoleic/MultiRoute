@@ -70,8 +70,8 @@ fun AppRulesTab(
     viewModel: MainScreenViewModel
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.TopCenter) {
-        val wideGrid = maxWidth >= 840.dp
-        val compactControls = maxWidth >= 600.dp
+        val wideGrid = maxWidth >= 720.dp
+        val compactControls = maxWidth >= 560.dp
         val stackChannel = (!wideGrid && maxWidth < 360.dp) || LocalDensity.current.fontScale >= 1.5f
         AppRulesContent(
             uiState = uiState,
@@ -80,7 +80,7 @@ fun AppRulesTab(
             wideGrid = wideGrid,
             compactControls = compactControls,
             modifier = Modifier
-                .widthIn(max = if (wideGrid) 1240.dp else RoutingDimensions.contentMaxWidth)
+                .widthIn(max = if (wideGrid) 1440.dp else RoutingDimensions.contentMaxWidth)
                 .fillMaxSize()
         )
     }
@@ -113,7 +113,7 @@ private fun AppRulesContent(
     Box(modifier) {
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(if (wideGrid) 2 else 1),
+            columns = if (wideGrid) GridCells.Adaptive(minSize = 350.dp) else GridCells.Fixed(1),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = RoutingDimensions.contentPadding),
