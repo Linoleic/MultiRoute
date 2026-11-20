@@ -426,10 +426,13 @@ exit 0
      * id instead ("微信 (999)"), which removed a whole class of shell/parsing fragility.
      */
     fun buildSecondaryUserListingQuery(): String =
-        "for id in \$(cmd user list 2>/dev/null | /system/bin/sed -n 's/.*UserInfo{\\([0-9]*\\):.*/\\1/p'); do " +
+        "users=\$(cmd user list 2>/dev/null) || exit \$?; " +
+                "ids=\$(printf '%s\\n' \"\$users\" | /system/bin/sed -n 's/.*UserInfo{\\([0-9][0-9]*\\):.*/\\1/p') || exit \$?; " +
+                "for id in \$ids; do " +
                 "[ \"\$id\" = \"0\" ] && continue; " +
+                "packages=\$(cmd package list packages -U --user \"\$id\" 2>/dev/null) || exit \$?; " +
                 "echo \"USER \$id\"; " +
-                "cmd package list packages -U --user \"\$id\" 2>/dev/null; " +
+                "printf '%s\\n' \"\$packages\"; " +
                 "done"
 
     const val SECONDARY_QUERY_SENTINEL = "MULTIROUTE_SECONDARY_OK"

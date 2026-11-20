@@ -307,12 +307,16 @@ class RouteRuleBuilderTest {
     fun testSecondaryUserListingQueryAndParser() {
         val query = RouteRuleBuilder.buildSecondaryUserListingQuery()
         assertTrue(query.contains("cmd user list"))
+        assertTrue(query.contains("users=\$(cmd user list 2>/dev/null) || exit \$?"))
         // Only numeric ids are iterated (word-splitting safety); user names are not collected, the UI
         // shows the numeric space id instead.
-        assertTrue(query.contains("for id in \$(cmd user list"))
+        assertTrue(query.contains("ids=\$(printf '%s\\n' \"\$users\""))
+        assertTrue(query.contains("for id in \$ids"))
         assertTrue(query.contains("[ \"\$id\" = \"0\" ] && continue"))
         assertTrue(query.contains("echo \"USER \$id\""))
         assertTrue(query.contains("cmd package list packages -U --user \"\$id\""))
+        assertTrue(query.contains("packages=\$(cmd package list packages -U --user \"\$id\" 2>/dev/null) || exit \$?"))
+        assertTrue(query.contains("printf '%s\\n' \"\$packages\""))
         assertFalse(query.contains("USERNAME"))
 
         val parsed = RouteRuleBuilder.parseSecondaryUserListing(

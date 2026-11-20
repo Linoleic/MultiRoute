@@ -255,7 +255,7 @@ internal class RouteSyncCoordinator(
      * separately from the primary-user installs of the same packages.
      */
     fun querySecondaryUserInstalls(): RouteRuleBuilder.SecondaryUserScanResult {
-        val query = "${RouteRuleBuilder.buildSecondaryUserListingQuery()}; echo ${RouteRuleBuilder.SECONDARY_QUERY_SENTINEL}"
+        val query = "${RouteRuleBuilder.buildSecondaryUserListingQuery()} && echo ${RouteRuleBuilder.SECONDARY_QUERY_SENTINEL}"
         val first = RouteRuleBuilder.parseSecondaryUserListingWithSentinel(
             shell.executeShellWithOutput(query, timeoutSeconds = 6)
         )

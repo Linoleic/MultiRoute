@@ -5,6 +5,20 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## Unreleased
+
+**中文**
+
+### 修复
+
+- 修复查询失败被误判为没有应用分身的问题，避免清除已缓存的分身列表。
+
+**English**
+
+### Fixed
+
+- Fixed failed clone-app queries being treated as empty results and clearing cached clone entries.
+
 ## v1.9.0 - 2026-11-19
 
 **中文**
