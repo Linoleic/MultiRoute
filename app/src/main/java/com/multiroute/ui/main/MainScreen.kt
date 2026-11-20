@@ -387,13 +387,19 @@ fun MainScreen(
                     }
 
                     // 通道详细属性与诊断抽屉 (ChannelDetailBottomSheet)
-                    if (uiState.selectedChannelForDetail != null) {
-                        val channel = uiState.selectedChannelForDetail!!
-                        val routedApps = remember(channel.id, uiState.apps) {
+                    val selectedChannel = uiState.selectedChannelForDetail
+                        ?.let { selected ->
+                            uiState.channels.firstOrNull { it.id == selected.id } ?: selected.takeUnless { it.isVpn }
+                        }
+                    if (selectedChannel != null) {
+                        val channel = selectedChannel
+                        val routedApps = remember(channel.id, channel.interfaceName, uiState.apps) {
                             uiState.apps.filter { (it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName) }
                         }
                         ChannelDetailBottomSheet(
                             channel = channel,
+                            channels = uiState.channels,
+                            scenario = uiState.scenario,
                             routedApps = routedApps,
                             testResult = uiState.testResults[channel.id],
                             isTestingSingle = uiState.isTestingSingleChannel,

@@ -9,12 +9,20 @@ bilingual, Chinese first: the release page is what most users read.
 
 **中文**
 
+### 变更
+
+- VPN 通道详情显示已配置上游和系统报告的上游，并在两者不同时提示重新连接。
+
 ### 修复
 
 - 修复开机解锁后较晚连上信任 Wi-Fi 时，无线调试未自动恢复的问题。
 - 修复查询失败被误判为没有应用分身的问题，避免清除已缓存的分身列表。
 
 **English**
+
+### Changed
+
+- VPN channel details show the configured and system-reported upstream networks and suggest reconnecting when they differ.
 
 ### Fixed
 

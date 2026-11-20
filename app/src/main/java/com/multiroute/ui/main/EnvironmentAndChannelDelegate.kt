@@ -7,6 +7,8 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.multiroute.R
@@ -49,6 +51,7 @@ internal class EnvironmentAndChannelDelegate(
     private val trafficTracker = ChannelTrafficTracker()
     private var lastNetworkChangeTime = 0L
     private var recoveryJob: Job? = null
+    private var vpnChannelRefreshJob: Job? = null
     private var environmentRefreshCount = 0
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -69,10 +72,50 @@ internal class EnvironmentAndChannelDelegate(
         }
     }
 
+    // Underlying-network changes can be reported by the VPN alone. Refresh the displayed snapshot
+    // without sending a routing update on each VPN capability change.
+    private val vpnChannelCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            refreshVpnChannels()
+        }
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            refreshVpnChannels()
+        }
+
+        override fun onLost(network: Network) {
+            refreshVpnChannels()
+        }
+    }
+
+    private fun refreshVpnChannels() {
+        vpnChannelRefreshJob?.cancel()
+        vpnChannelRefreshJob = scope.launch {
+            delay(350L)
+            try {
+                val channels = NetworkUtils.getActiveChannels(application)
+                uiStateFlow.update { it.copy(channelProbe = it.channelProbe.copy(channels = channels)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "Could not refresh VPN channels", e)
+            }
+        }
+    }
+
     fun registerNetworkCallbacks() {
         try {
             val request = NetworkRequest.Builder().build()
             connectivityManager?.registerNetworkCallback(request, networkCallback)
+        } catch (_: Exception) {}
+
+        try {
+            val vpnRequest = NetworkRequest.Builder()
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                .build()
+            connectivityManager?.registerNetworkCallback(vpnRequest, vpnChannelCallback, Handler(Looper.getMainLooper()))
         } catch (_: Exception) {}
     }
 
@@ -80,6 +123,10 @@ internal class EnvironmentAndChannelDelegate(
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (_: Exception) {}
+        try {
+            connectivityManager?.unregisterNetworkCallback(vpnChannelCallback)
+        } catch (_: Exception) {}
+        vpnChannelRefreshJob?.cancel()
     }
 
     suspend fun observeChannelTraffic() {

@@ -181,6 +181,8 @@ fun ChannelsTab(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                             ChannelDetailContent(
                                 channel = channel,
+                                channels = uiState.channels,
+                                scenario = uiState.scenario,
                                 routedApps = routedApps,
                                 testResult = uiState.testResults[channel.id],
                                 isTestingSingle = uiState.isTestingSingleChannel,

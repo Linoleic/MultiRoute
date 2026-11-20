@@ -198,7 +198,11 @@
     <string name="channel_vpn_self_forbidden">防止回环死锁：VPN自身不可分配给该隧道</string>
     <string name="ui_vpn_tunnel_ip">隧道内网 IP: %1$s</string>
     <string name="ui_vpn_tunnel_ip_label">隧道内网 IP</string>
-    <string name="ui_vpn_underlying">底层承载网络</string>
+    <string name="ui_vpn_configured_upstream">已配置上游</string>
+    <string name="ui_vpn_reported_upstream">系统报告的上游</string>
+    <string name="ui_vpn_upstream_unavailable">未获取</string>
+    <string name="ui_vpn_upstream_reconnect">上游有变化时，可重新连接 VPN 后复查。已有连接可能继续使用原网络。</string>
+    <string name="ui_vpn_routed_apps">MultiRoute 配置走此 VPN 的应用 (%1$d)</string>
     <string name="channel_iface_type">接口: %1$s · 类型: %2$s</string>
     <string name="egress_err_empty">返回内容为空</string>
     <string name="egress_err_iface_offline">接口离线</string>

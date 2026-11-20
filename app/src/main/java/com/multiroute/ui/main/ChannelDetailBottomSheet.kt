@@ -1,5 +1,7 @@
 package com.multiroute.ui.main
 
+import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -11,7 +13,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,10 +28,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.multiroute.R
+import com.multiroute.cellular.CellularTargets
+import com.multiroute.data.RouteConfigProvider
 import com.multiroute.model.AppItem
+import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
+import com.multiroute.model.ScenarioObservation
 import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.util.NetworkUtils
+import com.multiroute.util.RouteRuleBuilder
+import com.multiroute.util.ScenarioEngine
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -35,6 +48,8 @@ import kotlinx.coroutines.flow.StateFlow
 @Composable
 fun ChannelDetailBottomSheet(
     channel: NetworkChannel,
+    channels: List<NetworkChannel>,
+    scenario: ScenarioUiState,
     routedApps: List<AppItem>,
     testResult: String?,
     isTestingSingle: Boolean,
@@ -54,6 +69,8 @@ fun ChannelDetailBottomSheet(
     ) {
         ChannelDetailContent(
             channel = channel,
+            channels = channels,
+            scenario = scenario,
             routedApps = routedApps,
             testResult = testResult,
             isTestingSingle = isTestingSingle,
@@ -73,6 +90,8 @@ fun ChannelDetailBottomSheet(
 @Composable
 internal fun ChannelDetailContent(
     channel: NetworkChannel,
+    channels: List<NetworkChannel>,
+    scenario: ScenarioUiState,
     routedApps: List<AppItem>,
     testResult: String?,
     isTestingSingle: Boolean,
@@ -121,11 +140,8 @@ internal fun ChannelDetailContent(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = if (channel.isVpn && channel.underlyingIface != null) {
-                            stringResource(com.multiroute.R.string.ui_underlying_iface, channel.interfaceName) + " · " + stringResource(com.multiroute.R.string.channel_vpn_underlying, channel.underlyingIface)
-                        } else {
-                            stringResource(com.multiroute.R.string.ui_underlying_iface, channel.interfaceName) + if (channel.ssid != null) " (SSID: ${channel.ssid})" else ""
-                        },
+                        text = stringResource(R.string.ui_underlying_iface, channel.interfaceName) +
+                            if (channel.ssid != null) " (SSID: ${channel.ssid})" else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -221,29 +237,7 @@ internal fun ChannelDetailContent(
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_iface_type), value = NetworkUtils.channelLabel(androidx.compose.ui.platform.LocalContext.current, channel))
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_kernel_iface), value = channel.interfaceName)
                     if (channel.isVpn) {
-                        if (channel.underlyingIface != null) {
-                            DetailPropertyRow(
-                                label = stringResource(com.multiroute.R.string.ui_vpn_underlying),
-                                value = channel.underlyingIface
-                            )
-                        }
-                        if (channel.vpnOwnerUid > 0) {
-                            val context = androidx.compose.ui.platform.LocalContext.current
-                            val ownerAppName = remember(channel.vpnOwnerUid) {
-                                runCatching {
-                                    val pkg = context.packageManager.getPackagesForUid(channel.vpnOwnerUid)?.firstOrNull()
-                                    if (pkg != null) {
-                                        context.packageManager.getApplicationLabel(
-                                            context.packageManager.getApplicationInfo(pkg, 0)
-                                        ).toString() + " ($pkg)"
-                                    } else null
-                                }.getOrNull()
-                            }
-                            DetailPropertyRow(
-                                label = stringResource(com.multiroute.R.string.ui_vpn_creator_label),
-                                value = ownerAppName ?: "UID ${channel.vpnOwnerUid}"
-                            )
-                        }
+                        VpnUpstreamDetails(channel, channels, scenario)
                     }
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
@@ -308,7 +302,10 @@ internal fun ChannelDetailContent(
 
             // 2. 当前绑定此通道的应用
             Text(
-                text = stringResource(com.multiroute.R.string.ui_routed_apps, routedApps.size),
+                text = stringResource(
+                    if (channel.isVpn) R.string.ui_vpn_routed_apps else R.string.ui_routed_apps,
+                    routedApps.size
+                ),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.primary
             )
@@ -510,6 +507,78 @@ internal fun ChannelDetailContent(
                 }
             }
         }
+}
+
+@Composable
+private fun VpnUpstreamDetails(channel: NetworkChannel, channels: List<NetworkChannel>, scenario: ScenarioUiState) {
+    val context = LocalContext.current
+    val ownerUid = channel.vpnOwnerUid
+    val (ownerName, ownerKeys) = remember(context, ownerUid) {
+        val pm = context.packageManager
+        val packages = runCatching { pm.getPackagesForUid(ownerUid)?.toList() }.getOrNull().orEmpty()
+        val name = packages.firstOrNull()?.let { pkg ->
+            val label = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+            if (label == null || label == pkg) pkg else "$label ($pkg)"
+        }
+        name to packages.map { RouteRuleBuilder.ruleKey(it, ownerUid / 100_000) }.toSet()
+    }
+    val prefs = remember(context) {
+        context.getSharedPreferences(RouteConfigProvider.PREF_NAME, Context.MODE_PRIVATE)
+    }
+    val ownerKey = "uid_$ownerUid"
+    var baseTarget by remember(prefs, ownerKey) { mutableStateOf(prefs.getString(ownerKey, null)) }
+    DisposableEffect(prefs, ownerKey) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { store, key ->
+            if (key == null || key == ownerKey) baseTarget = store.getString(ownerKey, null)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    val target = if (ownerUid > 0) {
+        ScenarioEngine.resolve(
+            base = baseTarget?.let { mapOf(ownerUid to it) }.orEmpty(),
+            profiles = scenario.scenarioProfiles,
+            observation = ScenarioObservation.fromChannels(channels),
+            mode = if (scenario.scenarioManualMode) ScenarioEngine.SelectionMode.MANUAL else ScenarioEngine.SelectionMode.AUTOMATIC,
+            manualIds = scenario.manualScenarioIds,
+            overridesByUid = { profile ->
+                profile.overrides.entries.lastOrNull { it.key in ownerKeys }
+                    ?.let { mapOf(ownerUid to it.value) }.orEmpty()
+            },
+            hasChannel = { id -> CellularTargets.isSim(id) || channels.any { id == it.id || id == it.interfaceName } }
+        ).effectiveRules[ownerUid] ?: CHANNEL_DEFAULT
+    } else null
+    val configuredChannel = channels.firstOrNull { it.id == target || it.interfaceName == target }
+    val reportedIface = channel.underlyingIface
+    val reportedChannel = channels.firstOrNull { it.interfaceName == reportedIface }
+
+    if (ownerUid > 0) {
+        DetailPropertyRow(stringResource(R.string.ui_vpn_creator_label), ownerName ?: "UID $ownerUid")
+    }
+    DetailPropertyRow(
+        label = stringResource(R.string.ui_vpn_configured_upstream),
+        value = when {
+            target == null -> stringResource(R.string.ui_vpn_upstream_unavailable)
+            target == CHANNEL_DEFAULT -> stringResource(R.string.vm_system_default)
+            configuredChannel != null -> NetworkUtils.channelLabel(context, configuredChannel)
+            else -> stringResource(R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(context, target))
+        }
+    )
+    DetailPropertyRow(
+        label = stringResource(R.string.ui_vpn_reported_upstream),
+        value = reportedChannel?.let { NetworkUtils.channelLabel(context, it) }
+            ?: reportedIface ?: stringResource(R.string.ui_vpn_upstream_unavailable)
+    )
+    if (configuredChannel != null && !configuredChannel.isVpn && !configuredChannel.isHotspot &&
+        reportedIface != null && reportedIface != configuredChannel.interfaceName
+    ) {
+        Text(
+            text = stringResource(R.string.ui_vpn_upstream_reconnect),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @Composable
