@@ -697,7 +697,7 @@
     <string name="adb_control_failed">未能确认操作成功，请检查 Root 授权和系统无线调试页面</string>
     <string name="adb_control_off_warning">这会断开当前无线 ADB 连接，并关闭本应用的自动触发开关。USB 调试设置保持不变。</string>
     <string name="adb_boot_title">开机后自动恢复</string>
-    <string name="adb_boot_recovery_summary">开机解锁后若处于信任 Wi-Fi，则按上方目标模式与端口拉起</string>
+    <string name="adb_boot_recovery_summary">开机解锁并连上信任 Wi-Fi 后，按目标模式与端口恢复一次</string>
     <string name="adb_wifi_trigger_title">连接指定 Wi-Fi 时自动开启</string>
     <string name="adb_wifi_trigger_summary">由系统框架监听 Wi-Fi 切换，连入下方信任网络时自动开启或切换到目标模式</string>
     <string name="adb_takeover_title">接管系统原生自启</string>

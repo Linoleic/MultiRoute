@@ -114,6 +114,12 @@ object WirelessAdbController {
             stream.write(encodePolicyJson(policy).toByteArray(Charsets.UTF_8))
             target.finishWrite(stream)
             if (syncSystemServer) {
+                if (!policy.restoreOnBoot) {
+                    val status = WirelessAdbStatusStore.readStatus(context)
+                    if (status?.bootRecovery != null) {
+                        WirelessAdbStatusStore.writeStatus(context, status.copy(bootRecovery = null))
+                    }
+                }
                 mirrorTriggersToPrefs(context, policy)
                 publishTriggerSync(context, policy)
             }
@@ -183,7 +189,8 @@ object WirelessAdbController {
         policy: AdbBootPolicy,
         trigger: AdbTriggerSource,
         ssid: String?,
-        unlocked: Boolean
+        unlocked: Boolean,
+        bootRecoveryPending: Boolean = false
     ): AdbTriggerDecision {
         if (!policy.hasAnyTrigger) return AdbTriggerDecision.INACTIVE
         if (!unlocked) return AdbTriggerDecision.WAIT_UNLOCK
@@ -191,8 +198,7 @@ object WirelessAdbController {
         val validSsid = ssid?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
         val ssidMatched = validSsid != null && validSsid in policy.trustedSsids
 
-        val isBootLike = trigger == AdbTriggerSource.BOOT || trigger == AdbTriggerSource.UNLOCK
-        if (isBootLike) {
+        if (trigger.isBootTrigger) {
             if (policy.restoreOnBoot) {
                 return if (ssidMatched) {
                     AdbTriggerDecision.ENABLE_TARGET
@@ -211,7 +217,7 @@ object WirelessAdbController {
         }
 
         if (trigger == AdbTriggerSource.WIFI) {
-            if (policy.autoEnableOnWifi) {
+            if (policy.autoEnableOnWifi || (policy.restoreOnBoot && bootRecoveryPending)) {
                 return if (ssidMatched) {
                     AdbTriggerDecision.ENABLE_TARGET
                 } else if (policy.takeOverSystemAutoStart) {
@@ -389,6 +395,7 @@ object WirelessAdbController {
 
             val outcome = switchWithDetail(context, enabled, mode, validPort)
             val info = WirelessAdbInfo.read(context, preferredMode = mode)
+            val recovery = WirelessAdbStatusStore.readStatus(context)?.recoveryForBoot(info.currentBootCount)
             WirelessAdbStatusStore.writeStatus(
                 context,
                 AdbBootStatus(
@@ -401,7 +408,13 @@ object WirelessAdbController {
                     port = outcome.port ?: if (enabled && mode == AdbMode.TCP) validPort else null,
                     result = outcome.result,
                     detail = outcome.detail,
-                    timestampMillis = System.currentTimeMillis()
+                    timestampMillis = System.currentTimeMillis(),
+                    bootRecovery = when {
+                        !enabled || !currentPolicy.restoreOnBoot -> null
+                        recovery == AdbBootRecovery.PENDING && outcome.result == AdbActionResult.READY ->
+                            AdbBootRecovery.COMPLETE
+                        else -> recovery
+                    }
                 )
             )
             WirelessAdbStatusStore.appendLog(
@@ -529,19 +542,26 @@ object WirelessAdbController {
             val liveInfo = WirelessAdbInfo.read(context, preferredMode = policy.mode)
             val bootCount = liveInfo.currentBootCount
             val existingStatus = WirelessAdbStatusStore.readStatus(context)
+            val bootRecovery = existingStatus?.recoveryForBoot(bootCount)
+            val trackBootRecovery = policy.restoreOnBoot && bootRecovery != AdbBootRecovery.COMPLETE &&
+                (trigger.isBootTrigger || bootRecovery == AdbBootRecovery.PENDING)
 
             val wifiLines = wifi()
-            if ("WIFI_QUERY_OK" !in wifiLines) {
+            val wifiQuerySucceeded = "WIFI_QUERY_OK" in wifiLines
+            if (!wifiQuerySucceeded && !trackBootRecovery) {
                 WirelessAdbStatusStore.appendLog(context, "$sourceLabel failed: WIFI_QUERY_FAILED")
                 return@withLock AdbActionResult.FAILED
             }
-            val ssid = primarySsid(wifiLines)
-            val decision = decideTriggerAction(policy, trigger, ssid, unlocked)
-
-            if ((trigger == AdbTriggerSource.BOOT || trigger == AdbTriggerSource.UNLOCK) &&
+            val ssid = if (wifiQuerySucceeded) primarySsid(wifiLines) else null
+            val decision = if (wifiQuerySucceeded) {
+                decideTriggerAction(policy, trigger, ssid, unlocked, trackBootRecovery)
+            } else {
+                null
+            }
+            if (trigger.isBootTrigger &&
                 bootCount != null &&
                 existingStatus?.bootCount == bootCount &&
-                (existingStatus.trigger == AdbTriggerSource.BOOT || existingStatus.trigger == AdbTriggerSource.UNLOCK)
+                (existingStatus.trigger?.isBootTrigger == true || bootRecovery == AdbBootRecovery.COMPLETE)
             ) {
                 val bootAlreadySatisfied = when (decision) {
                     AdbTriggerDecision.ENABLE_TARGET -> existingStatus.result == AdbActionResult.READY &&
@@ -558,6 +578,11 @@ object WirelessAdbController {
                     return@withLock existingStatus.result ?: AdbActionResult.READY
                 }
             }
+            if (bootRecovery == AdbBootRecovery.COMPLETE && !policy.autoEnableOnWifi &&
+                (decision == AdbTriggerDecision.WAIT_NETWORK || decision == AdbTriggerDecision.ENABLE_TARGET)
+            ) {
+                return@withLock AdbActionResult.INACTIVE
+            }
 
             val outcome = when (decision) {
                 AdbTriggerDecision.INACTIVE -> SwitchOutcome(AdbActionResult.INACTIVE, detail = "INACTIVE")
@@ -568,6 +593,7 @@ object WirelessAdbController {
                 )
                 AdbTriggerDecision.ENABLE_TARGET -> switchWithDetail(context, true, policy.mode, policy.customPort)
                 AdbTriggerDecision.SUPPRESS_SYSTEM_TLS -> suppressSystemTls()
+                null -> SwitchOutcome(AdbActionResult.FAILED, detail = "WIFI_QUERY_FAILED")
             }
 
             if (outcome.result != AdbActionResult.INACTIVE) {
@@ -583,13 +609,21 @@ object WirelessAdbController {
                         port = outcome.port ?: if (decision == AdbTriggerDecision.ENABLE_TARGET && policy.mode == AdbMode.TCP) policy.customPort else null,
                         result = outcome.result,
                         detail = outcome.detail,
-                        timestampMillis = System.currentTimeMillis()
+                        timestampMillis = System.currentTimeMillis(),
+                        bootRecovery = when {
+                            !policy.restoreOnBoot -> null
+                            !trackBootRecovery -> bootRecovery
+                            outcome.result == AdbActionResult.READY -> AdbBootRecovery.COMPLETE
+                            else -> AdbBootRecovery.PENDING
+                        }
                     )
                 )
-                save(context, policy.copy(result = outcome.result), syncSystemServer = false)
+                synchronized(diskLock) {
+                    save(context, policy(context).copy(result = outcome.result), syncSystemServer = false)
+                }
                 WirelessAdbStatusStore.appendLog(
                     context,
-                    "$sourceLabel ssid=${ssid ?: "-"} decision=${decision.name} -> ${outcome.result.name} (${outcome.detail})"
+                    "$sourceLabel ssid=${ssid ?: "-"} decision=${decision?.name ?: "-"} -> ${outcome.result.name} (${outcome.detail})"
                 )
             }
             outcome.result

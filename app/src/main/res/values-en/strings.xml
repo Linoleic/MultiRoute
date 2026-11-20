@@ -698,7 +698,7 @@
     <string name="adb_control_failed">Could not confirm success. Check root access and system wireless debugging settings.</string>
     <string name="adb_control_off_warning">This disconnects wireless ADB and turns off automatic triggers in this app. USB debugging settings remain unchanged.</string>
     <string name="adb_boot_title">Restore after boot</string>
-    <string name="adb_boot_recovery_summary">Applies the target mode and port once unlocked if connected to a trusted Wi-Fi</string>
+    <string name="adb_boot_recovery_summary">Restores the target mode and port once after boot, when unlocked and connected to trusted Wi-Fi</string>
     <string name="adb_wifi_trigger_title">Auto-enable on trusted Wi-Fi</string>
     <string name="adb_wifi_trigger_summary">Watches Wi-Fi switches in system_server and enables or overrides to target mode on connect</string>
     <string name="adb_takeover_title">Take over system auto-start</string>

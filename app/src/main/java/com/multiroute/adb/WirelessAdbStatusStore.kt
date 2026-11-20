@@ -8,7 +8,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class AdbTriggerSource { BOOT, UNLOCK, WIFI, MANUAL }
+enum class AdbTriggerSource {
+    BOOT, UNLOCK, WIFI, MANUAL;
+
+    internal val isBootTrigger: Boolean get() = this == BOOT || this == UNLOCK
+}
+
+enum class AdbBootRecovery { PENDING, COMPLETE }
 
 /** Telemetry persisted for the latest wireless ADB recovery/trigger attempt in app no-backup storage. */
 data class AdbBootStatus(
@@ -21,8 +27,12 @@ data class AdbBootStatus(
     val port: Int?,
     val result: AdbActionResult?,
     val detail: String?,
-    val timestampMillis: Long = 0L
-)
+    val timestampMillis: Long = 0L,
+    val bootRecovery: AdbBootRecovery? = null
+) {
+    internal fun recoveryForBoot(currentBootCount: Int?): AdbBootRecovery? =
+        bootRecovery.takeIf { currentBootCount != null && currentBootCount == bootCount }
+}
 
 /**
  * Stores wireless ADB recovery status and bounded diagnostic logs inside [Context.getNoBackupFilesDir]
@@ -93,6 +103,7 @@ internal object WirelessAdbStatusStore {
         status.result?.let { put("result", it.name) }
         status.detail?.let { put("detail", it) }
         if (status.timestampMillis > 0L) put("timestamp", status.timestampMillis)
+        put("bootRecovery", status.bootRecovery?.name ?: JSONObject.NULL)
     }.toString()
 
     internal fun parseStatus(raw: String): AdbBootStatus? {
@@ -100,20 +111,28 @@ internal object WirelessAdbStatusStore {
         if (trimmed.isEmpty()) return null
         return runCatching {
             val json = JSONObject(trimmed)
+            val trigger = runCatching { AdbTriggerSource.valueOf(json.optString("trigger")) }.getOrNull()
+            val result = runCatching { AdbActionResult.valueOf(json.optString("result")) }.getOrNull()
+            val recovery = if (json.has("bootRecovery")) {
+                runCatching { AdbBootRecovery.valueOf(json.optString("bootRecovery")) }.getOrNull()
+            } else if (trigger?.isBootTrigger == true && result == AdbActionResult.WAIT_NETWORK) {
+                AdbBootRecovery.PENDING
+            } else {
+                null
+            }
             AdbBootStatus(
-                bootCount = if (json.has("bootCount")) json.optInt("bootCount") else null,
+                bootCount = json.optInt("bootCount", -1).takeIf { it >= 0 },
                 uptimeSeconds = if (json.has("uptimeSec")) json.optLong("uptimeSec") else null,
                 source = json.optString("source").takeIf { it.isNotEmpty() },
-                trigger = json.optString("trigger").takeIf { it.isNotEmpty() }
-                    ?.let { runCatching { AdbTriggerSource.valueOf(it) }.getOrNull() },
+                trigger = trigger,
                 ssid = json.optString("ssid").takeIf { it.isNotEmpty() },
                 mode = json.optString("mode").takeIf { it.isNotEmpty() }
                     ?.let { runCatching { AdbMode.valueOf(it) }.getOrNull() },
                 port = if (json.has("port")) json.optInt("port").takeIf { it in 1..65535 } else null,
-                result = json.optString("result").takeIf { it.isNotEmpty() }
-                    ?.let { runCatching { AdbActionResult.valueOf(it) }.getOrNull() },
+                result = result,
                 detail = json.optString("detail").takeIf { it.isNotEmpty() },
-                timestampMillis = json.optLong("timestamp", 0L)
+                timestampMillis = json.optLong("timestamp", 0L),
+                bootRecovery = recovery
             )
         }.getOrNull()
     }

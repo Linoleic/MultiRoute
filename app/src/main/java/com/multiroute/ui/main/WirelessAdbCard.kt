@@ -517,10 +517,12 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
 
             val currentBootStatus = info?.bootStatus?.takeIf { status ->
                 val curBoot = info?.currentBootCount
-                status.trigger != AdbTriggerSource.BOOT && status.trigger != AdbTriggerSource.UNLOCK ||
-                    (curBoot != null && status.bootCount == curBoot)
+                status.trigger == AdbTriggerSource.MANUAL || (curBoot != null && status.bootCount == curBoot)
             }
-            val outcome = result ?: currentBootStatus?.result ?: bootPolicy.result
+            val recordedOutcome = if (currentBootStatus?.bootRecovery == AdbBootRecovery.PENDING &&
+                currentBootStatus.result == AdbActionResult.OFF
+            ) AdbActionResult.WAIT_NETWORK else currentBootStatus?.result
+            val outcome = result ?: recordedOutcome ?: bootPolicy.result
             if (outcome != null) Text(
                 stringResource(R.string.adb_control_result, stringResource(when (outcome) {
                     AdbActionResult.READY -> R.string.adb_control_ready

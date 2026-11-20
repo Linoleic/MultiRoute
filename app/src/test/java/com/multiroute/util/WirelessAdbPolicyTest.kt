@@ -95,6 +95,29 @@ class WirelessAdbPolicyTest {
         )
     }
 
+    @Test fun trustedWifiResumesPendingBootRecoveryWithWifiAutomationDisabled() {
+        val status = WirelessAdbStatusStore.parseStatus(
+            """{"bootCount":19,"trigger":"BOOT","result":"WAIT_NETWORK"}"""
+        )!!
+        val pending = status.recoveryForBoot(19) == AdbBootRecovery.PENDING
+        assertTrue(pending)
+        assertNull(status.recoveryForBoot(20))
+        assertNull(status.recoveryForBoot(null))
+        assertNull(status.copy(bootCount = null).recoveryForBoot(null))
+
+        fun decide(policy: AdbBootPolicy, ssid: String, unlocked: Boolean = true, recovery: Boolean = pending) =
+            WirelessAdbController.decideTriggerAction(policy, AdbTriggerSource.WIFI, ssid, unlocked, recovery)
+
+        assertEquals(AdbTriggerDecision.ENABLE_TARGET, decide(policy, "F5G"))
+        assertEquals(AdbTriggerDecision.WAIT_NETWORK, decide(policy, "CoffeeShop"))
+        assertEquals(AdbTriggerDecision.WAIT_UNLOCK, decide(policy, "F5G", unlocked = false))
+        assertEquals(AdbTriggerDecision.INACTIVE, decide(policy, "F5G", recovery = false))
+        assertEquals(AdbTriggerDecision.INACTIVE, decide(policy.copy(restoreOnBoot = false), "F5G"))
+        val takeover = policy.copy(takeOverSystemAutoStart = true)
+        assertEquals(AdbTriggerDecision.SUPPRESS_SYSTEM_TLS, decide(takeover, "CoffeeShop"))
+        assertEquals(AdbTriggerDecision.ENABLE_TARGET, decide(takeover, "F5G"))
+    }
+
     @Test fun secondaryNetworkDoesNotSatisfyPrimarySelection() {
         val lines = listOf(
             "==== Client role=ROLE_CLIENT_SECONDARY_LONG_LIVED ====", "Wifi is connected to \"F5G\"",
@@ -140,9 +163,16 @@ class WirelessAdbPolicyTest {
             port = 5555,
             result = AdbActionResult.READY,
             detail = "SWITCHED_OVERRIDE",
-            timestampMillis = 123456789L
+            timestampMillis = 123456789L,
+            bootRecovery = AdbBootRecovery.COMPLETE
         )
         val parsed = WirelessAdbStatusStore.parseStatus(WirelessAdbStatusStore.encodeStatus(status))
         assertEquals(status, parsed)
+    }
+
+    @Test fun cancelledRecoveryIsNotRecreatedFromLegacyWaitingStatus() {
+        val legacy = """{"bootCount":19,"trigger":"UNLOCK","result":"WAIT_NETWORK"}"""
+        val status = WirelessAdbStatusStore.parseStatus(legacy)!!.copy(bootRecovery = null)
+        assertEquals(status, WirelessAdbStatusStore.parseStatus(WirelessAdbStatusStore.encodeStatus(status)))
     }
 }

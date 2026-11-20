@@ -11,12 +11,14 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 修复
 
+- 修复开机解锁后较晚连上信任 Wi-Fi 时，无线调试未自动恢复的问题。
 - 修复查询失败被误判为没有应用分身的问题，避免清除已缓存的分身列表。
 
 **English**
 
 ### Fixed
 
+- Restored wireless debugging when a trusted Wi-Fi connects after post-boot unlock.
 - Fixed failed clone-app queries being treated as empty results and clearing cached clone entries.
 
 ## v1.9.0 - 2026-11-19
