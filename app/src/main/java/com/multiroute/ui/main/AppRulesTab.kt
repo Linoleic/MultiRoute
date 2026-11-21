@@ -357,6 +357,7 @@ private fun AppRulesContent(
                         app = app,
                         channels = uiState.channels,
                         stackChannel = stackChannel,
+                        isVpnOwner = app.uid > 0 && uiState.channels.any { it.isVpn && it.vpnOwnerUid == app.uid },
                         modifier = Modifier.animateItem(
                             fadeInSpec = AppMotion.itemFade(),
                             fadeOutSpec = AppMotion.itemFade(),
@@ -512,6 +513,7 @@ private fun AppItemRow(
     count: Int = 1,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
+    isVpnOwner: Boolean = false,
     onToggleSelect: () -> Unit = {},
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {}
@@ -569,6 +571,13 @@ private fun AppItemRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (isVpnOwner) {
+                Text(
+                    text = stringResource(R.string.ui_vpn_client),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (stackChannel) AppChannelBadge(app, current, accent, isSelected)
         }
     }

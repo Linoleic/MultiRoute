@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Dns
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +66,8 @@ fun ChannelsTab(
     val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
     val listState = rememberLazyListState()
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
+    var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
+
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val dualPane = maxWidth >= RoutingDimensions.dualPaneMinWidth
@@ -126,6 +130,13 @@ fun ChannelsTab(
                                 trafficFlow = viewModel.channelTraffic,
                                 selected = dualPane && activeDetail?.id == channel.id,
                                 compact = dualPane,
+                                vpnUpstreamAction = if (channel.isVpn && !dualPane) {
+                                    {
+                                        VpnUpstreamShortcut(channel, uiState.channels, uiState.scenario) {
+                                            vpnForPicker = channel
+                                        }
+                                    }
+                                } else null,
                                 modifier = Modifier.animateItem(
                                     fadeInSpec = AppMotion.itemFade(),
                                     fadeOutSpec = AppMotion.itemFade(),
@@ -178,6 +189,9 @@ fun ChannelsTab(
                         val routedApps = remember(channel.id, uiState.apps) {
                             uiState.apps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
                         }
+                        val changeVpnUpstream: (() -> Unit)? = if (channel.isVpn) {
+                            { vpnForPicker = channel }
+                        } else null
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                             ChannelDetailContent(
                                 channel = channel,
@@ -191,6 +205,7 @@ fun ChannelsTab(
                                 testServerUrl = uiState.testServerConfig.activeUrl,
                                 showCloseButton = false,
                                 modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
+                                onChangeVpnUpstream = changeVpnUpstream,
                                 onTestChannel = { viewModel.testSingleChannel(channel) }
                             )
                         }
@@ -201,6 +216,79 @@ fun ChannelsTab(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 listPane(Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize())
             }
+        }
+    }
+
+    vpnForPicker?.let { selected ->
+        val vpn = uiState.channels.firstOrNull {
+            it.id == selected.id && it.interfaceName == selected.interfaceName &&
+                it.isVpn && it.vpnOwnerUid == selected.vpnOwnerUid
+        }
+        if (vpn != null) {
+            val upstream = rememberVpnUpstream(vpn, uiState.channels, uiState.scenario)
+            val owner = upstream.ownerTarget
+            if (owner != null) {
+                VpnUpstreamPicker(
+                    upstream = upstream,
+                    channels = uiState.channels.filter { it.isVpnUpstream() },
+                    onSelectChannel = { target ->
+                        vpnForPicker = null
+                        viewModel.updateVpnUpstream(vpn, owner, target)
+                    },
+                    onDismiss = { vpnForPicker = null }
+                )
+            } else {
+                LaunchedEffect(selected) { vpnForPicker = null }
+            }
+        } else {
+            LaunchedEffect(selected) { vpnForPicker = null }
+        }
+    }
+
+}
+
+@Composable
+private fun VpnUpstreamShortcut(
+    channel: NetworkChannel,
+    channels: List<NetworkChannel>,
+    scenario: ScenarioUiState,
+    onClick: () -> Unit
+) {
+    val upstream = rememberVpnUpstream(channel, channels, scenario)
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(enabled = upstream.canEdit, onClick = onClick)
+            .heightIn(min = 32.dp)
+            .padding(start = 8.dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                stringResource(R.string.ui_vpn_upstream_shortcut, upstream.configuredLabel()),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (upstream.canEdit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            val note = when {
+                !upstream.canEdit -> stringResource(R.string.ui_vpn_upstream_owner_unavailable)
+                upstream.scenarioName != null -> stringResource(R.string.ui_vpn_upstream_scenario, upstream.scenarioName)
+                upstream.needsReconnect -> stringResource(R.string.ui_vpn_upstream_reconnect_short)
+                else -> null
+            }
+            if (note != null) {
+                Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (upstream.canEdit) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
@@ -312,6 +400,7 @@ fun ChannelDetailCard(
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     selected: Boolean = false,
     compact: Boolean = false,
+    vpnUpstreamAction: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -379,7 +468,7 @@ fun ChannelDetailCard(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = if (channel.isVpn && channel.underlyingIface != null) {
+                            text = if (channel.isVpn && channel.underlyingIface != null && vpnUpstreamAction == null) {
                                 stringResource(R.string.channel_iface_type, channel.interfaceName, channelName) +
                                     " · " + stringResource(R.string.channel_vpn_underlying, channel.underlyingIface)
                             } else {
@@ -491,6 +580,8 @@ fun ChannelDetailCard(
                     )
                 }
             }
+
+            vpnUpstreamAction?.invoke()
 
             // 实时吞吐与速率波形（单栏下展示迷你波形；双栏左侧仅留紧凑速率，完整波形在右侧详情面板展示）
             if (!compact && trafficFlow != null) {

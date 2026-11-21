@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.multiroute.data.ConfigTransfer
+import com.multiroute.data.RuleTarget
 import com.multiroute.model.AppItem
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.ScenarioTrigger
@@ -211,6 +212,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun toggleShowSystemApps() = appRoutingDelegate.toggleShowSystemApps()
     fun setFilterChannelId(channelId: String?) = appRoutingDelegate.setFilterChannelId(channelId)
     fun updateRouteChannel(app: AppItem, channelId: String) = appRoutingDelegate.updateRouteChannel(app, channelId)
+    internal fun updateVpnUpstream(vpn: NetworkChannel, owner: RuleTarget, channelId: String) =
+        appRoutingDelegate.updateVpnUpstream(vpn, owner, channelId)
     fun forceSyncAllRules() = appRoutingDelegate.forceSyncAllRules()
     fun clearAllRules() = appRoutingDelegate.clearAllRules()
 

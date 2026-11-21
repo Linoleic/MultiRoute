@@ -15,6 +15,7 @@ import com.multiroute.model.NetworkChannel
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.RouteRuleBuilder
 import com.multiroute.util.SuHelper
+import com.multiroute.util.VpnRouteLoopGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -39,7 +40,9 @@ internal class AppRoutingDelegate(
     private val onFinishScenarioEdit: () -> Unit
 ) {
     private var allApps: List<AppItem> = emptyList()
+    private var packageNamesByUid: Map<Int, List<String>> = emptyMap()
     private var loadAppsJob: Job? = null
+    private var vpnUpstreamJob: Job? = null
 
     private companion object {
         const val TAG = "MultiRoute-AppScan"
@@ -53,13 +56,13 @@ internal class AppRoutingDelegate(
 
     fun isVpnSelfLoop(targetChannel: NetworkChannel?, app: AppItem): Boolean {
         if (targetChannel?.isVpn != true) return false
-        return (targetChannel.vpnOwnerUid > 0 && targetChannel.vpnOwnerUid == app.uid) ||
-            app.packageName.contains("clash", ignoreCase = true) ||
-            app.packageName.contains("v2ray", ignoreCase = true) ||
-            app.packageName.contains("wireguard", ignoreCase = true) ||
-            app.packageName.contains("singbox", ignoreCase = true) ||
-            app.packageName.contains("nekobox", ignoreCase = true) ||
-            app.packageName.contains("shadowsocks", ignoreCase = true)
+        return VpnRouteLoopGuard.shouldSkip(
+            isVpn = true,
+            ownerUid = targetChannel.vpnOwnerUid,
+            candidateUid = app.uid,
+            candidatePackageNames = packageNamesByUid[app.uid] ?: listOf(app.packageName),
+            vpnOwnerPackageNames = packageNamesByUid[targetChannel.vpnOwnerUid].orEmpty()
+        )
     }
 
     fun blockedBatchVpnCounts(channels: List<NetworkChannel>, selectedRuleKeys: Set<String>): Map<String, Int> {
@@ -229,7 +232,9 @@ internal class AppRoutingDelegate(
         val targetChannel = channels.firstOrNull { it.id == channelId }
         if (isVpnSelfLoop(targetChannel, app)) {
             uiStateFlow.update {
-                it.copy(snackBarMessage = application.getString(R.string.channel_vpn_self_forbidden))
+                val message = if (targetChannel?.vpnOwnerUid == app.uid) R.string.channel_vpn_self_forbidden
+                else R.string.ui_vpn_loop_blocked
+                it.copy(snackBarMessage = application.getString(message))
             }
             return
         }
@@ -257,27 +262,55 @@ internal class AppRoutingDelegate(
             }
         }
 
-        RouteConfigProvider.setTargetChannel(
-            application,
-            RuleTarget(app.ruleKey, app.uid),
-            channelId
-        )
+        saveBaseRoute(RuleTarget(app.ruleKey, app.uid), channelId)
+    }
 
-        allApps = allApps.map {
-            if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
-        }
-
-        uiStateFlow.update { s ->
-            val currentSheetApp = s.navigation.selectedAppForSheet
-            val updatedSheetApp = if (currentSheetApp?.ruleKey == app.ruleKey) {
-                currentSheetApp.copy(targetChannelId = channelId)
-            } else {
-                currentSheetApp
+    fun updateVpnUpstream(vpn: NetworkChannel, expectedOwner: RuleTarget, channelId: String) {
+        vpnUpstreamJob?.cancel()
+        vpnUpstreamJob = scope.launch {
+            val target = withContext(Dispatchers.IO) {
+                try {
+                    val channels = NetworkUtils.getActiveChannels(application)
+                    val stillActive = channels.any {
+                        it.isVpn && it.id == vpn.id && it.interfaceName == vpn.interfaceName &&
+                            it.vpnOwnerUid == vpn.vpnOwnerUid
+                    }
+                    val validUpstream = channelId == CHANNEL_DEFAULT ||
+                        channels.any { it.id == channelId && it.isVpnUpstream() }
+                    if (stillActive && validUpstream && RouteConfigProvider.isValidChannelId(channelId)) {
+                        resolveVpnOwnerTarget(application, vpn.vpnOwnerUid)?.takeIf { it == expectedOwner }
+                    } else null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not verify VPN upstream selection", e)
+                    null
+                }
             }
-            s.copy(navigation = s.navigation.copy(selectedAppForSheet = updatedSheetApp))
+            if (target == null) {
+                uiStateFlow.update {
+                    it.copy(snackBarMessage = application.getString(R.string.ui_vpn_upstream_changed))
+                }
+                return@launch
+            }
+            saveBaseRoute(target, channelId)
         }
+    }
 
-        filterApps()
+    private fun saveBaseRoute(target: RuleTarget, channelId: String) {
+        RouteConfigProvider.setTargetChannel(application, target, channelId)
+        if (uiStateFlow.value.scenarioEditId == null) {
+            allApps = allApps.map {
+                if (it.ruleKey == target.key) it.copy(targetChannelId = channelId) else it
+            }
+            uiStateFlow.update { state ->
+                val app = state.selectedAppForSheet
+                if (app?.ruleKey == target.key) {
+                    state.copy(navigation = state.navigation.copy(selectedAppForSheet = app.copy(targetChannelId = channelId)))
+                } else state
+            }
+            filterApps()
+        }
 
         scope.launch {
             uiStateFlow.update { it.copy(routing = it.routing.copy(isSyncing = true)) }
@@ -438,6 +471,7 @@ internal class AppRoutingDelegate(
             }
 
             val currentRules = RouteConfigProvider.getAllRules(application)
+            packageNamesByUid = loaded.groupBy({ it.uid }, { it.packageName })
             allApps = loaded.map {
                 it.copy(targetChannelId = currentRules[it.ruleKey] ?: CHANNEL_DEFAULT)
             }.sortedWith(

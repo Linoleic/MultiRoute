@@ -405,6 +405,7 @@ internal class RouteSyncCoordinator(
 
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
         val hotspotIface = runCatching { DualWifiManager.checkHotspotState(context).iface }.getOrNull()
+        val vpnOwnerPackages = mutableMapOf<Int, List<String>>()
 
         for ((uid, channelId) in uidRules) {
             if (channelId == CHANNEL_DEFAULT) continue
@@ -412,21 +413,27 @@ internal class RouteSyncCoordinator(
             if (!RouteRuleBuilder.isValidInterfaceName(channelId)) continue
             if ((hotspotIface != null && channelId == hotspotIface) || channelId.startsWith("swlan") || channelId.startsWith("ap")) continue
 
-            // Prevent anti-loopback: VPN client apps must not route into VPN tunnels
+            // Prevent anti-loopback: VPN client apps must not route into VPN tunnels. The VPN owner UID
+            // is an exact system-provided identity; package/appId checks only retain the cross-user safety.
             if (channelId in vpnChannels || RouteRuleBuilder.isTunnelInterface(channelId)) {
-                val ownerUid = vpnChannels[channelId]?.vpnOwnerUid ?: -1
-                if (ownerUid > 0 && ownerUid % 100000 == uid % 100000) continue
-                val pkgName = runCatching { context.packageManager.getPackagesForUid(uid)?.firstOrNull() }.getOrNull()
-                if (pkgName != null && (
-                        pkgName.contains("clash", ignoreCase = true) ||
-                            pkgName.contains("v2ray", ignoreCase = true) ||
-                            pkgName.contains("wireguard", ignoreCase = true) ||
-                            pkgName.contains("singbox", ignoreCase = true) ||
-                            pkgName.contains("nekobox", ignoreCase = true) ||
-                            pkgName.contains("shadowsocks", ignoreCase = true)
-                        )
+                val vpnChannel = vpnChannels[channelId]
+                val ownerUid = vpnChannel?.vpnOwnerUid ?: -1
+                val candidatePackages = runCatching {
+                    context.packageManager.getPackagesForUid(uid)?.asList().orEmpty()
+                }.getOrDefault(emptyList())
+                val ownerPackages = if (ownerUid > 0) vpnOwnerPackages.getOrPut(ownerUid) {
+                    runCatching { context.packageManager.getPackagesForUid(ownerUid)?.asList().orEmpty() }
+                        .getOrDefault(emptyList())
+                } else emptyList()
+                if (VpnRouteLoopGuard.shouldSkip(
+                        isVpn = true,
+                        ownerUid = ownerUid,
+                        candidateUid = uid,
+                        candidatePackageNames = candidatePackages,
+                        vpnOwnerPackageNames = ownerPackages
+                    )
                 ) {
-                    Log.w(TAG, "Skipping UID $uid ($pkgName) on VPN channel $channelId to prevent routing loopback")
+                    Log.w(TAG, "Skipping UID $uid (${candidatePackages.joinToString()}) on VPN channel $channelId to prevent routing loopback")
                     continue
                 }
             }

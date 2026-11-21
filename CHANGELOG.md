@@ -12,6 +12,7 @@ bilingual, Chinese first: the release page is what most users read.
 ### 变更
 
 - VPN 通道详情显示已配置上游和系统报告的上游，并在两者不同时提示重新连接。
+- 网络通道可直接更改 VPN 上游，分流规则标识 VPN 创建应用并提示回环限制。
 
 ### 修复
 
@@ -23,6 +24,7 @@ bilingual, Chinese first: the release page is what most users read.
 ### Changed
 
 - VPN channel details show the configured and system-reported upstream networks and suggest reconnecting when they differ.
+- Change a VPN's upstream from Network Channels. Routing rules identify the VPN client and explain loop prevention.
 
 ### Fixed
 

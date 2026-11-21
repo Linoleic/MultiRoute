@@ -65,8 +65,11 @@ internal fun ChannelSelectBottomSheet(
                 ChannelPickerEntry(
                     key = "channel:${channel.id}",
                     title = NetworkUtils.channelLabel(context, channel),
-                    subtitle = if (forbidden) stringResource(R.string.channel_vpn_self_forbidden)
-                    else channelOptionSubtitle(channel),
+                    subtitle = when {
+                        forbidden && channel.vpnOwnerUid == app.uid -> stringResource(R.string.channel_vpn_self_forbidden)
+                        forbidden -> stringResource(R.string.ui_vpn_loop_blocked)
+                        else -> channelOptionSubtitle(channel)
+                    },
                     icon = getTransportIcon(channel.transportType),
                     selected = channel.matchesTarget(app),
                     enabled = !forbidden,
@@ -91,10 +94,16 @@ internal fun ChannelSelectBottomSheet(
             )
         }
     }
-
     ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
         item(key = "header") {
             ChannelPickerHeader(app.appName, app.packageName, app)
+            if (app.uid > 0 && channels.any { it.isVpn && it.vpnOwnerUid == app.uid }) {
+                Text(
+                    text = stringResource(R.string.ui_vpn_client_picker_hint),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
                 text = stringResource(R.string.ui_assign_channel),
                 modifier = Modifier.padding(
@@ -104,6 +113,55 @@ internal fun ChannelSelectBottomSheet(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
+        }
+        itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
+            ChannelOption(entry = entry, index = index, count = entries.size)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun VpnUpstreamPicker(
+    upstream: VpnUpstream,
+    channels: List<NetworkChannel>,
+    onSelectChannel: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val entries = buildList {
+        add(ChannelPickerEntry(
+            key = CHANNEL_DEFAULT,
+            title = stringResource(R.string.vm_system_default),
+            subtitle = stringResource(R.string.ui_vpn_upstream_follow_system),
+            icon = Icons.Default.Language,
+            selected = upstream.baseTarget == CHANNEL_DEFAULT,
+            onClick = { onSelectChannel(CHANNEL_DEFAULT) }
+        ))
+        channels.forEach { channel ->
+            add(ChannelPickerEntry(
+                key = "channel:${channel.id}",
+                title = NetworkUtils.channelLabel(context, channel),
+                subtitle = channelOptionSubtitle(channel),
+                icon = getTransportIcon(channel.transportType),
+                selected = channel.id == upstream.baseTarget || channel.interfaceName == upstream.baseTarget,
+                onClick = { onSelectChannel(channel.id) }
+            ))
+        }
+    }
+    ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
+        item(key = "header") {
+            ChannelPickerHeader(
+                title = stringResource(R.string.ui_vpn_upstream_picker),
+                subtitle = upstream.ownerName ?: stringResource(R.string.ui_vpn_client)
+            )
+            if (upstream.scenarioName != null) {
+                Text(
+                    text = stringResource(R.string.ui_vpn_upstream_edit_base),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
             ChannelOption(entry = entry, index = index, count = entries.size)
