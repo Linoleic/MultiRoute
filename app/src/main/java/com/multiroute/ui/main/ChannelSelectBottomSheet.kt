@@ -11,6 +11,10 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,13 +50,17 @@ internal fun ChannelSelectBottomSheet(
     isForbidden: (NetworkChannel) -> Boolean,
     mayBypassTransparentProxy: (NetworkChannel) -> Boolean = { false },
     gatewayChannels: List<NetworkChannel> = emptyList(),
+    gatewayMappings: Map<String, String> = emptyMap(),
     gatewayTarget: String? = null,
     gatewayBusy: Boolean = false,
-    onSelectGateway: (String?) -> Unit = {},
+    gatewayEnabled: Boolean = true,
+    onSelectGateway: (String?, String?, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var pendingGatewayKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var outboundTag by rememberSaveable { mutableStateOf("") }
     val offline = app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.matchesTarget(app) }
     val entries = buildList {
         add(
@@ -109,11 +117,17 @@ internal fun ChannelSelectBottomSheet(
             add(ChannelPickerEntry(
                 key = "gateway:$key",
                 title = NetworkUtils.channelLabel(context, channel),
-                subtitle = stringResource(R.string.proxy_gateway_app_choice),
+                subtitle = gatewayMappings[key] ?: stringResource(R.string.proxy_gateway_app_unmapped),
                 icon = Icons.Default.Dns,
                 selected = gatewayTarget == key,
-                enabled = !gatewayBusy && app.targetChannelId == CHANNEL_DEFAULT,
-                onClick = { onSelectGateway(key) }
+                enabled = !gatewayBusy && gatewayEnabled,
+                onClick = {
+                    val tag = gatewayMappings[key]
+                    if (tag.isNullOrBlank()) {
+                        pendingGatewayKey = key
+                        outboundTag = ""
+                    } else onSelectGateway(key, null) {}
+                }
             ))
         }
         if (gatewayTarget != null) {
@@ -123,7 +137,7 @@ internal fun ChannelSelectBottomSheet(
                 subtitle = stringResource(R.string.proxy_gateway_app_remove_desc),
                 icon = Icons.Default.CloudOff,
                 enabled = !gatewayBusy,
-                onClick = { onSelectGateway(null) }
+                onClick = { onSelectGateway(null, null) {} }
             ))
         }
     }
@@ -151,7 +165,7 @@ internal fun ChannelSelectBottomSheet(
         itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
             ChannelOption(entry = entry, index = index, count = entries.size)
         }
-        if (gatewayEntries.isNotEmpty()) {
+        if (gatewayEnabled || gatewayTarget != null) {
             item(key = "gateway-header") {
                 val current = gatewayChannels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
                 Text(
@@ -165,15 +179,62 @@ internal fun ChannelSelectBottomSheet(
                 }
                 Text(
                     text = stringResource(if (app.targetChannelId == CHANNEL_DEFAULT) R.string.proxy_gateway_app_hint
-                        else R.string.proxy_gateway_app_direct_hint),
+                        else R.string.proxy_gateway_app_physical_draft_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (gatewayChannels.isEmpty()) {
+                    Text(
+                        stringResource(R.string.proxy_gateway_app_no_channels),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             itemsIndexed(gatewayEntries, key = { _, entry -> entry.key }) { index, entry ->
                 ChannelOption(entry = entry, index = index, count = gatewayEntries.size)
             }
         }
+    }
+
+    val pendingChannel = gatewayChannels.firstOrNull { it.proxyUpstreamKey() == pendingGatewayKey }
+    if (pendingGatewayKey != null) {
+        AlertDialog(
+            onDismissRequest = { if (!gatewayBusy) pendingGatewayKey = null },
+            title = { Text(stringResource(R.string.proxy_gateway_app_outbound_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.proxy_gateway_app_outbound_hint),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    pendingChannel?.let { Text(NetworkUtils.channelLabel(context, it), style = MaterialTheme.typography.labelMedium) }
+                    OutlinedTextField(
+                        value = outboundTag,
+                        onValueChange = { outboundTag = it },
+                        label = { Text(stringResource(R.string.proxy_gateway_outbound_tag)) },
+                        singleLine = true,
+                        enabled = !gatewayBusy && pendingChannel != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !gatewayBusy && pendingChannel != null && outboundTag.isNotBlank(),
+                    onClick = {
+                        onSelectGateway(pendingGatewayKey, outboundTag) { saved ->
+                            if (saved) pendingGatewayKey = null
+                        }
+                    }
+                ) { Text(stringResource(android.R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(enabled = !gatewayBusy, onClick = { pendingGatewayKey = null }) {
+                    Text(stringResource(R.string.ui_cancel))
+                }
+            }
+        )
     }
 }
 

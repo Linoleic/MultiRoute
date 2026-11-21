@@ -17,6 +17,15 @@ class ProxyGatewayExportTest {
         assertEquals(4, exported.uidCount)
         assertEquals(3, exported.outboundCount)
         assertEquals(setOf("wlan0", "wlan1", "eth0"), exported.directInterfaces)
+        assertEquals(
+            listOf(
+                ProxyGatewayExport.PlannedRule(10301, "wlan0", "Main", true),
+                ProxyGatewayExport.PlannedRule(10302, "wlan0", "Main", true),
+                ProxyGatewayExport.PlannedRule(99910301, "wlan1", "Secondary", true),
+                ProxyGatewayExport.PlannedRule(10303, "eth0", "Wired", true)
+            ),
+            exported.rules
+        )
         assertEquals("[10301,10302]", rules.getJSONObject(0).getJSONArray("user_id").toString())
         assertEquals("Secondary", rules.getJSONObject(1).getString("outbound"))
         assertEquals(99910301, rules.getJSONObject(1).getJSONArray("user_id").getInt(0))
@@ -56,6 +65,13 @@ class ProxyGatewayExportTest {
         assertEquals(setOf("wlan0"), fragment.directInterfaces)
         assertEquals(10302, rules.getJSONObject(0).getJSONArray("user_id").getInt(0))
         assertEquals(10301, rules.getJSONObject(1).getJSONArray("user_id").getInt(0))
+        assertEquals(
+            listOf(
+                ProxyGatewayExport.PlannedRule(10302, "wlan0", "Main", true),
+                ProxyGatewayExport.PlannedRule(10301, "wlan1", "Secondary", false)
+            ),
+            fragment.rules
+        )
     }
 
     @Test

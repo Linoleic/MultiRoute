@@ -13,7 +13,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 - VPN 通道详情显示已配置上游和系统报告的上游，并在两者不同时提示重新连接。
 - 网络通道可直接更改 VPN 上游，分流规则标识 VPN 创建应用并提示回环限制。
-- 增加透明代理诊断、Clash 兼容上游切换，并支持将应用代理出口规则导出为 sing-box 或 Mihomo 格式。
+- 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览和导出 sing-box 或 Mihomo 应用代理出口规则。
 
 ### 修复
 
@@ -26,7 +26,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 - VPN channel details show the configured and system-reported upstream networks and suggest reconnecting when they differ.
 - Change a VPN's upstream from Network Channels. Routing rules identify the VPN client and explain loop prevention.
-- Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule export for sing-box and Mihomo.
+- Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, and export for sing-box and Mihomo.
 
 ### Fixed
 

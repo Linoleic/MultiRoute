@@ -39,6 +39,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
 import com.multiroute.util.RouteRuleBuilder
@@ -372,20 +373,33 @@ fun MainScreen(
                             isForbidden = { viewModel.isVpnSelfLoop(it, app) },
                             mayBypassTransparentProxy = uiState::mayBypassTransparentProxy,
                             gatewayChannels = if (canConfigureGateway) uiState.channels.filter {
-                                it.proxyUpstreamKey()?.let(proxy.gatewayMappings::containsKey) == true
+                                it.proxyUpstreamKey() != null
                             } else emptyList(),
+                            gatewayMappings = proxy.gatewayMappings,
                             gatewayTarget = proxy.gatewayAppTargets[app.ruleKey].takeIf { showGateway },
                             gatewayBusy = proxy.gatewayBusy,
-                            onSelectGateway = { target ->
-                                viewModel.proxyUpstream.saveGatewayAppTarget(app.ruleKey, target) { saved ->
+                            gatewayEnabled = canConfigureGateway,
+                            onSelectGateway = { target, outboundTag, onSaved ->
+                                viewModel.proxyUpstream.saveGatewayAppTarget(app.ruleKey, target, outboundTag) { saved ->
                                     if (saved) viewModel.closeAppSheet()
+                                    onSaved(saved)
                                     scope.launch {
                                         val message = when {
                                             !saved -> R.string.proxy_gateway_app_save_failed
                                             target == null -> R.string.proxy_gateway_app_removed
+                                            app.targetChannelId != CHANNEL_DEFAULT -> R.string.proxy_gateway_app_draft_saved
                                             else -> R.string.proxy_gateway_app_saved_hint
                                         }
-                                        snackbarHostState.showSnackbar(importContext.getString(message))
+                                        val action = if (saved && target != null) importContext.getString(R.string.proxy_gateway_open_tool) else null
+                                        val result = snackbarHostState.showSnackbar(
+                                            importContext.getString(message),
+                                            actionLabel = action,
+                                            duration = if (action == null) SnackbarDuration.Short else SnackbarDuration.Long
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            selectedToolName = PreferencePage.PROXY_UPSTREAM.name
+                                            viewModel.setSelectedTab(2)
+                                        }
                                     }
                                 }
                             },

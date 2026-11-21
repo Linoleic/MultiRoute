@@ -10,11 +10,20 @@ internal enum class ProxyGatewayFormat(val label: String, val fileName: String, 
 
 /** Builds an opt-in rule fragment for outbounds already defined in the proxy. */
 internal object ProxyGatewayExport {
+    data class PlannedRule(
+        val uid: Int,
+        val interfaceName: String,
+        val outbound: String,
+        val isPhysicalAssignment: Boolean
+    )
+
     data class Fragment(
         val content: String,
         val uidCount: Int,
         val outboundCount: Int,
-        val directInterfaces: Set<String>
+        val directInterfaces: Set<String>,
+        /** Exact rows represented by [content], in the same deterministic order. */
+        val rules: List<PlannedRule> = emptyList()
     )
     class InvalidMihomoOutbound(val tag: String) : IllegalArgumentException()
 
@@ -29,11 +38,14 @@ internal object ProxyGatewayExport {
         val viaDefault = defaultRouteInterfaces.filterKeys { it !in publishedRules && it !in installedRules }
         val byOutbound = sortedMapOf<String, MutableList<Int>>()
         val directInterfaces = mutableSetOf<String>()
+        val planned = mutableListOf<PlannedRule>()
         for ((uid, iface) in physical + viaDefault) {
             if (!RouteRuleBuilder.isValidUid(uid)) continue
             val outbound = physicalOutbounds[iface] ?: continue
             byOutbound.getOrPut(outbound) { mutableListOf() }.add(uid)
-            if (uid in physical) directInterfaces.add(iface)
+            val isPhysical = uid in physical
+            if (isPhysical) directInterfaces.add(iface)
+            planned += PlannedRule(uid, iface, outbound, isPhysical)
         }
         if (byOutbound.isEmpty()) return null
 
@@ -41,7 +53,13 @@ internal object ProxyGatewayExport {
             ProxyGatewayFormat.SING_BOX -> singBoxRules(byOutbound)
             ProxyGatewayFormat.MIHOMO -> mihomoRules(byOutbound)
         }
-        return Fragment(content, byOutbound.values.sumOf { it.size }, byOutbound.size, directInterfaces)
+        return Fragment(
+            content,
+            byOutbound.values.sumOf { it.size },
+            byOutbound.size,
+            directInterfaces,
+            planned.sortedWith(compareBy<PlannedRule> { it.outbound }.thenBy { it.uid })
+        )
     }
 
     private fun singBoxRules(byOutbound: Map<String, List<Int>>): String {

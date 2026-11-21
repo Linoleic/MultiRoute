@@ -25,6 +25,27 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal enum class GatewayPreviewSkipReason {
+    APP_UNAVAILABLE,
+    INVALID_UID,
+    CHANNEL_UNAVAILABLE,
+    OUTBOUND_UNMAPPED,
+    NO_DEFAULT_ROUTE,
+    PHYSICAL_ROUTE_ACTIVE,
+    VPN_OWNER,
+    SHARED_UID_CONFLICT,
+    ROUTE_STATE_UNCERTAIN
+}
+
+/** One exact exported UID route, or one saved app choice that could not be exported. */
+internal data class GatewayPreviewRow(
+    val ruleKey: String?,
+    val uid: Int?,
+    val channel: String?,
+    val outbound: String?,
+    val skipReason: GatewayPreviewSkipReason? = null
+)
+
 internal data class ProxyUpstreamUiState(
     val profile: ProxyUpstreamProfile? = null,
     val selector: Selector? = null,
@@ -53,7 +74,18 @@ internal class ProxyUpstreamController(
     private val channels: () -> List<NetworkChannel>,
     private val onSelectionConfirmed: () -> Unit
 ) {
-    data class GatewayExport(val fragment: ProxyGatewayExport.Fragment, val possibleBypassInterfaces: List<String>)
+    private data class GatewaySnapshot(
+        val fragment: ProxyGatewayExport.Fragment?,
+        val activeVpnInterfaces: List<String>,
+        val skipped: List<GatewayPreviewRow>,
+        val ruleKeysByUid: Map<Int, String>
+    )
+
+    data class GatewayExport(
+        val fragment: ProxyGatewayExport.Fragment?,
+        val possibleBypassInterfaces: List<String>,
+        val rows: List<GatewayPreviewRow>
+    )
 
     private val application = context.applicationContext
     private val store = ProxyUpstreamStore(context)
@@ -102,13 +134,18 @@ internal class ProxyUpstreamController(
     }
 
     /** Saves an export-only app→channel choice without changing its kernel routing assignment. */
-    fun saveGatewayAppTarget(ruleKey: String, channelId: String?, onSaved: (Boolean) -> Unit) {
+    fun saveGatewayAppTarget(
+        ruleKey: String,
+        channelId: String?,
+        outboundTag: String? = null,
+        onSaved: (Boolean) -> Unit
+    ) {
         if (_state.value.gatewayBusy || !RouteConfigProvider.isValidRuleKey(ruleKey)) {
             onSaved(false)
             return
         }
         val mappings = _state.value.gatewayMappings
-        if (channelId != null && channelId !in mappings.keys) {
+        if (channelId != null && outboundTag == null && channelId !in mappings.keys) {
             onSaved(false)
             return
         }
@@ -118,6 +155,14 @@ internal class ProxyUpstreamController(
                 val next = _state.value.gatewayAppTargets.toMutableMap().apply {
                     if (channelId == null) remove(ruleKey) else put(ruleKey, channelId)
                 }.toMap()
+                if (channelId != null && outboundTag != null) {
+                    require(outboundTag.isNotBlank())
+                    val nextMappings = mappings.toMutableMap().apply { put(channelId, outboundTag) }.toMap()
+                    withContext(Dispatchers.IO) { store.saveGatewayMappings(nextMappings) }
+                    // Persist the mapping first. If saving the app choice then fails, the mapping remains
+                    // usable and the existing app choice stays untouched rather than pointing at absent data.
+                    _state.update { it.copy(savedGatewayMappings = nextMappings) }
+                }
                 withContext(Dispatchers.IO) { store.saveGatewayAppTargets(next) }
                 _state.update { it.copy(gatewayAppTargets = next) }
                 onSaved(true)
@@ -131,12 +176,11 @@ internal class ProxyUpstreamController(
         }
     }
 
-    suspend fun prepareGatewayExport(format: ProxyGatewayFormat): GatewayExport? {
+    suspend fun prepareGatewayExport(format: ProxyGatewayFormat): GatewayExport {
         val mappings = _state.value.gatewayMappings
         val appTargets = _state.value.gatewayAppTargets
-        if (mappings.isEmpty()) return null
         return withContext(Dispatchers.IO) {
-            val (fragment, activeInterfaces) = SuHelper.withRouteConfigLock {
+            val snapshot = SuHelper.withRouteConfigLock {
                 val active = NetworkUtils.getActiveChannels(application)
                 val physicalOutbounds = active.mapNotNull { channel ->
                     val key = channel.proxyUpstreamKey() ?: return@mapNotNull null
@@ -145,20 +189,25 @@ internal class ProxyUpstreamController(
                 }.toMap()
                 val publishedText = SuHelper.readTextAsRoot(RouteRuleBuilder.RULE_CACHE_PATH)
                 val published = RouteRuleBuilder.parseRuleCache(publishedText)
-                val result4 = SuHelper.executeShellWithOutput(
-                    "ip -4 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY4_OK",
-                    timeoutSeconds = 3
-                )
-                check("__MR_GATEWAY4_OK" in result4)
-                val installed4 = RouteRuleBuilder.parseKernelUidRules(result4)
-                val installed6 = if (appTargets.isNotEmpty()) {
-                    val result6 = SuHelper.executeShellWithOutput(
-                        "ip -6 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY6_OK",
+                val result4 = runCatching {
+                    SuHelper.executeShellWithOutput(
+                        "ip -4 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY4_OK",
                         timeoutSeconds = 3
                     )
-                    check("__MR_GATEWAY6_OK" in result6)
-                    RouteRuleBuilder.parseKernelUidRules(result6, includeUnreachable = true)
-                } else emptyMap()
+                }.getOrDefault(emptyList())
+                val routeStateBaseCertain = "__MR_GATEWAY4_OK" in result4
+                val installed4 = if (routeStateBaseCertain) RouteRuleBuilder.parseKernelUidRules(result4) else emptyMap()
+                val result6 = if (appTargets.isNotEmpty() && routeStateBaseCertain) {
+                    val result6 = runCatching {
+                        SuHelper.executeShellWithOutput(
+                            "ip -6 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY6_OK",
+                            timeoutSeconds = 3
+                        )
+                    }.getOrDefault(emptyList())
+                    result6.takeIf { "__MR_GATEWAY6_OK" in it }
+                } else null
+                val routeStateCertain = routeStateBaseCertain && (appTargets.isEmpty() || result6 != null)
+                val installed6 = result6?.let { RouteRuleBuilder.parseKernelUidRules(it, includeUnreachable = true) }.orEmpty()
 
                 val baseRules = if (appTargets.isNotEmpty()) RouteConfigProvider.getUidRules(application) else emptyMap()
                 val secondaryInstalls = if (appTargets.isNotEmpty()) {
@@ -174,26 +223,84 @@ internal class ProxyUpstreamController(
                     val key = channel.proxyUpstreamKey() ?: return@mapNotNull null
                     key to channel.interfaceName
                 }.toMap()
-                val defaultRouteIfaces = if (appTargets.isNotEmpty()) SuHelper.getInterfacesWithDefaultRoute(
-                    channelIfaces.values.filter { it in physicalOutbounds.keys }.distinct()
-                ) else emptySet()
+                val defaultRouteIfaces = if (appTargets.isNotEmpty()) runCatching {
+                    SuHelper.getInterfacesWithDefaultRoute(
+                        channelIfaces.values.filter { it in physicalOutbounds.keys }.distinct()
+                    )
+                }.getOrDefault(emptySet()) else emptySet()
                 val defaultRouteCandidates = mutableMapOf<Int, MutableSet<String>>()
+                val candidateKeys = mutableMapOf<Pair<Int, String>, MutableList<String>>()
+                val skipped = mutableListOf<GatewayPreviewRow>()
+                val ruleKeysByUid = mutableMapOf<Int, String>()
                 for ((ruleKey, channelId) in appTargets) {
-                    if (!RouteConfigProvider.isValidRuleKey(ruleKey)) continue
-                    val channelIface = channelIfaces[channelId] ?: continue
-                    if (channelIface !in defaultRouteIfaces) continue
+                    fun skip(reason: GatewayPreviewSkipReason, uid: Int? = null, channel: String? = channelId) {
+                        skipped += GatewayPreviewRow(ruleKey, uid, channel, mappings[channelId], reason)
+                    }
+                    if (!RouteConfigProvider.isValidRuleKey(ruleKey)) {
+                        skip(GatewayPreviewSkipReason.APP_UNAVAILABLE)
+                        continue
+                    }
                     val uid = SuHelper.resolveUidForRuleKey(application, ruleKey, secondaryInstalls)
-                    if (!RouteRuleBuilder.isValidUid(uid)) continue
-                    if (uid in installed6) continue
-                    if (active.any { it.isVpn && it.vpnOwnerUid == uid }) continue
-                    if (publishedText == null && uid in baseRules) continue
+                    if (uid < 0) {
+                        skip(GatewayPreviewSkipReason.APP_UNAVAILABLE)
+                        continue
+                    }
+                    if (!RouteRuleBuilder.isValidUid(uid)) {
+                        skip(GatewayPreviewSkipReason.INVALID_UID, uid)
+                        continue
+                    }
+                    ruleKeysByUid.putIfAbsent(uid, ruleKey)
+                    val channelIface = channelIfaces[channelId]
+                    if (channelIface == null) {
+                        skip(GatewayPreviewSkipReason.CHANNEL_UNAVAILABLE, uid)
+                        continue
+                    }
+                    val outbound = physicalOutbounds[channelIface]
+                    if (outbound == null) {
+                        skip(GatewayPreviewSkipReason.OUTBOUND_UNMAPPED, uid, channelIface)
+                        continue
+                    }
+                    if (!routeStateCertain || (publishedText == null && uid in baseRules)) {
+                        skip(GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN, uid, channelIface)
+                        continue
+                    }
+                    if (active.any { it.isVpn && it.vpnOwnerUid == uid }) {
+                        skip(GatewayPreviewSkipReason.VPN_OWNER, uid, channelIface)
+                        continue
+                    }
+                    if (uid in installed6) {
+                        skip(GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE, uid, channelIface)
+                        continue
+                    }
+                    val publishedIface = published[uid]
+                    val installedIface = installed4[uid]
+                    if (publishedIface != null || installedIface != null) {
+                        val reason = if (publishedIface != null && publishedIface == installedIface) {
+                            GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE
+                        } else GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+                        skip(reason, uid, channelIface)
+                        continue
+                    }
                     val effective = scenario?.effectiveRules?.get(uid)
-                    if (effective != null && effective != CHANNEL_DEFAULT) continue
+                    if (effective != null && effective != CHANNEL_DEFAULT) {
+                        skip(GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE, uid, channelIface)
+                        continue
+                    }
+                    if (channelIface !in defaultRouteIfaces) {
+                        skip(GatewayPreviewSkipReason.NO_DEFAULT_ROUTE, uid, channelIface)
+                        continue
+                    }
                     defaultRouteCandidates.getOrPut(uid) { mutableSetOf() }.add(channelIface)
+                    candidateKeys.getOrPut(uid to channelIface) { mutableListOf() }.add(ruleKey)
                 }
                 val defaultRouteTargets = defaultRouteCandidates.mapNotNull { (uid, ifaces) ->
                     if (ifaces.size != 1) {
                         Log.w("ProxyUpstreamController", "Skipping gateway app UID $uid with conflicting channel selections: $ifaces")
+                        for (iface in ifaces) {
+                            candidateKeys[uid to iface].orEmpty().forEach { key ->
+                                skipped += GatewayPreviewRow(key, uid, iface, physicalOutbounds[iface], GatewayPreviewSkipReason.SHARED_UID_CONFLICT)
+                            }
+                        }
                         null
                     } else uid to ifaces.single()
                 }.toMap()
@@ -204,12 +311,38 @@ internal class ProxyUpstreamController(
                     physicalOutbounds = physicalOutbounds,
                     format = format,
                     defaultRouteInterfaces = defaultRouteTargets
-                ) ?: return@withRouteConfigLock null
-                fragment to active.filter { it.isVpnUpstream() }.map { it.interfaceName }
-            } ?: return@withContext null
-            if (fragment.directInterfaces.isEmpty()) return@withContext GatewayExport(fragment, emptyList())
+                )
+                val serializedUids = fragment?.rules.orEmpty().mapTo(mutableSetOf()) { it.uid }
+                val explicitUids = ruleKeysByUid.keys
+                val physicalCandidates = published.keys + installed4.keys
+                val activeIfaces = active.mapTo(mutableSetOf()) { it.interfaceName }
+                for (uid in physicalCandidates) {
+                    if (uid in serializedUids || uid in explicitUids) continue
+                    val publishedIface = published[uid]
+                    val installedIface = installed4[uid]
+                    val iface = publishedIface ?: installedIface
+                    val reason = when {
+                        !routeStateCertain -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+                        publishedIface != null && publishedIface != installedIface -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+                        installedIface != null && installedIface != publishedIface -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+                        iface == null || iface !in activeIfaces -> GatewayPreviewSkipReason.CHANNEL_UNAVAILABLE
+                        iface !in physicalOutbounds -> GatewayPreviewSkipReason.OUTBOUND_UNMAPPED
+                        else -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+                    }
+                    skipped += GatewayPreviewRow(ruleKeysByUid[uid], uid, iface, iface?.let(physicalOutbounds::get), reason)
+                }
+                GatewaySnapshot(fragment, active.filter { it.isVpnUpstream() }.map { it.interfaceName }, skipped, ruleKeysByUid)
+            }
+            val fragment = snapshot.fragment
+            val skipped = snapshot.skipped
+            val actualRows = fragment?.rules.orEmpty().map { rule ->
+                GatewayPreviewRow(snapshot.ruleKeysByUid[rule.uid], rule.uid, rule.interfaceName, rule.outbound)
+            }
+            if (fragment == null || fragment.directInterfaces.isEmpty()) {
+                return@withContext GatewayExport(fragment, emptyList(), actualRows + skipped)
+            }
             val diagnostics = try {
-                SuHelper.getTransparentProxyDiagnostics(activeInterfaces)
+                SuHelper.getTransparentProxyDiagnostics(snapshot.activeVpnInterfaces)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -217,7 +350,7 @@ internal class ProxyUpstreamController(
                 null
             }
             val possibleBypassInterfaces = fragment.directInterfaces.filter { diagnostics?.mayBypassOn(it) == true }.sorted()
-            GatewayExport(fragment, possibleBypassInterfaces)
+            GatewayExport(fragment, possibleBypassInterfaces, actualRows + skipped)
         }
     }
 
