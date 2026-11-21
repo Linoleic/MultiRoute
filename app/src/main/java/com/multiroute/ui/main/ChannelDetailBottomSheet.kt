@@ -43,6 +43,7 @@ fun ChannelDetailBottomSheet(
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     testServerName: String = "",
     testServerUrl: String = "",
+    mayBypassTransparentProxy: Boolean = false,
     onTestChannel: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -64,6 +65,7 @@ fun ChannelDetailBottomSheet(
             trafficFlow = trafficFlow,
             testServerName = testServerName,
             testServerUrl = testServerUrl,
+            mayBypassTransparentProxy = mayBypassTransparentProxy,
             showCloseButton = true,
             onTestChannel = onTestChannel,
             onDismiss = onDismiss
@@ -85,6 +87,7 @@ internal fun ChannelDetailContent(
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>? = null,
     testServerName: String = "",
     testServerUrl: String = "",
+    mayBypassTransparentProxy: Boolean = false,
     showCloseButton: Boolean = true,
     modifier: Modifier = Modifier,
     onChangeVpnUpstream: (() -> Unit)? = null,
@@ -192,6 +195,13 @@ internal fun ChannelDetailContent(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
+            if (mayBypassTransparentProxy) {
+                Text(
+                    text = stringResource(R.string.transparent_proxy_channel_bypass),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             if (trafficFlow != null) {
                 Text(

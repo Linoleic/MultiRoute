@@ -537,13 +537,15 @@ exit 0
      * `14500: from all uidrange 10530-10530 lookup wlan1`. Used to compare what is configured with what
      * the kernel actually holds; lines with a range instead of a single UID are ignored.
      */
-    fun parseKernelUidRules(lines: Collection<String>): Map<Int, String> {
+    fun parseKernelUidRules(lines: Collection<String>, includeUnreachable: Boolean = false): Map<Int, String> {
         val result = mutableMapOf<Int, String>()
         for (raw in lines) {
             val line = raw.trim()
             if (!line.startsWith("$DEFAULT_RULE_PREF:")) continue
             val range = line.substringAfter("uidrange ", "").substringBefore(' ').trim()
-            val table = line.substringAfter("lookup ", "").substringBefore(' ').trim()
+            val table = line.substringAfter("lookup ", "").substringBefore(' ').trim().ifEmpty {
+                if (includeUnreachable && "unreachable" in line.split(' ')) "unreachable" else ""
+            }
             if (range.isEmpty() || table.isEmpty()) continue
             val from = range.substringBefore('-').toIntOrNull() ?: continue
             val to = range.substringAfter('-', range).toIntOrNull() ?: continue

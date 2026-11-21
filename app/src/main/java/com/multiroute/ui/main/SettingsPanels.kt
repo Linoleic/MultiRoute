@@ -26,12 +26,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.util.CgroupHookEvidence
 import com.multiroute.util.ModuleStatus
+import com.multiroute.util.SocketEvidence
 import com.multiroute.util.SuHelper
+import com.multiroute.util.TransparentProxyDiagnostics
 
 @Composable
-internal fun ModuleDiagnosticsPanel(uiState: MainUiState, viewModel: MainScreenViewModel) {
+internal fun ModuleDiagnosticsPanel(uiState: MainUiState, onProxyUpstream: () -> Unit) {
     val diag = uiState.diagnosticInfo
     var expanded by rememberSaveable { mutableStateOf(false) }
     Spacer(modifier = Modifier.height(4.dp))
@@ -125,10 +129,75 @@ internal fun ModuleDiagnosticsPanel(uiState: MainUiState, viewModel: MainScreenV
                 label = stringResource(com.multiroute.R.string.settings_cellular_uids_2),
                 value = diag?.mobileDataPreferredUids?.ifEmpty { stringResource(com.multiroute.R.string.diag_not_set) } ?: stringResource(com.multiroute.R.string.diag_not_set)
             )
+            TransparentProxyDiagnosticItems(uiState.env.transparentProxyDiagnostics)
+            TextButton(onClick = onProxyUpstream) {
+                Text(stringResource(R.string.proxy_upstream_title))
+            }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun TransparentProxyDiagnosticItems(snapshot: TransparentProxyDiagnostics?) {
+    Text(
+        text = stringResource(R.string.transparent_proxy_diagnostics_title),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary
+    )
+    val unknown = stringResource(R.string.transparent_proxy_unknown)
+    val interfaces = snapshot?.interfaces.orEmpty()
+    val singBoxTc = interfaces.filter { it.singBoxLocalTcPresent }.joinToString { it.interfaceName }
+    val genericTc = interfaces.filter { it.unattributedBpfPresent }.joinToString { it.interfaceName }
+    val platformTc = interfaces.filter { it.platformBpfPresent }.joinToString { it.interfaceName }
+    val uncheckedTc = interfaces.filterNot { it.checked }.joinToString { it.interfaceName }
+    val tcSummary = mutableListOf<String>()
+    if (singBoxTc.isNotEmpty()) tcSummary += stringResource(R.string.transparent_proxy_tc_sing_box, singBoxTc)
+    if (genericTc.isNotEmpty()) tcSummary += stringResource(R.string.transparent_proxy_tc_unattributed, genericTc)
+    if (platformTc.isNotEmpty()) tcSummary += stringResource(R.string.transparent_proxy_tc_platform, platformTc)
+    if (tcSummary.isEmpty() && interfaces.any { it.checked }) tcSummary += stringResource(R.string.transparent_proxy_no_tc_evidence)
+    if (uncheckedTc.isNotEmpty()) tcSummary += stringResource(R.string.transparent_proxy_tc_incomplete, uncheckedTc)
+    DiagnosticItem(stringResource(R.string.transparent_proxy_tc_label), tcSummary.joinToString("\n").ifEmpty { unknown })
+    DiagnosticItem(
+        label = stringResource(R.string.transparent_proxy_cgroup_label),
+        value = CgroupDiagnosticsSummary(snapshot?.cgroupHooks)
+    )
+    val sockets = snapshot?.establishedSockets
+    if (sockets != null && sockets.status != SocketEvidence.Status.SKIPPED_NO_KNOWN_PROCESS) {
+        val observedInterfaces = sockets.perInterface.entries.joinToString { (iface, count) -> "$iface ($count)" }
+        DiagnosticItem(
+            label = stringResource(R.string.transparent_proxy_socket_label),
+            value = when {
+                sockets.status == SocketEvidence.Status.ERROR -> stringResource(R.string.transparent_proxy_check_failed)
+                sockets.status == SocketEvidence.Status.UNAVAILABLE -> stringResource(R.string.transparent_proxy_tool_unavailable)
+                observedInterfaces.isNotEmpty() -> observedInterfaces
+                sockets.establishedCount == 0 -> stringResource(R.string.transparent_proxy_socket_none)
+                else -> stringResource(R.string.transparent_proxy_socket_unknown_interface)
+            }
+        )
+    }
+}
+
+@Composable
+private fun CgroupDiagnosticsSummary(hooks: CgroupHookEvidence?): String {
+    if (hooks == null) return stringResource(R.string.transparent_proxy_unknown)
+
+    val summary = mutableListOf<String>()
+    when (hooks.status) {
+        CgroupHookEvidence.Status.AVAILABLE -> {
+            if (hooks.singBoxHookCount > 0) summary += stringResource(R.string.transparent_proxy_cgroup_sing_box, hooks.singBoxHookCount)
+            if (hooks.platformHookCount > 0) summary += stringResource(R.string.transparent_proxy_cgroup_platform, hooks.platformHookCount)
+            if (hooks.unattributedHookCount > 0) summary += stringResource(R.string.transparent_proxy_cgroup_count, hooks.unattributedHookCount)
+            if (summary.isEmpty()) summary += stringResource(R.string.transparent_proxy_cgroup_no_evidence)
+        }
+        CgroupHookEvidence.Status.UNAVAILABLE -> summary += stringResource(R.string.transparent_proxy_tool_unavailable)
+        CgroupHookEvidence.Status.ERROR -> summary += stringResource(R.string.transparent_proxy_check_failed)
+    }
+    if (hooks.singBoxHookCount == 0 && hooks.singBoxSocketProgramHeld) {
+        summary += stringResource(R.string.transparent_proxy_cgroup_held_program)
+    }
+    return summary.joinToString("\n")
 }
 
 @Composable

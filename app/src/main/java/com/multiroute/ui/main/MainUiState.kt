@@ -8,6 +8,7 @@ import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
 import com.multiroute.model.TestServerConfig
 import com.multiroute.util.DiagnosticInfo
+import com.multiroute.util.TransparentProxyDiagnostics
 
 data class CellularControlUiState(
     val mode: Int = 0,
@@ -99,6 +100,7 @@ data class SystemEnvUiState(
     val failoverHoldOffSeconds: Int = 3,
     val isFailoverProbeInternet: Boolean = true,
     val diagnosticInfo: DiagnosticInfo? = null,
+    val transparentProxyDiagnostics: TransparentProxyDiagnostics? = null,
     val isEnvironmentRefreshing: Boolean = false,
     val environmentRefreshFailed: Boolean = false
 )
@@ -185,6 +187,11 @@ data class MainUiState(
     val failoverHoldOffSeconds: Int get() = env.failoverHoldOffSeconds
     val isFailoverProbeInternet: Boolean get() = env.isFailoverProbeInternet
     val diagnosticInfo: DiagnosticInfo? get() = env.diagnosticInfo
+
+    internal fun mayBypassTransparentProxy(channel: NetworkChannel): Boolean =
+        !channel.isVpn && !channel.isHotspot &&
+            channel.transportType in setOf("WLAN", "cellular", "ethernet", "bluetooth") &&
+            env.transparentProxyDiagnostics?.mayBypassOn(channel.interfaceName) == true
     val isEnvironmentRefreshing: Boolean get() = env.isEnvironmentRefreshing
     val environmentRefreshFailed: Boolean get() = env.environmentRefreshFailed
 }

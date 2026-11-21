@@ -21,11 +21,15 @@ object SuHelper {
     private val shell: RootShellExecutor get() = RootShellExecutor.default
     private val routeSync by lazy { RouteSyncCoordinator(shell) }
     private val diagnostics by lazy { ModuleDiagnosticsCollector(shell, routeSync) }
+    private val transparentProxyDiagnostics by lazy { TransparentProxyDiagnosticsCollector(shell) }
     private val hotspot by lazy { HotspotShellHelper(shell) }
 
     /** Prevent a receiver sync from observing a partially applied configuration. */
     internal suspend fun <T> withRouteConfigLock(block: suspend () -> T): T =
         routeSync.withRouteConfigLock(block)
+
+    internal suspend fun resolveScenarioProfile(context: Context, base: Map<Int, String>): ScenarioResolution =
+        routeSync.resolveScenarioProfile(context, base)
 
     fun isKeepSlaveWifiScreenOff(context: Context): Boolean =
         RouteConfigProvider.isKeepSlaveWifiScreenOff(context)
@@ -139,6 +143,9 @@ object SuHelper {
 
     suspend fun getDiagnosticInfo(context: Context): DiagnosticInfo =
         diagnostics.getDiagnosticInfo(context)
+
+    internal suspend fun getTransparentProxyDiagnostics(activeInterfaces: List<String>): TransparentProxyDiagnostics =
+        withContext(Dispatchers.IO) { transparentProxyDiagnostics.collect(activeInterfaces) }
 
     fun scenarioReasonText(
         context: Context,

@@ -7,6 +7,10 @@ import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Alignment
@@ -100,6 +104,7 @@ internal fun ModuleDiagnosticsOverlay(
     uiState: MainUiState, viewModel: MainScreenViewModel, wide: Boolean,
     onDismiss: () -> Unit, onLogs: () -> Unit
 ) {
+    var showProxyUpstream by remember { mutableStateOf(false) }
     val content: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().heightIn(max = 680.dp)) {
             Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 8.dp),
@@ -119,11 +124,17 @@ internal fun ModuleDiagnosticsOverlay(
                             uiState.isEnvironmentRefreshing, uiState.environmentRefreshFailed)))
                 }
                 if (uiState.diagnosticInfo != null && !uiState.environmentRefreshFailed) {
-                    item { ModuleDiagnosticsPanel(uiState, viewModel) }
+                    item { ModuleDiagnosticsPanel(uiState) { showProxyUpstream = true } }
                 }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = viewModel::refreshEnvironment, enabled = !uiState.isEnvironmentRefreshing) {
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.refreshEnvironment()
+                                viewModel.refreshTransparentProxyDiagnostics(force = true)
+                            },
+                            enabled = !uiState.isEnvironmentRefreshing
+                        ) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.cd_refresh))
@@ -145,4 +156,12 @@ internal fun ModuleDiagnosticsOverlay(
             enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
         )
     ) { content() }
+
+    if (showProxyUpstream) {
+        ProxyUpstreamDialog(
+            channels = uiState.channels,
+            controller = viewModel.proxyUpstream,
+            onDismiss = { showProxyUpstream = false }
+        )
+    }
 }

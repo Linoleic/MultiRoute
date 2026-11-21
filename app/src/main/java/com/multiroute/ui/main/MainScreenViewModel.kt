@@ -46,6 +46,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val _channelTraffic = MutableStateFlow<Map<String, ChannelTrafficStats>>(emptyMap())
     val channelTraffic: StateFlow<Map<String, ChannelTrafficStats>> = _channelTraffic.asStateFlow()
 
+    internal val proxyUpstream = ProxyUpstreamController(application, viewModelScope, { _uiState.value.channels }) {
+        refreshTransparentProxyDiagnostics(force = true)
+    }
+
     private val envDelegate: EnvironmentAndChannelDelegate by lazy {
         EnvironmentAndChannelDelegate(
             application = getApplication(),
@@ -152,8 +156,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
                 } else state.routing
             )
         }
-        if (index == 3) {
-            envDelegate.refreshEnvironment()
+        when (index) {
+            1 -> refreshTransparentProxyDiagnostics()
+            3 -> envDelegate.refreshEnvironment()
         }
     }
 
@@ -180,6 +185,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun openAppSheet(app: AppItem) {
         _uiState.update { it.copy(navigation = it.navigation.copy(selectedAppForSheet = app)) }
+        refreshTransparentProxyDiagnostics()
     }
 
     fun closeAppSheet() {
@@ -188,6 +194,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectChannelForDetail(channel: NetworkChannel) {
         _uiState.update { it.copy(navigation = it.navigation.copy(selectedChannelForDetail = channel)) }
+        refreshTransparentProxyDiagnostics()
     }
 
     fun closeChannelDetail() {
@@ -205,7 +212,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun exitSelectionMode() = appRoutingDelegate.exitSelectionMode()
     fun toggleSelectApp(ruleKey: String) = appRoutingDelegate.toggleSelectApp(ruleKey)
     fun selectAllFilteredApps() = appRoutingDelegate.selectAllFilteredApps()
-    fun openBatchAssignSheet() = appRoutingDelegate.openBatchAssignSheet()
+    fun openBatchAssignSheet() {
+        appRoutingDelegate.openBatchAssignSheet()
+        refreshTransparentProxyDiagnostics()
+    }
     fun closeBatchAssignSheet() = appRoutingDelegate.closeBatchAssignSheet()
     fun batchAssignChannel(channelId: String) = appRoutingDelegate.batchAssignChannel(channelId)
     fun setSearchQuery(query: String) = appRoutingDelegate.setSearchQuery(query)
@@ -216,6 +226,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         appRoutingDelegate.updateVpnUpstream(vpn, owner, channelId)
     fun forceSyncAllRules() = appRoutingDelegate.forceSyncAllRules()
     fun clearAllRules() = appRoutingDelegate.clearAllRules()
+
+    internal fun refreshTransparentProxyDiagnostics(force: Boolean = false) =
+        envDelegate.refreshTransparentProxyDiagnostics(force)
 
     // ------------------------------------------------------------------ Scenarios
     fun openScenarioSheet() = scenarioDelegate.openScenarioSheet()

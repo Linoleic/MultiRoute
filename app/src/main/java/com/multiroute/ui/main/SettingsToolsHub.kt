@@ -63,6 +63,7 @@ internal enum class PreferencePage(@param:StringRes val title: Int, @param:Strin
     CELLULAR(R.string.cellular_control_title, R.string.tools_cellular_summary, Icons.Default.SignalCellularAlt),
     DUAL_WIFI(R.string.settings_dual_wifi_card_title, R.string.settings_dual_wifi_card_desc, Icons.Default.Wifi),
     HOTSPOT(R.string.settings_hotspot_card_title, R.string.settings_hotspot_card_desc_inactive, Icons.Default.WifiTethering),
+    PROXY_UPSTREAM(R.string.proxy_upstream_title, R.string.proxy_upstream_tools_summary, Icons.Default.Dns),
     WIRELESS(R.string.adb_helper_title, R.string.tools_adb_summary, Icons.Default.Terminal),
     LOGS(R.string.settings_logs_title, R.string.tools_logs_summary, Icons.AutoMirrored.Filled.Article)
 }
@@ -144,7 +145,7 @@ internal fun SettingsToolsHub(
     var localSelected by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = if (onControlledSelectionChange != null) controlledSelection else localSelected
     val setSelected: (String?) -> Unit = onControlledSelectionChange ?: { localSelected = it }
-    val pages = if (tools) listOf(PreferencePage.CELLULAR, PreferencePage.DUAL_WIFI, PreferencePage.HOTSPOT, PreferencePage.WIRELESS, PreferencePage.LOGS)
+    val pages = if (tools) listOf(PreferencePage.CELLULAR, PreferencePage.DUAL_WIFI, PreferencePage.HOTSPOT, PreferencePage.PROXY_UPSTREAM, PreferencePage.WIRELESS, PreferencePage.LOGS)
         else listOf(PreferencePage.NETWORK, PreferencePage.APPEARANCE, PreferencePage.BACKUP, PreferencePage.ABOUT)
     if (tools) ObserveNetworkManagement(viewModel)
     val wifiViewModel = if (tools)
@@ -264,6 +265,7 @@ internal fun ToolDetailOverlay(
         PreferencePage.CELLULAR,
         PreferencePage.DUAL_WIFI,
         PreferencePage.HOTSPOT,
+        PreferencePage.PROXY_UPSTREAM,
         PreferencePage.WIRELESS
     )
     val current = pages.firstOrNull { it.name == selectedToolName }
@@ -374,9 +376,10 @@ private fun PreferenceOverview(
     val groupBounds = remember(pages, tools) {
         if (!tools) pages.associateWith { pages.indexOf(it) to pages.size }
         else mapOf(
-            PreferencePage.CELLULAR to (0 to 3),
-            PreferencePage.DUAL_WIFI to (1 to 3),
-            PreferencePage.HOTSPOT to (2 to 3),
+            PreferencePage.CELLULAR to (0 to 4),
+            PreferencePage.DUAL_WIFI to (1 to 4),
+            PreferencePage.HOTSPOT to (2 to 4),
+            PreferencePage.PROXY_UPSTREAM to (3 to 4),
             PreferencePage.WIRELESS to (0 to 2),
             PreferencePage.LOGS to (1 to 2)
         )
@@ -498,6 +501,7 @@ private fun PreferenceDetail(
                 PreferencePage.WIRELESS -> item { WirelessAdbCard(showTitle = false) }
                 PreferencePage.CELLULAR -> item { CellularControlCard(uiState, viewModel, observeState = false) }
                 PreferencePage.HOTSPOT -> item { HotspotManagementPanel(viewModel) }
+                PreferencePage.PROXY_UPSTREAM -> item { ProxyUpstreamToolPanel(uiState.channels, viewModel.proxyUpstream) }
                 PreferencePage.DUAL_WIFI -> Unit // Rendered in the bounded content pane above.
                 PreferencePage.LOGS -> Unit // The overview opens the log dialog directly.
             }

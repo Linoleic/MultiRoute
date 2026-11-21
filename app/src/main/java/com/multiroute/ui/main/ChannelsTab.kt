@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import com.multiroute.R
 import com.multiroute.model.NetworkChannel
@@ -67,7 +68,14 @@ fun ChannelsTab(
     val listState = rememberLazyListState()
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
-
+    var showProxyPicker by rememberSaveable { mutableStateOf(false) }
+    var showProxySetup by rememberSaveable { mutableStateOf(false) }
+    val proxyController = viewModel.proxyUpstream
+    val proxyState by proxyController.state.collectAsStateWithLifecycle()
+    val proxyProfile = proxyState.profile
+    LaunchedEffect(proxyProfile) {
+        if (proxyProfile != null && proxyController.state.value.selector == null) proxyController.refresh()
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val dualPane = maxWidth >= RoutingDimensions.dualPaneMinWidth
@@ -95,6 +103,14 @@ fun ChannelsTab(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp)
                 ) {
+                    if (proxyProfile != null) {
+                        item(key = "proxy-upstream") {
+                            ProxyUpstreamChannelEntry(proxyState, uiState.channels) {
+                                proxyController.refresh()
+                                showProxyPicker = true
+                            }
+                        }
+                    }
                     item(key = "channels-heading") {
                         SettingsSectionLabel(stringResource(R.string.ui_active_channels, uiState.channels.size))
                     }
@@ -145,6 +161,7 @@ fun ChannelsTab(
                                 onClick = {
                                     if (dualPane) {
                                         inspectedChannelId = channel.id
+                                        viewModel.refreshTransparentProxyDiagnostics()
                                     } else {
                                         viewModel.selectChannelForDetail(channel)
                                     }
@@ -203,6 +220,7 @@ fun ChannelsTab(
                                 trafficFlow = viewModel.channelTraffic,
                                 testServerName = uiState.testServerConfig.displayName(LocalContext.current),
                                 testServerUrl = uiState.testServerConfig.activeUrl,
+                                mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
                                 showCloseButton = false,
                                 modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
                                 onChangeVpnUpstream = changeVpnUpstream,
@@ -244,7 +262,38 @@ fun ChannelsTab(
             LaunchedEffect(selected) { vpnForPicker = null }
         }
     }
+    if (showProxyPicker && proxyProfile != null) {
+        ProxyUpstreamPicker(
+            state = proxyState,
+            channels = uiState.channels,
+            onSelectChannel = proxyController::select,
+            onConfigure = { showProxyPicker = false; showProxySetup = true },
+            onDismiss = { showProxyPicker = false }
+        )
+    }
+    if (showProxySetup) ProxyUpstreamDialog(uiState.channels, proxyController) { showProxySetup = false }
+}
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ProxyUpstreamChannelEntry(state: ProxyUpstreamUiState, channels: List<NetworkChannel>, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val current = state.selector?.current
+    val target = state.profile?.mappings?.entries?.firstOrNull { it.value == current }?.key
+    val resolved = channels.firstOrNull { target != null && it.proxyUpstreamKey() == target }
+    val summary = when {
+        state.busy -> stringResource(R.string.proxy_upstream_loading)
+        state.failure != null -> stringResource(R.string.proxy_upstream_unavailable_short)
+        current == null -> stringResource(R.string.proxy_upstream_unknown_selection)
+        resolved != null -> stringResource(R.string.proxy_upstream_selected, NetworkUtils.channelLabel(context, resolved))
+        else -> stringResource(R.string.proxy_upstream_selected, current)
+    }
+    SettingsEntry(
+        title = stringResource(R.string.proxy_upstream_title),
+        summary = summary,
+        icon = Icons.Default.Dns,
+        onClick = onClick
+    )
 }
 
 @Composable

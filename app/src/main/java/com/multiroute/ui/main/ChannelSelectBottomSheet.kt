@@ -8,6 +8,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -43,6 +44,11 @@ internal fun ChannelSelectBottomSheet(
     app: AppItem,
     channels: List<NetworkChannel>,
     isForbidden: (NetworkChannel) -> Boolean,
+    mayBypassTransparentProxy: (NetworkChannel) -> Boolean = { false },
+    gatewayChannels: List<NetworkChannel> = emptyList(),
+    gatewayTarget: String? = null,
+    gatewayBusy: Boolean = false,
+    onSelectGateway: (String?) -> Unit = {},
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -70,6 +76,9 @@ internal fun ChannelSelectBottomSheet(
                         forbidden -> stringResource(R.string.ui_vpn_loop_blocked)
                         else -> channelOptionSubtitle(channel)
                     },
+                    note = if (!forbidden && mayBypassTransparentProxy(channel)) {
+                        stringResource(R.string.transparent_proxy_channel_bypass)
+                    } else null,
                     icon = getTransportIcon(channel.transportType),
                     selected = channel.matchesTarget(app),
                     enabled = !forbidden,
@@ -94,6 +103,31 @@ internal fun ChannelSelectBottomSheet(
             )
         }
     }
+    val gatewayEntries = buildList {
+        gatewayChannels.forEach { channel ->
+            val key = checkNotNull(channel.proxyUpstreamKey())
+            add(ChannelPickerEntry(
+                key = "gateway:$key",
+                title = NetworkUtils.channelLabel(context, channel),
+                subtitle = stringResource(R.string.proxy_gateway_app_choice),
+                icon = Icons.Default.Dns,
+                selected = gatewayTarget == key,
+                enabled = !gatewayBusy && app.targetChannelId == CHANNEL_DEFAULT,
+                onClick = { onSelectGateway(key) }
+            ))
+        }
+        if (gatewayTarget != null) {
+            add(ChannelPickerEntry(
+                key = "gateway:remove",
+                title = stringResource(R.string.proxy_gateway_app_remove),
+                subtitle = stringResource(R.string.proxy_gateway_app_remove_desc),
+                icon = Icons.Default.CloudOff,
+                enabled = !gatewayBusy,
+                onClick = { onSelectGateway(null) }
+            ))
+        }
+    }
+
     ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
         item(key = "header") {
             ChannelPickerHeader(app.appName, app.packageName, app)
@@ -116,6 +150,29 @@ internal fun ChannelSelectBottomSheet(
         }
         itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
             ChannelOption(entry = entry, index = index, count = entries.size)
+        }
+        if (gatewayEntries.isNotEmpty()) {
+            item(key = "gateway-header") {
+                val current = gatewayChannels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                Text(
+                    text = stringResource(R.string.proxy_gateway_app_title),
+                    modifier = Modifier.padding(top = 16.dp).semantics { heading() },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (gatewayTarget != null && current == null) {
+                    Text(stringResource(R.string.proxy_gateway_app_saved, NetworkUtils.savedTargetLabel(context, gatewayTarget)))
+                }
+                Text(
+                    text = stringResource(if (app.targetChannelId == CHANNEL_DEFAULT) R.string.proxy_gateway_app_hint
+                        else R.string.proxy_gateway_app_direct_hint),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            itemsIndexed(gatewayEntries, key = { _, entry -> entry.key }) { index, entry ->
+                ChannelOption(entry = entry, index = index, count = gatewayEntries.size)
+            }
         }
     }
 }
@@ -171,10 +228,62 @@ internal fun VpnUpstreamPicker(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
+internal fun ProxyUpstreamPicker(
+    state: ProxyUpstreamUiState,
+    channels: List<NetworkChannel>,
+    onSelectChannel: (String) -> Unit,
+    onConfigure: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val profile = state.profile ?: return
+    val context = LocalContext.current
+    val online = channels.mapNotNull { channel -> channel.proxyUpstreamKey()?.let { it to channel } }.toMap()
+    val selected = state.selector?.current
+    val entries = profile.mappings.map { (key, member) ->
+        val channel = online[key]
+        val title = channel?.let { NetworkUtils.channelLabel(context, it) } ?: NetworkUtils.savedTargetLabel(context, key)
+        ChannelPickerEntry(
+            key = key,
+            title = title,
+            subtitle = member,
+            note = when {
+                channel == null -> stringResource(R.string.proxy_upstream_inactive_channel)
+                state.selector != null && member !in state.selector.members -> stringResource(R.string.proxy_upstream_missing_member)
+                else -> null
+            },
+            icon = channel?.let { getTransportIcon(it.transportType) } ?: Icons.Default.Language,
+            selected = member == selected,
+            enabled = !state.busy && channel != null && member in state.selector?.members.orEmpty(),
+            onClick = { onSelectChannel(key) }
+        )
+    }
+    ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
+        item(key = "header") {
+            ChannelPickerHeader(
+                title = stringResource(R.string.proxy_upstream_apply),
+                subtitle = if (selected == null) profile.group else stringResource(R.string.proxy_upstream_selected, selected)
+            )
+            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            ProxyUpstreamMessage(state.failure)
+        }
+        itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
+            ChannelOption(entry = entry, index = index, count = entries.size)
+        }
+        item(key = "configure") {
+            TextButton(onClick = onConfigure, enabled = !state.busy) {
+                Text(stringResource(R.string.proxy_upstream_configure))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
 internal fun BatchChannelSelectBottomSheet(
     selectedCount: Int,
     channels: List<NetworkChannel>,
     blockedVpnCounts: Map<String, Int>,
+    mayBypassTransparentProxy: (NetworkChannel) -> Boolean = { false },
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -197,11 +306,16 @@ internal fun BatchChannelSelectBottomSheet(
                     key = "channel:${channel.id}",
                     title = NetworkUtils.channelLabel(context, channel),
                     subtitle = channelOptionSubtitle(channel),
-                    note = when {
-                        !available -> stringResource(R.string.routing_batch_vpn_unavailable)
-                        blocked > 0 -> stringResource(R.string.routing_batch_vpn_skipped, blocked)
-                        else -> null
-                    },
+                    note = listOfNotNull(
+                        when {
+                            !available -> stringResource(R.string.routing_batch_vpn_unavailable)
+                            blocked > 0 -> stringResource(R.string.routing_batch_vpn_skipped, blocked)
+                            else -> null
+                        },
+                        if (available && mayBypassTransparentProxy(channel)) {
+                            stringResource(R.string.transparent_proxy_channel_bypass)
+                        } else null
+                    ).joinToString("\n").ifEmpty { null },
                     icon = getTransportIcon(channel.transportType),
                     enabled = available,
                     onClick = { onSelectChannel(channel.id) }

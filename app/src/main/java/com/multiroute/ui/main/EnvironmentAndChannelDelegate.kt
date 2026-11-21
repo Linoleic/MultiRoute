@@ -52,6 +52,8 @@ internal class EnvironmentAndChannelDelegate(
     private var lastNetworkChangeTime = 0L
     private var recoveryJob: Job? = null
     private var vpnChannelRefreshJob: Job? = null
+    private var transparentProxyRefreshJob: Job? = null
+    private var lastTransparentProxyRefreshMs: Long? = null
     private var environmentRefreshCount = 0
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -127,6 +129,29 @@ internal class EnvironmentAndChannelDelegate(
             connectivityManager?.unregisterNetworkCallback(vpnChannelCallback)
         } catch (_: Exception) {}
         vpnChannelRefreshJob?.cancel()
+        transparentProxyRefreshJob?.cancel()
+    }
+
+    fun refreshTransparentProxyDiagnostics(force: Boolean = false) {
+        if (transparentProxyRefreshJob?.isActive == true) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && lastTransparentProxyRefreshMs?.let { now - it < 5_000L } == true) return
+        transparentProxyRefreshJob = scope.launch {
+            try {
+                val activeInterfaces = uiStateFlow.value.channels
+                    .filter { !it.isVpn && !it.isHotspot }
+                    .map { it.interfaceName }
+                val snapshot = SuHelper.getTransparentProxyDiagnostics(activeInterfaces)
+                uiStateFlow.update { it.copy(env = it.env.copy(transparentProxyDiagnostics = snapshot)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                uiStateFlow.update { it.copy(env = it.env.copy(transparentProxyDiagnostics = null)) }
+                Log.w("MainViewModel", "Could not read transparent proxy diagnostics", e)
+            } finally {
+                lastTransparentProxyRefreshMs = SystemClock.elapsedRealtime()
+            }
+        }
     }
 
     suspend fun observeChannelTraffic() {

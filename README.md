@@ -152,6 +152,23 @@ MultiRoute redirects **IPv4 UDP/TCP port 53** to the selected channel's DNS serv
 </details>
 
 <details>
+<summary><strong>Using an eBPF transparent proxy</strong></summary>
+
+Assigning a physical channel tells the kernel which network interface to prefer for an app. If a transparent proxy intercepts traffic only on other interfaces, the app may still connect directly. Open diagnostics from the top bar to inspect interface interception and cgroup attachments, then test with a new connection from the target app.
+
+For live outbound switching in a proxy that exposes a Clash-compatible controller on `127.0.0.1`, open **Tools → Transparent proxy upstream**. Enter the port and secret, choose the manual selector that handles the traffic, and map physical channels to outbounds bound to those interfaces. Use **Network Channels → Transparent proxy upstream** to switch the selector's outbound, one at a time. This controller setup is only needed for the live selector. Verify the egress with a new connection. The secret defaults to session-only and can be saved encrypted on this device. Configuration exports exclude it.
+
+First map each channel to its proxy outbound under **Tools → Transparent proxy upstream → Multi-channel gateway**. Each outbound must already exist in the proxy and be bound to the target interface.
+
+For an app that follows system routing, choose **Proxy egress rule** in its channel picker. This stores a local choice for export. If a routing rule or scenario still assigns that app to a physical channel, the export uses the active physical channel mapping.
+
+Choose **sing-box JSON** or **Mihomo YAML** and export. Merge `route.rules` or `rules` into the proxy configuration, preserve the priority of DNS, direct, and blocking rules, and place UID rules before the general fallback. Apply the configuration and test a new connection from the target app to confirm interception and egress. Setup and export work without a Clash controller. Export again after changing app routes, UIDs, interfaces, or outbound mappings.
+
+NetProxy's local `socket_assign` mode follows the default interface. An app assigned directly to another interface may bypass interception. For those physical assignments, try NetProxy's **local** `cgroup` mode. Shared-network settings are independent. [NetProxy transparent proxy guide](https://netproxy.store/guide/transparent-proxy)
+
+</details>
+
+<details>
 <summary><strong>Wi-Fi band is not shown, or Public-IP probe times out</strong></summary>
 
 - **Band not shown**: Neither Android's platform API nor the `dumpsys` fallback reported frequency data for that interface.

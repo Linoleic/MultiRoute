@@ -41,6 +41,7 @@ import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
+import com.multiroute.util.RouteRuleBuilder
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
@@ -54,6 +55,7 @@ fun MainScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refreshInstalledApps()
+        if (uiState.selectedTab == 1) viewModel.refreshTransparentProxyDiagnostics()
     }
     var showDiagnostics by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -282,6 +284,7 @@ fun MainScreen(
                                     ModuleStatusButton(uiState) {
                                         showDiagnostics = true
                                         viewModel.refreshEnvironment()
+                                        viewModel.refreshTransparentProxyDiagnostics(force = true)
                                     }
                                     AnimatedVisibility(
                                         visible = uiState.selectedTab == 0,
@@ -360,10 +363,32 @@ fun MainScreen(
                     // 选择通道的模态底部抽屉 (ModalBottomSheet - 热点下行通道不参与应用分流)
                     if (uiState.selectedAppForSheet != null) {
                         val app = uiState.selectedAppForSheet!!
+                        val proxy by viewModel.proxyUpstream.state.collectAsStateWithLifecycle()
+                        val showGateway = uiState.scenarioEditId == null && RouteRuleBuilder.isValidUid(app.uid)
+                        val canConfigureGateway = showGateway && uiState.channels.none { it.isVpn && it.vpnOwnerUid == app.uid }
                         ChannelSelectBottomSheet(
                             app = app,
                             channels = uiState.channels.filter { !it.isHotspot },
                             isForbidden = { viewModel.isVpnSelfLoop(it, app) },
+                            mayBypassTransparentProxy = uiState::mayBypassTransparentProxy,
+                            gatewayChannels = if (canConfigureGateway) uiState.channels.filter {
+                                it.proxyUpstreamKey()?.let(proxy.gatewayMappings::containsKey) == true
+                            } else emptyList(),
+                            gatewayTarget = proxy.gatewayAppTargets[app.ruleKey].takeIf { showGateway },
+                            gatewayBusy = proxy.gatewayBusy,
+                            onSelectGateway = { target ->
+                                viewModel.proxyUpstream.saveGatewayAppTarget(app.ruleKey, target) { saved ->
+                                    if (saved) viewModel.closeAppSheet()
+                                    scope.launch {
+                                        val message = when {
+                                            !saved -> R.string.proxy_gateway_app_save_failed
+                                            target == null -> R.string.proxy_gateway_app_removed
+                                            else -> R.string.proxy_gateway_app_saved_hint
+                                        }
+                                        snackbarHostState.showSnackbar(importContext.getString(message))
+                                    }
+                                }
+                            },
                             onSelectChannel = { channelId ->
                                 viewModel.updateRouteChannel(app, channelId)
                                 viewModel.closeAppSheet()
@@ -379,6 +404,7 @@ fun MainScreen(
                             selectedCount = uiState.selectedRuleKeys.size,
                             channels = channels,
                             blockedVpnCounts = viewModel.blockedBatchVpnCounts(channels, uiState.selectedRuleKeys),
+                            mayBypassTransparentProxy = uiState::mayBypassTransparentProxy,
                             onSelectChannel = { channelId ->
                                 viewModel.batchAssignChannel(channelId)
                             },
@@ -406,6 +432,7 @@ fun MainScreen(
                             trafficFlow = viewModel.channelTraffic,
                             testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
                             testServerUrl = uiState.testServerConfig.activeUrl,
+                            mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
                             onTestChannel = { viewModel.testSingleChannel(channel) },
                             onDismiss = { viewModel.closeChannelDetail() }
                         )

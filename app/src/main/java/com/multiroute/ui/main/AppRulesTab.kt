@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -96,6 +97,7 @@ private fun AppRulesContent(
     compactControls: Boolean,
     modifier: Modifier
 ) {
+    val proxy by viewModel.proxyUpstream.state.collectAsStateWithLifecycle()
     val toggleColors = ToggleButtonDefaults.colors(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -357,6 +359,7 @@ private fun AppRulesContent(
                         app = app,
                         channels = uiState.channels,
                         stackChannel = stackChannel,
+                        gatewayTarget = proxy.gatewayAppTargets[app.ruleKey].takeIf { uiState.scenarioEditId == null },
                         isVpnOwner = app.uid > 0 && uiState.channels.any { it.isVpn && it.vpnOwnerUid == app.uid },
                         modifier = Modifier.animateItem(
                             fadeInSpec = AppMotion.itemFade(),
@@ -514,6 +517,7 @@ private fun AppItemRow(
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
     isVpnOwner: Boolean = false,
+    gatewayTarget: String? = null,
     onToggleSelect: () -> Unit = {},
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {}
@@ -576,6 +580,18 @@ private fun AppItemRow(
                     text = stringResource(R.string.ui_vpn_client),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (gatewayTarget != null) {
+                val context = LocalContext.current
+                val gatewayLabel = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                    ?.let { NetworkUtils.channelLabel(context, it) } ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
+                Text(
+                    text = stringResource(R.string.proxy_gateway_app_saved, gatewayLabel),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             if (stackChannel) AppChannelBadge(app, current, accent, isSelected)
