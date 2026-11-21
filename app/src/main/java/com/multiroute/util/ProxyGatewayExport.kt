@@ -5,7 +5,8 @@ import org.json.JSONObject
 
 internal enum class ProxyGatewayFormat(val label: String, val fileName: String, val mimeType: String) {
     SING_BOX("sing-box", "MultiRoute-sing-box-routes.json", "application/json"),
-    MIHOMO("Mihomo", "MultiRoute-mihomo-rules.yaml", "application/yaml")
+    MIHOMO("Mihomo", "MultiRoute-mihomo-rules.yaml", "application/yaml"),
+    MIHOMO_ANDROID_VPN("Mihomo Android VPN", "MultiRoute-android-vpn-rules.yaml", "application/yaml")
 }
 
 /** Builds an opt-in rule fragment for outbounds already defined in the proxy. */
@@ -34,7 +35,8 @@ internal object ProxyGatewayExport {
         format: ProxyGatewayFormat = ProxyGatewayFormat.SING_BOX,
         defaultRouteInterfaces: Map<Int, String> = emptyMap()
     ): Fragment? {
-        val physical = publishedRules.filter { (uid, iface) -> installedRules[uid] == iface }
+        val physical = if (format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) emptyMap()
+        else publishedRules.filter { (uid, iface) -> installedRules[uid] == iface }
         val viaDefault = defaultRouteInterfaces.filterKeys { it !in publishedRules && it !in installedRules }
         val byOutbound = sortedMapOf<String, MutableList<Int>>()
         val directInterfaces = mutableSetOf<String>()
@@ -52,6 +54,7 @@ internal object ProxyGatewayExport {
         val content = when (format) {
             ProxyGatewayFormat.SING_BOX -> singBoxRules(byOutbound)
             ProxyGatewayFormat.MIHOMO -> mihomoRules(byOutbound)
+            ProxyGatewayFormat.MIHOMO_ANDROID_VPN -> androidVpnRules(byOutbound, planned)
         }
         return Fragment(
             content,
@@ -85,5 +88,17 @@ internal object ProxyGatewayExport {
                 appendLine(JSONObject.quote("UID,$uid,$outbound").replace("\\/", "/"))
             }
         }
+    }
+
+    private fun androidVpnRules(byOutbound: Map<String, List<Int>>, planned: List<PlannedRule>): String = buildString {
+        val rules = mihomoRules(byOutbound)
+        appendLine("# Requires a compatible Android VPN client.")
+        appendLine("# Set interface-name on each existing outbound before adding these rules:")
+        for ((outbound, entries) in planned.groupBy { it.outbound }.toSortedMap()) {
+            val iface = entries.map { it.interfaceName }.distinct().singleOrNull() ?: throw InvalidMihomoOutbound(outbound)
+            require(Regex("""[a-zA-Z0-9_.-]{1,15}""").matches(iface))
+            appendLine("# ${JSONObject.quote(outbound)} -> interface-name: android-vpn:$iface")
+        }
+        append(rules)
     }
 }

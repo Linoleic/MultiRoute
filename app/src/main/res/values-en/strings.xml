@@ -270,6 +270,10 @@
     <string name="proxy_gateway_no_channels">Connect a physical network to configure its outbound.</string>
     <string name="proxy_gateway_outbound_tag">Proxy outbound tag</string>
     <string name="proxy_gateway_format">Format: %1$s</string>
+    <string name="proxy_gateway_android_vpn_format">Mihomo (Android VPN)</string>
+    <string name="proxy_gateway_android_vpn_help">The active VPN supports per-app Wi-Fi egress. Include the target apps in the VPN client, follow the exported comments to configure each outbound, then merge the rules.</string>
+    <string name="proxy_gateway_android_vpn_unavailable">Connect a compatible VPN and try again.</string>
+    <string name="proxy_gateway_app_vpn_hint">This app is assigned to a VPN channel. Choose Mihomo (Android VPN) in Tools to check whether the VPN includes the app before exporting.</string>
     <string name="proxy_gateway_export_help">Merge the exported route.rules into sing-box and preserve the priority of existing DNS, direct, and blocking rules.</string>
     <string name="proxy_gateway_export_mihomo_help">Merge the exported UID rules into Mihomo’s rules before the general MATCH rule. Preserve the priority of existing DNS, direct, and blocking rules.</string>
     <string name="proxy_gateway_invalid_mihomo_tag">Mihomo outbound names cannot use commas, line breaks, control characters, or leading or trailing spaces. Check the outbound names to export.</string>
@@ -311,6 +315,9 @@
     <string name="proxy_gateway_skip_no_default">The channel has no default route.</string>
     <string name="proxy_gateway_skip_physical">A physical assignment or scenario still applies. This proxy egress draft was skipped.</string>
     <string name="proxy_gateway_skip_vpn">This app owns the active VPN. Its proxy egress rule was skipped.</string>
+    <string name="proxy_gateway_skip_vpn_capture_unknown">The active VPN’s app coverage could not be read.</string>
+    <string name="proxy_gateway_skip_vpn_app_excluded">The active VPN excludes this app. Check the app list in the VPN client.</string>
+    <string name="proxy_gateway_skip_vpn_outbound_shared">Use a different proxy outbound name for each Wi-Fi network.</string>
     <string name="proxy_gateway_skip_shared">Apps sharing this UID have different channel selections. Choose a common channel.</string>
     <string name="proxy_gateway_skip_stale">The installed route and saved rules differ. Sync routing and try again.</string>
     <string name="ui_vpn_routed_apps">Apps assigned to this VPN in MultiRoute (%1$d)</string>

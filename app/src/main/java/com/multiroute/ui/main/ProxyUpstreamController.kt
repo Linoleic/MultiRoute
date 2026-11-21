@@ -7,6 +7,7 @@ import com.multiroute.data.ProxyUpstreamStore
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
+import com.multiroute.util.AndroidVpnGateway
 import com.multiroute.util.ClashProxyUpstreamClient
 import com.multiroute.util.ClashProxyUpstreamClient.ControllerException
 import com.multiroute.util.ClashProxyUpstreamClient.Failure
@@ -33,6 +34,9 @@ internal enum class GatewayPreviewSkipReason {
     NO_DEFAULT_ROUTE,
     PHYSICAL_ROUTE_ACTIVE,
     VPN_OWNER,
+    VPN_CAPTURE_UNKNOWN,
+    VPN_APP_EXCLUDED,
+    VPN_OUTBOUND_SHARED,
     SHARED_UID_CONFLICT,
     ROUTE_STATE_UNCERTAIN
 }
@@ -74,6 +78,8 @@ internal class ProxyUpstreamController(
     private val channels: () -> List<NetworkChannel>,
     private val onSelectionConfirmed: () -> Unit
 ) {
+    class AndroidVpnUnavailable : IllegalStateException()
+
     private data class GatewaySnapshot(
         val fragment: ProxyGatewayExport.Fragment?,
         val activeVpnInterfaces: List<String>,
@@ -179,14 +185,26 @@ internal class ProxyUpstreamController(
     suspend fun prepareGatewayExport(format: ProxyGatewayFormat): GatewayExport {
         val mappings = _state.value.gatewayMappings
         val appTargets = _state.value.gatewayAppTargets
+        val androidVpn = format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN
         return withContext(Dispatchers.IO) {
             val snapshot = SuHelper.withRouteConfigLock {
                 val active = NetworkUtils.getActiveChannels(application)
-                val physicalOutbounds = active.mapNotNull { channel ->
+                val vpn = if (androidVpn) AndroidVpnGateway.findSupportedVpn(application, active)
+                    ?: throw AndroidVpnUnavailable() else null
+                val capture = vpn?.let { channel ->
+                    val agents = runCatching {
+                        SuHelper.executeShellWithOutput("dumpsys connectivity | grep 'NetworkAgentInfo{'", timeoutSeconds = 5)
+                    }.getOrDefault(emptyList())
+                    AndroidVpnGateway.capturedUids(agents, channel.interfaceName, channel.vpnOwnerUid)
+                }
+                val gatewayChannels = if (androidVpn) active.filter { it.transportType.equals("WLAN", ignoreCase = true) } else active
+                val physicalOutbounds = gatewayChannels.mapNotNull { channel ->
                     val key = channel.proxyUpstreamKey() ?: return@mapNotNull null
                     val member = mappings[key] ?: return@mapNotNull null
                     channel.interfaceName to member
                 }.toMap()
+                val sharedOutbounds = if (androidVpn) physicalOutbounds.values.groupingBy { it }.eachCount()
+                    .filterValues { it > 1 }.keys else emptySet()
                 val publishedText = SuHelper.readTextAsRoot(RouteRuleBuilder.RULE_CACHE_PATH)
                 val published = RouteRuleBuilder.parseRuleCache(publishedText)
                 val result4 = runCatching {
@@ -217,9 +235,7 @@ internal class ProxyUpstreamController(
                     SuHelper.resolveScenarioProfile(application, baseRules)
                 } else null
 
-                // A local proxy choice is applicable only to an app whose effective routing intent is
-                // system-default. An override that cannot currently be resolved is not proof of default.
-                val channelIfaces = active.mapNotNull { channel ->
+                val channelIfaces = gatewayChannels.mapNotNull { channel ->
                     val key = channel.proxyUpstreamKey() ?: return@mapNotNull null
                     key to channel.interfaceName
                 }.toMap()
@@ -260,6 +276,10 @@ internal class ProxyUpstreamController(
                         skip(GatewayPreviewSkipReason.OUTBOUND_UNMAPPED, uid, channelIface)
                         continue
                     }
+                    if (outbound in sharedOutbounds) {
+                        skip(GatewayPreviewSkipReason.VPN_OUTBOUND_SHARED, uid, channelIface)
+                        continue
+                    }
                     if (!routeStateCertain || (publishedText == null && uid in baseRules)) {
                         skip(GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN, uid, channelIface)
                         continue
@@ -268,23 +288,44 @@ internal class ProxyUpstreamController(
                         skip(GatewayPreviewSkipReason.VPN_OWNER, uid, channelIface)
                         continue
                     }
-                    if (uid in installed6) {
-                        skip(GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE, uid, channelIface)
-                        continue
-                    }
                     val publishedIface = published[uid]
                     val installedIface = installed4[uid]
-                    if (publishedIface != null || installedIface != null) {
-                        val reason = if (publishedIface != null && publishedIface == installedIface) {
-                            GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE
-                        } else GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
-                        skip(reason, uid, channelIface)
-                        continue
-                    }
                     val effective = scenario?.effectiveRules?.get(uid)
-                    if (effective != null && effective != CHANNEL_DEFAULT) {
-                        skip(GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE, uid, channelIface)
-                        continue
+                    // An explicit VPN target is eligible only when its tunnel route is installed.
+                    if (vpn != null && (effective == vpn.id || effective == vpn.interfaceName)) {
+                        val ipv6 = installed6[uid]
+                        if (publishedIface != vpn.interfaceName || installedIface != vpn.interfaceName ||
+                            (ipv6 != null && ipv6 != vpn.interfaceName && ipv6 != "unreachable")
+                        ) {
+                            skip(GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN, uid, channelIface)
+                            continue
+                        }
+                    } else {
+                        if (uid in installed6) {
+                            skip(GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE, uid, channelIface)
+                            continue
+                        }
+                        if (publishedIface != null || installedIface != null) {
+                            val reason = if (publishedIface != null && publishedIface == installedIface) {
+                                GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE
+                            } else GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+                            skip(reason, uid, channelIface)
+                            continue
+                        }
+                        if (effective != null && effective != CHANNEL_DEFAULT) {
+                            skip(GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE, uid, channelIface)
+                            continue
+                        }
+                    }
+                    if (vpn != null) {
+                        if (capture == null) {
+                            skip(GatewayPreviewSkipReason.VPN_CAPTURE_UNKNOWN, uid, channelIface)
+                            continue
+                        }
+                        if (capture.none { uid in it }) {
+                            skip(GatewayPreviewSkipReason.VPN_APP_EXCLUDED, uid, channelIface)
+                            continue
+                        }
                     }
                     if (channelIface !in defaultRouteIfaces) {
                         skip(GatewayPreviewSkipReason.NO_DEFAULT_ROUTE, uid, channelIface)
@@ -306,15 +347,15 @@ internal class ProxyUpstreamController(
                 }.toMap()
 
                 val fragment = ProxyGatewayExport.build(
-                    publishedRules = published,
-                    installedRules = installed4,
+                    publishedRules = if (androidVpn) emptyMap() else published,
+                    installedRules = if (androidVpn) emptyMap() else installed4,
                     physicalOutbounds = physicalOutbounds,
                     format = format,
                     defaultRouteInterfaces = defaultRouteTargets
                 )
                 val serializedUids = fragment?.rules.orEmpty().mapTo(mutableSetOf()) { it.uid }
                 val explicitUids = ruleKeysByUid.keys
-                val physicalCandidates = published.keys + installed4.keys
+                val physicalCandidates = if (androidVpn) emptySet() else published.keys + installed4.keys
                 val activeIfaces = active.mapTo(mutableSetOf()) { it.interfaceName }
                 for (uid in physicalCandidates) {
                     if (uid in serializedUids || uid in explicitUids) continue

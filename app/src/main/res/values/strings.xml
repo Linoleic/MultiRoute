@@ -270,6 +270,10 @@
     <string name="proxy_gateway_no_channels">连接一个物理网络后即可配置。</string>
     <string name="proxy_gateway_outbound_tag">代理出站标签</string>
     <string name="proxy_gateway_format">格式：%1$s</string>
+    <string name="proxy_gateway_android_vpn_format">Mihomo（Android VPN）</string>
+    <string name="proxy_gateway_android_vpn_help">当前 VPN 支持按应用选择 Wi-Fi 出口。请在 VPN 客户端中包含目标应用，按导出文件中的注释配置各出站，再合入规则。</string>
+    <string name="proxy_gateway_android_vpn_unavailable">当前没有可用的兼容 VPN，请连接后重试。</string>
+    <string name="proxy_gateway_app_vpn_hint">应用已选择 VPN 通道。请在工具中选择 Mihomo（Android VPN），预览时会检查该应用是否在 VPN 的接管范围内。</string>
     <string name="proxy_gateway_export_help">将导出的 route.rules 合入 sing-box，并保留原有 DNS、直连和拦截规则的优先级。</string>
     <string name="proxy_gateway_export_mihomo_help">将导出的 UID 规则合入 Mihomo 的 rules，并放在通用 MATCH 之前。保留原有 DNS、直连和拦截规则的优先级。</string>
     <string name="proxy_gateway_invalid_mihomo_tag">Mihomo 出站名称不能包含逗号、换行、控制字符或首尾空格。请检查要导出的出站名称。</string>
@@ -311,6 +315,9 @@
     <string name="proxy_gateway_skip_no_default">通道尚未获得默认路由。</string>
     <string name="proxy_gateway_skip_physical">物理分流或场景覆盖仍生效。此代理出口草稿未导出。</string>
     <string name="proxy_gateway_skip_vpn">应用创建了当前 VPN，跳过此代理出口规则。</string>
+    <string name="proxy_gateway_skip_vpn_capture_unknown">无法读取当前 VPN 的应用接管范围。</string>
+    <string name="proxy_gateway_skip_vpn_app_excluded">当前 VPN 未接管此应用，请检查客户端的应用列表。</string>
+    <string name="proxy_gateway_skip_vpn_outbound_shared">不同 Wi-Fi 需要使用不同的代理出站名称。</string>
     <string name="proxy_gateway_skip_shared">同一 UID 对应了不同通道，请统一选择。</string>
     <string name="proxy_gateway_skip_stale">实际路由与已配置规则不一致，请同步分流后再试。</string>
     <string name="ui_vpn_routed_apps">MultiRoute 配置走此 VPN 的应用 (%1$d)</string>

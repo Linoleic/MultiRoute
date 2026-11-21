@@ -169,6 +169,15 @@ NetProxy 的本机 `socket_assign` 跟随当前默认出口，直接指派到其
 </details>
 
 <details>
+<summary><strong>在 Android VPN 中按应用选择 Wi-Fi 出口</strong></summary>
+
+连接支持逐应用出口的 Mihomo VPN 客户端后，网关工具会显示 **Mihomo（Android VPN）**。先在 VPN 客户端的应用列表中包含目标应用，再在 MultiRoute 中为应用选择**代理出口规则**。应用通道可跟随系统或指向该 VPN。
+
+预览只纳入确认在当前 VPN 接管范围内、且没有冲突的物理路由的应用。每条 Wi-Fi 使用一个独立的出站名称。按导出文件中的注释为已有出站配置 `interface-name: android-vpn:<网卡>`，再将 UID 规则合入客户端配置。
+
+</details>
+
+<details>
 <summary><strong>Wi-Fi 频段不显示或公网出口测试超时</strong></summary>
 
 - **频段不显示**：系统接口和 `dumpsys` 均未返回该接口的频点信息。

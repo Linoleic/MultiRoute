@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
@@ -29,6 +30,7 @@ import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.theme.RoutingDimensions
+import com.multiroute.util.AndroidVpnGateway
 import com.multiroute.util.NetworkUtils
 
 private data class ChannelPickerEntry(
@@ -59,6 +61,10 @@ internal fun ChannelSelectBottomSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val vpnChannels = channels.filter { it.isVpn }
+    val compatibleVpn = remember(context, vpnChannels) {
+        AndroidVpnGateway.findSupportedVpn(context, vpnChannels)
+    }
     var pendingGatewayKey by rememberSaveable { mutableStateOf<String?>(null) }
     var outboundTag by rememberSaveable { mutableStateOf("") }
     val offline = app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.matchesTarget(app) }
@@ -178,8 +184,11 @@ internal fun ChannelSelectBottomSheet(
                     Text(stringResource(R.string.proxy_gateway_app_saved, NetworkUtils.savedTargetLabel(context, gatewayTarget)))
                 }
                 Text(
-                    text = stringResource(if (app.targetChannelId == CHANNEL_DEFAULT) R.string.proxy_gateway_app_hint
-                        else R.string.proxy_gateway_app_physical_draft_hint),
+                    text = stringResource(when {
+                        app.targetChannelId == CHANNEL_DEFAULT -> R.string.proxy_gateway_app_hint
+                        compatibleVpn?.matchesTarget(app) == true -> R.string.proxy_gateway_app_vpn_hint
+                        else -> R.string.proxy_gateway_app_physical_draft_hint
+                    }),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

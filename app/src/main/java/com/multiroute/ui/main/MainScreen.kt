@@ -387,7 +387,9 @@ fun MainScreen(
                                         val message = when {
                                             !saved -> R.string.proxy_gateway_app_save_failed
                                             target == null -> R.string.proxy_gateway_app_removed
-                                            app.targetChannelId != CHANNEL_DEFAULT -> R.string.proxy_gateway_app_draft_saved
+                                            app.targetChannelId != CHANNEL_DEFAULT && uiState.channels.none {
+                                                it.isVpn && (it.id == app.targetChannelId || it.interfaceName == app.targetChannelId)
+                                            } -> R.string.proxy_gateway_app_draft_saved
                                             else -> R.string.proxy_gateway_app_saved_hint
                                         }
                                         val action = if (saved && target != null) importContext.getString(R.string.proxy_gateway_open_tool) else null

@@ -57,6 +57,7 @@ import com.multiroute.util.ClashProxyUpstreamClient.Selector
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.ProxyGatewayExport
 import com.multiroute.util.ProxyGatewayFormat
+import com.multiroute.util.AndroidVpnGateway
 import com.multiroute.util.RouteRuleBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -171,7 +172,13 @@ private fun ProxyGatewayExportSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var formatName by rememberSaveable { mutableStateOf(ProxyGatewayFormat.SING_BOX.name) }
-    val format = ProxyGatewayFormat.valueOf(formatName)
+    val vpnChannels = channels.filter { it.isVpn }
+    val supportsAndroidVpn = remember(context, vpnChannels) {
+        AndroidVpnGateway.findSupportedVpn(context, vpnChannels) != null
+    }
+    val formats = ProxyGatewayFormat.entries.filter { it != ProxyGatewayFormat.MIHOMO_ANDROID_VPN || supportsAndroidVpn }
+    val format = formats.firstOrNull { it.name == formatName } ?: ProxyGatewayFormat.SING_BOX
+    val androidVpnLabel = stringResource(R.string.proxy_gateway_android_vpn_format)
     var pendingContent by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<ProxyUpstreamController.GatewayExport?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -214,18 +221,27 @@ private fun ProxyGatewayExportSection(
     }
 
     Text(
-        stringResource(if (format == ProxyGatewayFormat.MIHOMO) R.string.proxy_gateway_export_mihomo_help else R.string.proxy_gateway_export_help),
+        stringResource(when (format) {
+            ProxyGatewayFormat.MIHOMO_ANDROID_VPN -> R.string.proxy_gateway_android_vpn_help
+            ProxyGatewayFormat.MIHOMO -> R.string.proxy_gateway_export_mihomo_help
+            ProxyGatewayFormat.SING_BOX -> R.string.proxy_gateway_export_help
+        }),
         style = MaterialTheme.typography.bodyMedium
     )
-    Text(
-        stringResource(R.string.proxy_gateway_compatibility_help),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    if (format != ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
+        Text(
+            stringResource(R.string.proxy_gateway_compatibility_help),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
     val canExport = enabled && !busy && preview == null && pendingContent == null
     ProxyUpstreamMenu(
-        selected = stringResource(R.string.proxy_gateway_format, format.label),
-        options = ProxyGatewayFormat.entries.map { it.name to it.label },
+        selected = stringResource(R.string.proxy_gateway_format,
+            if (format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) androidVpnLabel else format.label),
+        options = formats.map { candidate -> candidate.name to
+            if (candidate == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) androidVpnLabel else candidate.label
+        },
         enabled = canExport,
         onSelect = { selected -> formatName = selected; message = null }
     )
@@ -237,6 +253,8 @@ private fun ProxyGatewayExportSection(
                 preview = controller.prepareGatewayExport(format)
             } catch (error: CancellationException) {
                 throw error
+            } catch (_: ProxyUpstreamController.AndroidVpnUnavailable) {
+                message = context.getString(R.string.proxy_gateway_android_vpn_unavailable)
             } catch (_: ProxyGatewayExport.InvalidMihomoOutbound) {
                 message = context.getString(R.string.proxy_gateway_invalid_mihomo_tag)
             } catch (_: Exception) {
@@ -351,6 +369,9 @@ private fun ProxyGatewayPreviewEntry(row: GatewayPreviewRow, channels: List<Netw
         GatewayPreviewSkipReason.NO_DEFAULT_ROUTE -> R.string.proxy_gateway_skip_no_default
         GatewayPreviewSkipReason.PHYSICAL_ROUTE_ACTIVE -> R.string.proxy_gateway_skip_physical
         GatewayPreviewSkipReason.VPN_OWNER -> R.string.proxy_gateway_skip_vpn
+        GatewayPreviewSkipReason.VPN_CAPTURE_UNKNOWN -> R.string.proxy_gateway_skip_vpn_capture_unknown
+        GatewayPreviewSkipReason.VPN_APP_EXCLUDED -> R.string.proxy_gateway_skip_vpn_app_excluded
+        GatewayPreviewSkipReason.VPN_OUTBOUND_SHARED -> R.string.proxy_gateway_skip_vpn_outbound_shared
         GatewayPreviewSkipReason.SHARED_UID_CONFLICT -> R.string.proxy_gateway_skip_shared
         GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN -> R.string.proxy_gateway_skip_stale
         null -> null

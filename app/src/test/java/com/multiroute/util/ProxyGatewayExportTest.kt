@@ -96,6 +96,29 @@ class ProxyGatewayExportTest {
     }
 
     @Test
+    fun androidVpnSerializesOnlyEligibleAppTargetsAndListsOutboundBindings() {
+        val physical = mapOf(10309 to "wlan1")
+        val result = checkNotNull(ProxyGatewayExport.build(
+            publishedRules = physical,
+            installedRules = physical,
+            physicalOutbounds = mapOf("wlan0" to "Main", "wlan1" to "Secondary"),
+            format = ProxyGatewayFormat.MIHOMO_ANDROID_VPN,
+            defaultRouteInterfaces = mapOf(10301 to "wlan0", 10302 to "wlan1", 10309 to "wlan1")
+        ))
+        assertEquals(listOf(10301, 10302), result.rules.map { it.uid })
+        assertEquals(emptySet<String>(), result.directInterfaces)
+        assertEquals(listOf(
+            "# Requires a compatible Android VPN client.",
+            "# Set interface-name on each existing outbound before adding these rules:",
+            "# \"Main\" -> interface-name: android-vpn:wlan0",
+            "# \"Secondary\" -> interface-name: android-vpn:wlan1",
+            "rules:",
+            "  - \"UID,10301,Main\"",
+            "  - \"UID,10302,Secondary\""
+        ), result.content.trimEnd().lines())
+    }
+
+    @Test
     fun rejectsAmbiguousMihomoTags() {
         listOf("Proxy,DIRECT", "Proxy\n  - MATCH,DIRECT", " Proxy", "Proxy\u0000").forEach { tag ->
             assertThrows(ProxyGatewayExport.InvalidMihomoOutbound::class.java) {

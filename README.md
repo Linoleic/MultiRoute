@@ -169,6 +169,15 @@ NetProxy's local `socket_assign` mode follows the default interface. An app assi
 </details>
 
 <details>
+<summary><strong>Choosing per-app Wi-Fi egress in an Android VPN</strong></summary>
+
+Connect a compatible Mihomo VPN client to enable the **Mihomo (Android VPN)** gateway format. Include the target apps in the VPN client, then select a **Proxy egress rule** for each app in MultiRoute. Leave the app on system routing or select that VPN as its channel.
+
+The preview includes apps whose UIDs are in the active VPN's coverage and have no conflicting physical route. Use a distinct existing outbound for each Wi-Fi network. Follow the exported comments to set `interface-name: android-vpn:<interface>` on each outbound, then merge the UID rules into the client configuration.
+
+</details>
+
+<details>
 <summary><strong>Wi-Fi band is not shown, or Public-IP probe times out</strong></summary>
 
 - **Band not shown**: Neither Android's platform API nor the `dumpsys` fallback reported frequency data for that interface.
