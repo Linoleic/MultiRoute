@@ -574,10 +574,7 @@ private fun AppItemRow(
     }
     val supporting: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = app.packageName,
                     modifier = Modifier.weight(1f, fill = false),
@@ -585,7 +582,19 @@ private fun AppItemRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (isVpnOwner) {
+                AnimatedVisibility(
+                    visible = isVpnOwner,
+                    enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                        expandHorizontally(
+                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                            expandFrom = Alignment.Start
+                        ),
+                    exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                        shrinkHorizontally(
+                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                            shrinkTowards = Alignment.Start
+                        )
+                ) {
                     AppRoutingStatusIcon(
                         imageVector = Icons.Default.VpnKey,
                         contentDescription = stringResource(R.string.ui_vpn_client),
@@ -658,7 +667,9 @@ private fun AppRoutingStatusIcon(
     // Fit inside the package text's line height in both the regular and stacked layouts.
     val size = with(density) { MaterialTheme.typography.bodySmall.lineHeight.toDp() }
     Box(
-        modifier = Modifier.size(size).background(containerColor, CircleShape),
+        modifier = Modifier.padding(start = RoutingDimensions.textGap)
+            .size(size)
+            .background(containerColor, CircleShape),
         contentAlignment = Alignment.Center
     ) {
         Icon(
