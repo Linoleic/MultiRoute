@@ -171,6 +171,10 @@ NetProxy's local `socket_assign` mode follows the default interface. An app assi
 <details>
 <summary><strong>Choosing per-app Wi-Fi egress in an Android VPN</strong></summary>
 
+**Client requirements.** The client must support binding proxy outbounds to Android networks and declare `io.github.linoleic.multiroute.vpn_gateway_version=1` in its app manifest. Testing used a locally patched FlClash 0.9.4 development build (`2026110401`). The test APK is unpublished. Official FlClash APKs and other clients have yet to be verified. [Upstream FlClash source revision](https://github.com/chen08209/FlClash/commit/afe7136002271fd64f098b154e7fff40be721eb8)
+
+**Verified scope.** Two apps made IPv4 HTTPS connections over separate Wi-Fi networks on Android 16 (HyperOS 3). This export format supports Wi-Fi egress. IPv6, UDP, other OS versions, and other device configurations have yet to be verified.
+
 Connect a compatible Mihomo VPN client to enable the **Mihomo (Android VPN)** gateway format. Include the target apps in the VPN client, then select a **Proxy egress rule** for each app in MultiRoute. Leave the app on system routing or select that VPN as its channel.
 
 The preview includes apps whose UIDs are in the active VPN's coverage and have no conflicting physical route. Use a distinct existing outbound for each Wi-Fi network. Follow the exported comments to set `interface-name: android-vpn:<interface>` on each outbound, then merge the UID rules into the client configuration.

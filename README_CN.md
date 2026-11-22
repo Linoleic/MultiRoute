@@ -171,6 +171,10 @@ NetProxy 的本机 `socket_assign` 跟随当前默认出口，直接指派到其
 <details>
 <summary><strong>在 Android VPN 中按应用选择 Wi-Fi 出口</strong></summary>
 
+**客户端要求。** 客户端需要实现按 Android 网络绑定代理出站，并在应用清单中声明 `io.github.linoleic.multiroute.vpn_gateway_version=1`。经过验证的是带适配的 FlClash 0.9.4 本地开发构建（`2026110401`）。该测试 APK 未公开发布，FlClash 官方安装包及其他客户端的兼容性尚未验证。[FlClash 上游源码基线](https://github.com/chen08209/FlClash/commit/afe7136002271fd64f098b154e7fff40be721eb8)
+
+**验证范围。** 已在 Android 16（HyperOS 3）上验证两个应用经不同 Wi-Fi 出口发起 IPv4 HTTPS 连接。此导出格式目前仅支持 Wi-Fi 出口。IPv6、UDP、其他系统版本和设备组合尚未验证。
+
 连接支持逐应用出口的 Mihomo VPN 客户端后，网关工具会显示 **Mihomo（Android VPN）**。先在 VPN 客户端的应用列表中包含目标应用，再在 MultiRoute 中为应用选择**代理出口规则**。应用通道可跟随系统或指向该 VPN。
 
 预览只纳入确认在当前 VPN 接管范围内、且没有冲突的物理路由的应用。每条 Wi-Fi 使用一个独立的出站名称。按导出文件中的注释为已有出站配置 `interface-name: android-vpn:<网卡>`，再将 UID 规则合入客户端配置。
