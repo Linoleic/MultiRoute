@@ -5,6 +5,7 @@ import android.util.Log
 import com.multiroute.data.ProxyUpstreamProfile
 import com.multiroute.data.ProxyUpstreamStore
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.data.RuleTarget
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.util.AndroidVpnGateway
@@ -83,8 +84,7 @@ internal class ProxyUpstreamController(
     private data class GatewaySnapshot(
         val fragment: ProxyGatewayExport.Fragment?,
         val activeVpnInterfaces: List<String>,
-        val skipped: List<GatewayPreviewRow>,
-        val ruleKeysByUid: Map<Int, String>
+        val rows: List<GatewayPreviewRow>
     )
 
     data class GatewayExport(
@@ -93,10 +93,14 @@ internal class ProxyUpstreamController(
         val rows: List<GatewayPreviewRow>
     )
 
+    data class GatewayPreviewRequest(val app: RuleTarget, val preferredFormat: ProxyGatewayFormat?)
+
     private val application = context.applicationContext
     private val store = ProxyUpstreamStore(context)
     private val _state = MutableStateFlow(ProxyUpstreamUiState())
     val state = _state.asStateFlow()
+    private val _gatewayPreviewRequest = MutableStateFlow<GatewayPreviewRequest?>(null)
+    val gatewayPreviewRequest = _gatewayPreviewRequest.asStateFlow()
     var secret = ""
         private set
 
@@ -120,6 +124,13 @@ internal class ProxyUpstreamController(
     }
 
     fun refresh() = updateSelection()
+
+    fun requestGatewayPreview(app: RuleTarget, preferredFormat: ProxyGatewayFormat?) {
+        _gatewayPreviewRequest.value = GatewayPreviewRequest(app, preferredFormat)
+    }
+
+    fun consumeGatewayPreviewRequest(request: GatewayPreviewRequest): Boolean =
+        _gatewayPreviewRequest.compareAndSet(request, null)
 
     fun saveGatewayMappings(mappings: Map<String, String>, onSaved: (Boolean) -> Unit) {
         if (_state.value.gatewayBusy) return
@@ -372,15 +383,15 @@ internal class ProxyUpstreamController(
                     }
                     skipped += GatewayPreviewRow(ruleKeysByUid[uid], uid, iface, iface?.let(physicalOutbounds::get), reason)
                 }
-                GatewaySnapshot(fragment, active.filter { it.isVpnUpstream() }.map { it.interfaceName }, skipped, ruleKeysByUid)
+                val included = fragment?.rules.orEmpty().map { rule ->
+                    val ruleKey = candidateKeys[rule.uid to rule.interfaceName]?.firstOrNull()
+                    GatewayPreviewRow(ruleKey, rule.uid, rule.interfaceName, rule.outbound)
+                }
+                GatewaySnapshot(fragment, active.filter { it.isVpnUpstream() }.map { it.interfaceName }, included + skipped)
             }
             val fragment = snapshot.fragment
-            val skipped = snapshot.skipped
-            val actualRows = fragment?.rules.orEmpty().map { rule ->
-                GatewayPreviewRow(snapshot.ruleKeysByUid[rule.uid], rule.uid, rule.interfaceName, rule.outbound)
-            }
             if (fragment == null || fragment.directInterfaces.isEmpty()) {
-                return@withContext GatewayExport(fragment, emptyList(), actualRows + skipped)
+                return@withContext GatewayExport(fragment, emptyList(), snapshot.rows)
             }
             val diagnostics = try {
                 SuHelper.getTransparentProxyDiagnostics(snapshot.activeVpnInterfaces)
@@ -391,7 +402,7 @@ internal class ProxyUpstreamController(
                 null
             }
             val possibleBypassInterfaces = fragment.directInterfaces.filter { diagnostics?.mayBypassOn(it) == true }.sorted()
-            GatewayExport(fragment, possibleBypassInterfaces, actualRows + skipped)
+            GatewayExport(fragment, possibleBypassInterfaces, snapshot.rows)
         }
     }
 

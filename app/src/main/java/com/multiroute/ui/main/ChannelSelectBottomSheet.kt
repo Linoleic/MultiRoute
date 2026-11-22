@@ -57,6 +57,7 @@ internal fun ChannelSelectBottomSheet(
     gatewayBusy: Boolean = false,
     gatewayEnabled: Boolean = true,
     onSelectGateway: (String?, String?, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
+    onPreviewGateway: () -> Unit,
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -173,16 +174,12 @@ internal fun ChannelSelectBottomSheet(
         }
         if (gatewayEnabled || gatewayTarget != null) {
             item(key = "gateway-header") {
-                val current = gatewayChannels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
                 Text(
                     text = stringResource(R.string.proxy_gateway_app_title),
                     modifier = Modifier.padding(top = 16.dp).semantics { heading() },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
-                if (gatewayTarget != null && current == null) {
-                    Text(stringResource(R.string.proxy_gateway_app_saved, NetworkUtils.savedTargetLabel(context, gatewayTarget)))
-                }
                 Text(
                     text = stringResource(when {
                         app.targetChannelId == CHANNEL_DEFAULT -> R.string.proxy_gateway_app_hint
@@ -192,7 +189,28 @@ internal fun ChannelSelectBottomSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (gatewayChannels.isEmpty()) {
+                if (gatewayTarget != null) {
+                    val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                    val label = current?.let { NetworkUtils.channelLabel(context, it) }
+                        ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
+                    Text(
+                        text = stringResource(R.string.proxy_gateway_app_saved, label),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    val issue = when {
+                        current == null -> R.string.proxy_gateway_skip_offline
+                        gatewayMappings[gatewayTarget].isNullOrBlank() -> R.string.proxy_gateway_skip_mapping
+                        else -> null
+                    }
+                    if (issue != null) {
+                        Text(stringResource(issue), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = onPreviewGateway, enabled = !gatewayBusy) {
+                        Text(stringResource(R.string.proxy_gateway_open_tool))
+                    }
+                }
+                if (gatewayEnabled && gatewayChannels.isEmpty()) {
                     Text(
                         stringResource(R.string.proxy_gateway_app_no_channels),
                         style = MaterialTheme.typography.bodyMedium,

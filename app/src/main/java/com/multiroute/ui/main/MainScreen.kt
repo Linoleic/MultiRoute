@@ -39,9 +39,12 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
+import com.multiroute.data.RuleTarget
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
+import com.multiroute.util.AndroidVpnGateway
+import com.multiroute.util.ProxyGatewayFormat
 import com.multiroute.util.RouteRuleBuilder
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
@@ -367,6 +370,15 @@ fun MainScreen(
                         val proxy by viewModel.proxyUpstream.state.collectAsStateWithLifecycle()
                         val showGateway = uiState.scenarioEditId == null && RouteRuleBuilder.isValidUid(app.uid)
                         val canConfigureGateway = showGateway && uiState.channels.none { it.isVpn && it.vpnOwnerUid == app.uid }
+                        fun openGatewayPreview() {
+                            val vpn = AndroidVpnGateway.findSupportedVpn(importContext, uiState.channels)
+                            val preferredFormat = vpn?.takeIf { it.id == app.targetChannelId || it.interfaceName == app.targetChannelId }
+                                ?.let { ProxyGatewayFormat.MIHOMO_ANDROID_VPN }
+                            viewModel.closeAppSheet()
+                            viewModel.proxyUpstream.requestGatewayPreview(RuleTarget(app.ruleKey, app.uid), preferredFormat)
+                            selectedToolName = PreferencePage.PROXY_UPSTREAM.name
+                            viewModel.setSelectedTab(2)
+                        }
                         ChannelSelectBottomSheet(
                             app = app,
                             channels = uiState.channels.filter { !it.isHotspot },
@@ -399,12 +411,12 @@ fun MainScreen(
                                             duration = if (action == null) SnackbarDuration.Short else SnackbarDuration.Long
                                         )
                                         if (result == SnackbarResult.ActionPerformed) {
-                                            selectedToolName = PreferencePage.PROXY_UPSTREAM.name
-                                            viewModel.setSelectedTab(2)
+                                            openGatewayPreview()
                                         }
                                     }
                                 }
                             },
+                            onPreviewGateway = ::openGatewayPreview,
                             onSelectChannel = { channelId ->
                                 viewModel.updateRouteChannel(app, channelId)
                                 viewModel.closeAppSheet()

@@ -1,5 +1,7 @@
 package com.multiroute.ui.main
 
+import android.app.Activity
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -32,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multiroute.R
 import com.multiroute.data.ProxyUpstreamProfile
+import com.multiroute.data.RuleTarget
 import com.multiroute.model.NetworkChannel
 import com.multiroute.util.ClashProxyUpstreamClient
 import com.multiroute.util.ClashProxyUpstreamClient.ControllerException
@@ -162,6 +166,12 @@ private fun ProxyGatewayMappingDialog(
     )
 }
 
+private data class GatewayPreview(
+    val export: ProxyUpstreamController.GatewayExport,
+    val format: ProxyGatewayFormat,
+    val focusedApp: RuleTarget?
+)
+
 @Composable
 private fun ProxyGatewayExportSection(
     channels: List<NetworkChannel>,
@@ -180,10 +190,11 @@ private fun ProxyGatewayExportSection(
     val format = formats.firstOrNull { it.name == formatName } ?: ProxyGatewayFormat.SING_BOX
     val androidVpnLabel = stringResource(R.string.proxy_gateway_android_vpn_format)
     var pendingContent by rememberSaveable { mutableStateOf<String?>(null) }
-    var preview by remember { mutableStateOf<ProxyUpstreamController.GatewayExport?>(null) }
+    var preview by remember { mutableStateOf<GatewayPreview?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val filePicker = rememberLauncherForActivityResult(remember(format) { ActivityResultContracts.CreateDocument(format.mimeType) }) { uri ->
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK }
         val content = pendingContent
         pendingContent = null
         if (uri != null && content != null) {
@@ -206,17 +217,40 @@ private fun ProxyGatewayExportSection(
         }
     }
 
-    fun launchFilePicker(content: String) {
+    fun launchFilePicker(content: String, exportFormat: ProxyGatewayFormat) {
         preview = null
         pendingContent = content
         try {
-            filePicker.launch(format.fileName)
+            filePicker.launch(Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(exportFormat.mimeType)
+                .putExtra(Intent.EXTRA_TITLE, exportFormat.fileName))
         } catch (_: IllegalStateException) {
             pendingContent = null
             message = context.getString(R.string.proxy_gateway_export_failed)
         } catch (_: android.content.ActivityNotFoundException) {
             pendingContent = null
             message = context.getString(R.string.proxy_gateway_export_failed)
+        }
+    }
+
+    fun beginPreview(exportFormat: ProxyGatewayFormat, focusedApp: RuleTarget? = null) {
+        busy = true
+        message = null
+        scope.launch {
+            try {
+                preview = GatewayPreview(controller.prepareGatewayExport(exportFormat), exportFormat, focusedApp)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: ProxyUpstreamController.AndroidVpnUnavailable) {
+                message = context.getString(R.string.proxy_gateway_android_vpn_unavailable)
+            } catch (_: ProxyGatewayExport.InvalidMihomoOutbound) {
+                message = context.getString(R.string.proxy_gateway_invalid_mihomo_tag)
+            } catch (_: Exception) {
+                message = context.getString(R.string.proxy_gateway_export_failed)
+            } finally {
+                busy = false
+            }
         }
     }
 
@@ -236,6 +270,15 @@ private fun ProxyGatewayExportSection(
         )
     }
     val canExport = enabled && !busy && preview == null && pendingContent == null
+    val previewRequest by controller.gatewayPreviewRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(previewRequest, canExport) {
+        val request = previewRequest ?: return@LaunchedEffect
+        if (canExport && controller.consumeGatewayPreviewRequest(request)) {
+            val requestedFormat = request.preferredFormat?.takeIf { it in formats } ?: format
+            formatName = requestedFormat.name
+            beginPreview(requestedFormat, request.app)
+        }
+    }
     ProxyUpstreamMenu(
         selected = stringResource(R.string.proxy_gateway_format,
             if (format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) androidVpnLabel else format.label),
@@ -245,43 +288,31 @@ private fun ProxyGatewayExportSection(
         enabled = canExport,
         onSelect = { selected -> formatName = selected; message = null }
     )
-    Button(enabled = canExport, onClick = {
-        busy = true
-        message = null
-        scope.launch {
-            try {
-                preview = controller.prepareGatewayExport(format)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: ProxyUpstreamController.AndroidVpnUnavailable) {
-                message = context.getString(R.string.proxy_gateway_android_vpn_unavailable)
-            } catch (_: ProxyGatewayExport.InvalidMihomoOutbound) {
-                message = context.getString(R.string.proxy_gateway_invalid_mihomo_tag)
-            } catch (_: Exception) {
-                pendingContent = null
-                message = context.getString(R.string.proxy_gateway_export_failed)
-            } finally {
-                busy = false
-            }
-        }
-    }) { Text(stringResource(if (busy) R.string.proxy_gateway_preview_loading else R.string.proxy_gateway_preview_open)) }
+    Button(enabled = canExport, onClick = { beginPreview(format) }) {
+        Text(stringResource(if (busy) R.string.proxy_gateway_preview_loading else R.string.proxy_gateway_preview_open))
+    }
     message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
     preview?.let { snapshot ->
-        ProxyGatewayPreviewDialog(snapshot, channels, onDismiss = { preview = null }, onSave = ::launchFilePicker,
+        ProxyGatewayPreviewDialog(snapshot, channels, onDismiss = { preview = null },
+            onSave = { launchFilePicker(it, snapshot.format) },
             onConfigure = { preview = null; onConfigure() })
     }
 }
 
 @Composable
 private fun ProxyGatewayPreviewDialog(
-    preview: ProxyUpstreamController.GatewayExport,
+    snapshot: GatewayPreview,
     channels: List<NetworkChannel>,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onConfigure: () -> Unit
 ) {
     val context = LocalContext.current
+    val preview = snapshot.export
+    val formatLabel = if (snapshot.format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
+        stringResource(R.string.proxy_gateway_android_vpn_format)
+    } else snapshot.format.label
     val appNames by produceState(emptyMap<GatewayPreviewRow, Pair<String, Int>>(), preview.rows) {
         value = withContext(Dispatchers.IO) {
             val manager = context.packageManager
@@ -301,13 +332,31 @@ private fun ProxyGatewayPreviewDialog(
             }.toMap()
         }
     }
-    val included = preview.rows.filter { it.skipReason == null }
-    val skipped = preview.rows.filter { it.skipReason != null }
+    val focusedApp = snapshot.focusedApp
+    val focusedRow = focusedApp?.let { app ->
+        preview.rows.firstOrNull { it.ruleKey == app.key }
+            ?: preview.rows.firstOrNull { it.uid == app.uid && it.skipReason == null }
+    }
+    val included = preview.rows.filter { it.skipReason == null && it != focusedRow }
+    val skipped = preview.rows.filter { it.skipReason != null && it != focusedRow }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.proxy_gateway_preview_title)) },
+        title = { Text(stringResource(R.string.proxy_gateway_preview_title, formatLabel)) },
         text = {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (focusedApp != null) {
+                    item {
+                        if (focusedRow == null) {
+                            Text(stringResource(R.string.proxy_gateway_preview_focus_missing), style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            val status = if (focusedRow.skipReason == null) R.string.proxy_gateway_preview_focus_included
+                            else R.string.proxy_gateway_preview_focus_skipped
+                            Text(stringResource(status), style = MaterialTheme.typography.titleSmall)
+                            val name = appNames[focusedRow].takeIf { focusedRow.ruleKey == focusedApp.key }
+                            ProxyGatewayPreviewEntry(focusedRow.copy(ruleKey = focusedApp.key), channels, name)
+                        }
+                    }
+                }
                 item {
                     val fragment = preview.fragment
                     Text(
@@ -333,7 +382,7 @@ private fun ProxyGatewayPreviewDialog(
                     item { Text(stringResource(R.string.proxy_gateway_preview_skipped), style = MaterialTheme.typography.titleSmall) }
                     items(skipped) { row -> ProxyGatewayPreviewEntry(row, channels, appNames[row]) }
                 }
-                if (preview.rows.isEmpty() || skipped.any { it.skipReason == GatewayPreviewSkipReason.OUTBOUND_UNMAPPED }) {
+                if (preview.rows.isEmpty() || preview.rows.any { it.skipReason == GatewayPreviewSkipReason.OUTBOUND_UNMAPPED }) {
                     item { TextButton(onClick = onConfigure) { Text(stringResource(R.string.proxy_gateway_configure)) } }
                 }
             }
