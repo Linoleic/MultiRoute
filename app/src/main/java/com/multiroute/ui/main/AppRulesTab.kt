@@ -26,9 +26,11 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.multiroute.R
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
@@ -569,36 +572,45 @@ private fun AppItemRow(
     }
     val supporting: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)) {
-            Text(
-                text = app.packageName,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (isVpnOwner) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.textGap)
+            ) {
                 Text(
-                    text = stringResource(R.string.ui_vpn_client),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (gatewayTarget != null) {
-                val context = LocalContext.current
-                val gatewayLabel = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
-                    ?.let { NetworkUtils.channelLabel(context, it) } ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
-                Text(
-                    text = stringResource(R.string.proxy_gateway_app_saved, gatewayLabel),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = app.packageName,
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val statusSize = with(LocalDensity.current) { 14.sp.toDp() }
+                val statusTint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant
+                if (isVpnOwner) {
+                    Icon(
+                        imageVector = Icons.Default.VpnKey,
+                        contentDescription = stringResource(R.string.ui_vpn_client),
+                        modifier = Modifier.size(statusSize),
+                        tint = statusTint
+                    )
+                }
+                if (gatewayTarget != null) {
+                    val context = LocalContext.current
+                    val gatewayLabel = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                        ?.let { NetworkUtils.channelLabel(context, it) } ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
+                    Icon(
+                        imageVector = Icons.Default.Dns,
+                        contentDescription = stringResource(R.string.proxy_gateway_app_saved, gatewayLabel),
+                        modifier = Modifier.size(statusSize),
+                        tint = statusTint
+                    )
+                }
             }
             if (stackChannel) AppChannelBadge(app, current, accent, isSelected)
         }
     }
     val trailing: (@Composable () -> Unit)? = if (!stackChannel) {
-        { AppChannelBadge(app, current, accent, isSelected) }
+        { AppChannelBadge(app, current, accent, isSelected, Modifier.widthIn(max = 152.dp)) }
     } else {
         null
     }
@@ -642,11 +654,13 @@ private fun AppChannelBadge(
     app: AppItem,
     current: NetworkChannel?,
     accent: ChannelAccentColors,
-    isSelected: Boolean
+    isSelected: Boolean,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     AnimatedContent(
         targetState = app.targetChannelId,
+        modifier = modifier,
         transitionSpec = { AppMotion.content() },
         label = "channelBadge"
     ) { targetChannelId ->
@@ -654,6 +668,8 @@ private fun AppChannelBadge(
             Text(
                 text = stringResource(R.string.vm_system_default),
                 style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
                 else MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -689,7 +705,7 @@ private fun AppChannelBadge(
                         text = label,
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
-                        softWrap = false
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -714,7 +730,8 @@ private fun AppItemRowPreview() {
                         channels = emptyList(),
                         stackChannel = stackChannel,
                         index = 0,
-                        count = 2
+                        count = 2,
+                        isVpnOwner = true
                     )
                     AppItemRow(
                         app = AppItem(
@@ -729,7 +746,8 @@ private fun AppItemRowPreview() {
                         index = 1,
                         count = 2,
                         isSelectionMode = true,
-                        isSelected = true
+                        isSelected = true,
+                        gatewayTarget = "wlan1"
                     )
                 }
             }
