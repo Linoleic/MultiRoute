@@ -2,6 +2,9 @@ Material Symbols Rounded by Google
 Source: https://github.com/google/material-design-icons/tree/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web
 The SVG assets were converted to Android VectorDrawable XML.
 
+Wi-Fi signal strength vectors by the Android Open Source Project
+Source: https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r3/packages/SettingsLib/res/drawable/
+The original ic_wifi_0 through ic_wifi_3 drawables were renamed in MultiRoute.
 
                                  Apache License
                            Version 2.0, January 2004

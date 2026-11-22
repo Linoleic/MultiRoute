@@ -69,7 +69,7 @@ fun WifiDetailBottomSheet(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    XiaomiWifiSignalIcon(
+                    WifiSignalIcon(
                         level = item.level,
                         tint = if (item.isPrimary || item.isSecondary) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         badgeText = when {

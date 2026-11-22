@@ -16,7 +16,7 @@ bilingual, Chinese first: the release page is what most users read.
 - 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览和导出 sing-box 或 Mihomo 应用代理出口规则。
 - 应用通道选择器显示已保存的代理出口，可直接预览导出结果和跳过原因。
 - 为兼容的 Android VPN 客户端导出逐应用 Wi-Fi 出口规则，预览会核对 VPN 的应用接管范围。README 列出客户端要求与验证范围。
-- 更新应用图标，统一应用内功能图标。
+- 更新应用图标，统一应用内功能图标，并采用 Android 的三格 Wi-Fi 信号指示。
 
 ### 修复
 
@@ -32,7 +32,7 @@ bilingual, Chinese first: the release page is what most users read.
 - Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, and export for sing-box and Mihomo.
 - The app channel picker shows the saved proxy egress and opens a preview of export eligibility and skip reasons.
 - Export per-app Wi-Fi egress rules for compatible Android VPN clients and check VPN app coverage in the preview. The README lists client requirements and verified configurations.
-- Updated the app icon and standardized in-app interface icons.
+- Updated the app icon, standardized in-app interface icons, and adopted Android's three-segment Wi-Fi indicator.
 
 ### Fixed
 

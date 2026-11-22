@@ -20,12 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -763,80 +758,27 @@ private fun DiagnosticItemRow(
     }
 }
 
-/**
- * Xiaomi / HyperOS style Wi-Fi signal icon.
- * Features 4 concentric curved radio wave arcs with rounded caps and a base dot.
- * Unlit arcs are subtly rendered in semi-transparent silhouette (MIUI/HyperOS style).
- * Supports dual-Wi-Fi badge ("1" or "2") at the bottom-right corner.
- */
 @Composable
-fun XiaomiWifiSignalIcon(
+internal fun WifiSignalIcon(
     level: Int,
     modifier: Modifier = Modifier.size(24.dp),
     tint: Color = LocalContentColor.current,
     badgeText: String? = null
 ) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val centerX = w * 0.5f
-            val centerY = h * 0.84f
-            val strokeWidth = (w * 0.098f).coerceAtLeast(1.5f)
-            val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            val inactiveAlpha = 0.22f
-            val sweepAngle = 82f
-            val startAngle = 270f - (sweepAngle / 2f)
-
-            // Level 1: Center dot at vertex
-            val dotRadius = w * 0.08f
-            drawCircle(
-                color = if (level >= 1) tint else tint.copy(alpha = inactiveAlpha),
-                radius = dotRadius,
-                center = Offset(centerX, centerY)
-            )
-
-            // Level 2: Inner Arc
-            val r1 = w * 0.25f
-            drawArc(
-                color = if (level >= 2) tint else tint.copy(alpha = inactiveAlpha),
-                startAngle = startAngle,
-                sweepAngle = sweepAngle,
-                useCenter = false,
-                topLeft = Offset(centerX - r1, centerY - r1),
-                size = Size(r1 * 2, r1 * 2),
-                style = stroke
-            )
-
-            // Level 3: Middle Arc
-            val r2 = w * 0.45f
-            drawArc(
-                color = if (level >= 3) tint else tint.copy(alpha = inactiveAlpha),
-                startAngle = startAngle,
-                sweepAngle = sweepAngle,
-                useCenter = false,
-                topLeft = Offset(centerX - r2, centerY - r2),
-                size = Size(r2 * 2, r2 * 2),
-                style = stroke
-            )
-
-            // Level 4: Outer Arc
-            val r3 = w * 0.65f
-            drawArc(
-                color = if (level >= 4) tint else tint.copy(alpha = inactiveAlpha),
-                startAngle = startAngle,
-                sweepAngle = sweepAngle,
-                useCenter = false,
-                topLeft = Offset(centerX - r3, centerY - r3),
-                size = Size(r3 * 2, r3 * 2),
-                style = stroke
-            )
-        }
-
-        // Xiaomi HyperOS style badge for Dual Wi-Fi (e.g. "2" for secondary, "1" for primary)
+    // Android 16 SettingsLib maps the five signal levels to 0, 1, 2, 2, and 3 lit segments.
+    val icon = when {
+        level <= 0 -> R.drawable.ic_wifi_strength_0
+        level == 1 -> R.drawable.ic_wifi_strength_1
+        level <= 3 -> R.drawable.ic_wifi_strength_2
+        else -> R.drawable.ic_wifi_strength_3
+    }
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.fillMaxSize().padding(end = if (badgeText.isNullOrEmpty()) 0.dp else 2.dp)
+        )
         if (!badgeText.isNullOrEmpty()) {
             Box(
                 modifier = Modifier
@@ -909,7 +851,7 @@ private fun ActiveChannelsCard(
                             status.primarySsid != null -> 3
                             else -> 0
                         }
-                        XiaomiWifiSignalIcon(
+                        WifiSignalIcon(
                             level = primLevel,
                             tint = MaterialTheme.colorScheme.primary,
                             badgeText = if (status.secondaryConnected) "1" else null,
@@ -983,7 +925,7 @@ private fun ActiveChannelsCard(
                                 status.secondaryRssi >= -85 -> 1
                                 else -> 3
                             }
-                            XiaomiWifiSignalIcon(
+                            WifiSignalIcon(
                                 level = secLevel,
                                 tint = MaterialTheme.colorScheme.secondary,
                                 badgeText = "2",
@@ -1098,7 +1040,7 @@ private fun WifiScanRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Xiaomi style Wi-Fi signal icon
-            XiaomiWifiSignalIcon(
+            WifiSignalIcon(
                 level = item.level,
                 tint = when {
                     item.isSecondary -> MaterialTheme.colorScheme.secondary
