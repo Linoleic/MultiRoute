@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -39,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -583,26 +585,23 @@ private fun AppItemRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val statusSize = with(LocalDensity.current) { 14.sp.toDp() }
-                val statusTint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant
                 if (isVpnOwner) {
-                    Icon(
+                    AppRoutingStatusIcon(
                         imageVector = Icons.Default.VpnKey,
                         contentDescription = stringResource(R.string.ui_vpn_client),
-                        modifier = Modifier.size(statusSize),
-                        tint = statusTint
+                        containerColor = MaterialTheme.colorScheme.tertiary,
+                        contentColor = MaterialTheme.colorScheme.onTertiary
                     )
                 }
                 if (gatewayTarget != null) {
                     val context = LocalContext.current
                     val gatewayLabel = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
                         ?.let { NetworkUtils.channelLabel(context, it) } ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
-                    Icon(
+                    AppRoutingStatusIcon(
                         imageVector = Icons.Default.Dns,
                         contentDescription = stringResource(R.string.proxy_gateway_app_saved, gatewayLabel),
-                        modifier = Modifier.size(statusSize),
-                        tint = statusTint
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }
@@ -646,6 +645,29 @@ private fun AppItemRow(
             )
         }
     )
+}
+
+@Composable
+private fun AppRoutingStatusIcon(
+    imageVector: ImageVector,
+    contentDescription: String,
+    containerColor: Color,
+    contentColor: Color
+) {
+    val density = LocalDensity.current
+    // Fit inside the package text's line height in both the regular and stacked layouts.
+    val size = with(density) { MaterialTheme.typography.bodySmall.lineHeight.toDp() }
+    Box(
+        modifier = Modifier.size(size).background(containerColor, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(with(density) { 12.sp.toDp() }),
+            tint = contentColor
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
