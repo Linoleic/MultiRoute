@@ -17,6 +17,7 @@ import com.multiroute.theme.AppMotion
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,11 +72,30 @@ internal enum class PreferencePage(@param:StringRes val title: Int, @param:Strin
 
 internal enum class DestinationLayout { BottomBar, CompactRail, StandardRail }
 
+private data class MainDestination(
+    @param:StringRes val label: Int,
+    @param:DrawableRes val icon: Int,
+    @param:DrawableRes val selectedIcon: Int
+)
+
+private val mainDestinations = listOf(
+    MainDestination(R.string.tab_routing, R.drawable.ic_symbol_grid_view, R.drawable.ic_symbol_grid_view_filled),
+    MainDestination(R.string.tab_channels, R.drawable.ic_symbol_hub, R.drawable.ic_symbol_hub_filled),
+    MainDestination(R.string.tab_tools, R.drawable.ic_symbol_build, R.drawable.ic_symbol_build_filled),
+    MainDestination(R.string.tab_settings, R.drawable.ic_symbol_settings, R.drawable.ic_symbol_settings_filled)
+)
+
+@Composable
+private fun DestinationIcon(destination: MainDestination, selected: Boolean, description: String? = null) {
+    Icon(
+        painter = painterResource(if (selected) destination.selectedIcon else destination.icon),
+        contentDescription = description
+    )
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: DestinationLayout) {
-    val labels = listOf(R.string.tab_routing, R.string.tab_channels, R.string.tab_tools, R.string.tab_settings)
-    val icons = listOf(Icons.Default.Apps, Icons.Default.Hub, Icons.Default.Build, Icons.Default.Tune)
     if (layout != DestinationLayout.BottomBar) {
         val compact = layout == DestinationLayout.CompactRail
         NavigationRail(
@@ -86,10 +107,10 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (!compact) Spacer(Modifier.height(12.dp))
-                labels.forEachIndexed { index, label ->
-                    val name = stringResource(label)
+                mainDestinations.forEachIndexed { index, destination ->
+                    val name = stringResource(destination.label)
+                    val current = selected == index
                     if (compact) {
-                        val current = selected == index
                         Box(
                             modifier = Modifier.size(width = 64.dp, height = 48.dp)
                                 .selectable(current, role = Role.Tab, onClick = { onSelect(index) }),
@@ -103,15 +124,15 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             ) {
                                 Box(Modifier.size(width = 48.dp, height = 36.dp), contentAlignment = Alignment.Center) {
-                                    Icon(icons[index], contentDescription = name)
+                                    DestinationIcon(destination, current, name)
                                 }
                             }
                         }
                     } else {
                         NavigationRailItem(
-                            selected = selected == index,
+                            selected = current,
                             onClick = { onSelect(index) },
-                            icon = { Icon(icons[index], contentDescription = null) },
+                            icon = { DestinationIcon(destination, current) },
                             label = { Text(name) }
                         )
                     }
@@ -119,12 +140,13 @@ internal fun MainDestinations(selected: Int, onSelect: (Int) -> Unit, layout: De
             }
         }
     } else ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-        labels.forEachIndexed { index, label ->
+        mainDestinations.forEachIndexed { index, destination ->
+            val current = selected == index
             ShortNavigationBarItem(
-                selected = selected == index,
+                selected = current,
                 onClick = { onSelect(index) },
-                icon = { Icon(icons[index], contentDescription = null) },
-                label = { Text(stringResource(label)) }
+                icon = { DestinationIcon(destination, current) },
+                label = { Text(stringResource(destination.label)) }
             )
         }
     }

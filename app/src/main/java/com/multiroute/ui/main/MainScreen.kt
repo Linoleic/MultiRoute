@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -617,19 +618,17 @@ fun DiagnosticItem(label: String, value: String) {
     }
 }
 
-/**
- * 映射通道类型至官方矢量 Material 图标
- */
-fun getTransportIcon(transportType: String): ImageVector {
-    return when (transportType) {
-        "WLAN" -> Icons.Default.Wifi
-        "hotspot" -> Icons.Default.WifiTethering
-        "cellular" -> Icons.Default.SignalCellularAlt
-        "ethernet" -> Icons.Default.Lan
-        "vpn" -> Icons.Default.VpnKey
-        else -> Icons.Default.Public
+@Composable
+fun getTransportIcon(transportType: String): ImageVector = ImageVector.vectorResource(
+    when (transportType) {
+        "WLAN" -> R.drawable.ic_symbol_wifi
+        "hotspot" -> R.drawable.ic_symbol_wifi_tethering
+        "cellular" -> R.drawable.ic_symbol_signal_cellular_alt
+        "ethernet" -> R.drawable.ic_symbol_lan
+        "vpn" -> R.drawable.ic_symbol_vpn_key
+        else -> R.drawable.ic_symbol_public
     }
-}
+)
 
 @Composable
 fun AppIcon(drawable: Drawable?, size: androidx.compose.ui.unit.Dp = 40.dp) {

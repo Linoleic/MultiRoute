@@ -2,8 +2,6 @@ package com.multiroute.ui.main
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -84,12 +82,6 @@ private fun toolTitle(tool: NetworkTool) = when (tool) {
     NetworkTool.HOTSPOT -> R.string.channels_hotspot
 }
 
-private fun toolIcon(tool: NetworkTool) = when (tool) {
-    NetworkTool.CELLULAR -> Icons.Default.SignalCellularAlt
-    NetworkTool.DUAL_WIFI -> Icons.Default.Wifi
-    NetworkTool.HOTSPOT -> Icons.Default.WifiTethering
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal fun LazyListScope.activationCandidateItems(candidates: List<ActivationCandidate>, onOpen: (NetworkTool) -> Unit) {
     val (establishing, inactive) = candidates.partition { it.state == ActivationState.STARTING || it.state == ActivationState.WAITING }
@@ -123,10 +115,15 @@ private fun ActivationEntry(candidate: ActivationCandidate, index: Int, count: I
         ActivationState.WAITING -> R.string.channels_waiting
         ActivationState.INACTIVE -> R.string.channels_open_management
     }
+    val transport = when (candidate.target) {
+        NetworkTool.CELLULAR -> "cellular"
+        NetworkTool.DUAL_WIFI -> "WLAN"
+        NetworkTool.HOTSPOT -> "hotspot"
+    }
     SettingsEntry(
         title = stringResource(toolTitle(candidate.target)),
         summary = stringResource(summary),
-        icon = toolIcon(candidate.target),
+        icon = getTransportIcon(transport),
         index = index,
         count = count,
         onClick = { onOpen(candidate.target) }

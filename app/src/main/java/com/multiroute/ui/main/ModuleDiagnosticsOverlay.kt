@@ -3,7 +3,6 @@ package com.multiroute.ui.main
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -16,6 +15,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -55,16 +55,19 @@ internal fun moduleIndicatorColor(indicator: ModuleIndicator): Color = when (ind
 
 @Composable
 internal fun ModuleIndicatorIcon(indicator: ModuleIndicator, modifier: Modifier = Modifier) {
-    if (indicator == ModuleIndicator.CHECKING) CircularProgressIndicator(
-        modifier.size(20.dp), color = moduleIndicatorColor(indicator), strokeWidth = 2.dp)
-    else Icon(
-        imageVector = when (indicator) {
-            ModuleIndicator.READY -> Icons.Default.CheckCircle
-            ModuleIndicator.RESTART_REQUIRED -> Icons.Default.Error
-            ModuleIndicator.ERROR -> Icons.Default.Cancel
-            else -> Icons.AutoMirrored.Filled.Help
-        }, contentDescription = null, tint = moduleIndicatorColor(indicator), modifier = modifier
-    )
+    val icon = when (indicator) {
+        ModuleIndicator.CHECKING -> null
+        ModuleIndicator.UNKNOWN -> R.drawable.ic_symbol_help_filled
+        ModuleIndicator.READY -> R.drawable.ic_symbol_check_circle_filled
+        ModuleIndicator.RESTART_REQUIRED -> R.drawable.ic_symbol_error_filled
+        ModuleIndicator.ERROR -> R.drawable.ic_symbol_cancel_filled
+    }
+    val color = moduleIndicatorColor(indicator)
+    if (icon == null) {
+        CircularProgressIndicator(modifier.size(20.dp), color = color, strokeWidth = 2.dp)
+    } else {
+        Icon(painterResource(icon), contentDescription = null, tint = color, modifier = modifier)
+    }
 }
 
 @Composable
