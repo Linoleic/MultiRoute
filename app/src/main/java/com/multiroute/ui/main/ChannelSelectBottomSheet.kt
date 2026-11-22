@@ -1,15 +1,11 @@
 package com.multiroute.ui.main
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,8 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -38,7 +34,7 @@ private data class ChannelPickerEntry(
     val title: String,
     val subtitle: String,
     val note: String? = null,
-    val icon: ImageVector,
+    @param:DrawableRes val icon: Int,
     val selected: Boolean? = null,
     val enabled: Boolean = true,
     val onClick: () -> Unit
@@ -75,7 +71,7 @@ internal fun ChannelSelectBottomSheet(
                 key = "default",
                 title = stringResource(R.string.ui_default_follow_system),
                 subtitle = stringResource(R.string.ui_default_follow_system_desc),
-                icon = Icons.Default.Language,
+                icon = R.drawable.ic_symbol_language,
                 selected = app.targetChannelId == CHANNEL_DEFAULT,
                 onClick = { onSelectChannel(CHANNEL_DEFAULT) }
             )
@@ -110,7 +106,7 @@ internal fun ChannelSelectBottomSheet(
                         NetworkUtils.savedTargetLabel(context, app.targetChannelId)
                     ),
                     subtitle = stringResource(R.string.ui_iface_offline_note),
-                    icon = Icons.Default.CloudOff,
+                    icon = R.drawable.ic_symbol_cloud_off,
                     selected = true,
                     enabled = false,
                     onClick = {}
@@ -125,7 +121,7 @@ internal fun ChannelSelectBottomSheet(
                 key = "gateway:$key",
                 title = NetworkUtils.channelLabel(context, channel),
                 subtitle = gatewayMappings[key] ?: stringResource(R.string.proxy_gateway_app_unmapped),
-                icon = Icons.Default.Dns,
+                icon = R.drawable.ic_symbol_dns,
                 selected = gatewayTarget == key,
                 enabled = !gatewayBusy && gatewayEnabled,
                 onClick = {
@@ -142,7 +138,7 @@ internal fun ChannelSelectBottomSheet(
                 key = "gateway:remove",
                 title = stringResource(R.string.proxy_gateway_app_remove),
                 subtitle = stringResource(R.string.proxy_gateway_app_remove_desc),
-                icon = Icons.Default.CloudOff,
+                icon = R.drawable.ic_symbol_cloud_off,
                 enabled = !gatewayBusy,
                 onClick = { onSelectGateway(null, null) {} }
             ))
@@ -279,7 +275,7 @@ internal fun VpnUpstreamPicker(
             key = CHANNEL_DEFAULT,
             title = stringResource(R.string.vm_system_default),
             subtitle = stringResource(R.string.ui_vpn_upstream_follow_system),
-            icon = Icons.Default.Language,
+            icon = R.drawable.ic_symbol_language,
             selected = upstream.baseTarget == CHANNEL_DEFAULT,
             onClick = { onSelectChannel(CHANNEL_DEFAULT) }
         ))
@@ -339,7 +335,7 @@ internal fun ProxyUpstreamPicker(
                 state.selector != null && member !in state.selector.members -> stringResource(R.string.proxy_upstream_missing_member)
                 else -> null
             },
-            icon = channel?.let { getTransportIcon(it.transportType) } ?: Icons.Default.Language,
+            icon = channel?.let { getTransportIcon(it.transportType) } ?: R.drawable.ic_symbol_language,
             selected = member == selected,
             enabled = !state.busy && channel != null && member in state.selector?.members.orEmpty(),
             onClick = { onSelectChannel(key) }
@@ -382,7 +378,7 @@ internal fun BatchChannelSelectBottomSheet(
                 key = "default",
                 title = stringResource(R.string.ui_default_no_routing),
                 subtitle = stringResource(R.string.ui_clear_assigned_desc, selectedCount),
-                icon = Icons.Default.Language,
+                icon = R.drawable.ic_symbol_language,
                 onClick = { onSelectChannel(CHANNEL_DEFAULT) }
             )
         )
@@ -506,14 +502,14 @@ private fun ChannelOption(
         }
     }
     val leading: @Composable () -> Unit = {
-        Icon(entry.icon, contentDescription = null)
+        Icon(painterResource(entry.icon), contentDescription = null)
     }
     val trailing: @Composable () -> Unit = {
         if (entry.selected != null) {
             RadioButton(selected = entry.selected, enabled = entry.enabled, onClick = null)
         } else {
             Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                painterResource(R.drawable.ic_symbol_chevron_right),
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )

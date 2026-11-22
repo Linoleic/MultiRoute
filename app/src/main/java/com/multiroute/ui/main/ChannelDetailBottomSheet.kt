@@ -7,14 +7,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -118,7 +117,7 @@ internal fun ChannelDetailContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = getTransportIcon(channel.transportType),
+                        painter = painterResource(getTransportIcon(channel.transportType)),
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(26.dp)
@@ -185,7 +184,7 @@ internal fun ChannelDetailContent(
                 if (showCloseButton) {
                     IconButton(onClick = onDismiss) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            painter = painterResource(R.drawable.ic_symbol_close),
                             contentDescription = stringResource(com.multiroute.R.string.ui_close),
                             tint = MaterialTheme.colorScheme.outline
                         )
@@ -394,7 +393,7 @@ internal fun ChannelDetailContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Info,
+                            painter = painterResource(R.drawable.ic_symbol_info),
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.tertiary
@@ -432,7 +431,10 @@ internal fun ChannelDetailContent(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(
-                                        imageVector = if (isFailed) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                        painter = painterResource(
+                                            if (isFailed) R.drawable.ic_symbol_error
+                                            else R.drawable.ic_symbol_check_circle_filled
+                                        ),
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp),
                                         tint = if (isFailed) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
@@ -458,7 +460,7 @@ internal fun ChannelDetailContent(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Dns,
+                                    painter = painterResource(R.drawable.ic_symbol_dns),
                                     contentDescription = null,
                                     modifier = Modifier.size(13.dp),
                                     tint = MaterialTheme.colorScheme.outline
@@ -487,7 +489,7 @@ internal fun ChannelDetailContent(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(com.multiroute.R.string.ui_probing_channel, channel.interfaceName))
                             } else {
-                                Icon(Icons.Default.NetworkCheck, contentDescription = null)
+                                Icon(painterResource(R.drawable.ic_symbol_network_check), contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(com.multiroute.R.string.ui_test_channel_egress, channel.interfaceName))
                             }

@@ -16,10 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -45,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -83,7 +80,7 @@ internal fun ProxyUpstreamToolPanel(channels: List<NetworkChannel>, controller: 
         HorizontalDivider()
         TextButton(onClick = { showLiveSwitching = !showLiveSwitching }) {
             Text(stringResource(R.string.proxy_upstream_live_title))
-            Icon(if (showLiveSwitching) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+            Icon(painterResource(if (showLiveSwitching) R.drawable.ic_symbol_expand_less else R.drawable.ic_symbol_expand_more), contentDescription = null)
         }
         AnimatedVisibility(showLiveSwitching) {
             val profile = state.profile
@@ -609,7 +606,7 @@ private fun ProxyUpstreamMenu(selected: String, options: List<Pair<String, Strin
     Box {
         OutlinedButton(onClick = { expanded = true }, enabled = enabled) {
             Text(selected, modifier = Modifier.weight(1f, fill = false))
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            Icon(painterResource(R.drawable.ic_symbol_arrow_drop_down), contentDescription = null)
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (key, label) ->

@@ -12,14 +12,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -291,7 +284,7 @@ private fun ProxyUpstreamChannelEntry(state: ProxyUpstreamUiState, channels: Lis
     SettingsEntry(
         title = stringResource(R.string.proxy_upstream_title),
         summary = summary,
-        icon = Icons.Default.Dns,
+        icon = R.drawable.ic_symbol_dns,
         onClick = onClick
     )
 }
@@ -333,7 +326,7 @@ private fun VpnUpstreamShortcut(
         }
         if (upstream.canEdit) {
             Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                painterResource(R.drawable.ic_symbol_chevron_right),
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.primary
@@ -369,7 +362,7 @@ private fun ChannelsTestFooter(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Dns,
+                        painter = painterResource(R.drawable.ic_symbol_dns),
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -406,7 +399,7 @@ private fun ChannelsTestFooter(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.ui_testing_channels), maxLines = 1)
                 } else {
-                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(painterResource(R.drawable.ic_symbol_speed), contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.ui_test_channels), maxLines = 1)
                 }
@@ -497,7 +490,7 @@ fun ChannelDetailCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = getTransportIcon(channel.transportType),
+                            painter = painterResource(getTransportIcon(channel.transportType)),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(20.dp)
@@ -584,7 +577,7 @@ fun ChannelDetailCard(
 
                 if (!compact) {
                     Icon(
-                        imageVector = Icons.Default.ChevronRight,
+                        painter = painterResource(R.drawable.ic_symbol_chevron_right),
                         contentDescription = stringResource(R.string.ui_tap_details),
                         tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
                         modifier = Modifier.size(20.dp)
@@ -664,11 +657,11 @@ fun ChannelDetailCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = when {
-                                    isFailed -> Icons.Default.ErrorOutline
-                                    isInfo -> Icons.Default.Info
-                                    else -> Icons.Default.CheckCircle
-                                },
+                                painter = painterResource(when {
+                                    isFailed -> R.drawable.ic_symbol_error
+                                    isInfo -> R.drawable.ic_symbol_info
+                                    else -> R.drawable.ic_symbol_check_circle_filled
+                                }),
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = when {

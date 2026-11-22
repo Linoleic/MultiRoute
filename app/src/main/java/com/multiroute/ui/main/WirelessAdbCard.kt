@@ -8,16 +8,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -161,7 +152,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (showTitle) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(painterResource(R.drawable.ic_symbol_terminal), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text(stringResource(R.string.adb_helper_title), style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f))
             }
@@ -189,7 +180,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            Icons.Default.PowerSettingsNew,
+                            painterResource(R.drawable.ic_symbol_power_settings_new),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.outline
@@ -215,7 +206,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.CheckCircle,
+                                    painterResource(R.drawable.ic_symbol_check_circle_filled),
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.primary
@@ -246,7 +237,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.HourglassEmpty,
+                                    painterResource(R.drawable.ic_symbol_hourglass_empty),
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.primary
@@ -277,7 +268,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                Icons.Default.ErrorOutline,
+                                painterResource(R.drawable.ic_symbol_error),
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.error
@@ -311,7 +302,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            Icons.Default.Info,
+                            painterResource(R.drawable.ic_symbol_info),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp).padding(top = 2.dp),
                             tint = MaterialTheme.colorScheme.onSecondaryContainer
@@ -710,7 +701,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                         modifier = Modifier.size(18.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.Close,
+                                            painterResource(R.drawable.ic_symbol_close),
                                             contentDescription = null,
                                             modifier = Modifier.size(14.dp)
                                         )
@@ -723,7 +714,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                 onClick = { perform { WirelessAdbController.addCurrentWifiSsid(context) } },
                                 enabled = !loading && !busy,
                                 leadingIcon = {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(painterResource(R.drawable.ic_symbol_add), contentDescription = null, modifier = Modifier.size(16.dp))
                                 },
                                 label = { Text(stringResource(R.string.adb_trusted_add_current, currentSsid!!)) }
                             )
@@ -735,7 +726,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                             },
                             enabled = !loading && !busy,
                             leadingIcon = {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(painterResource(R.drawable.ic_symbol_add), contentDescription = null, modifier = Modifier.size(16.dp))
                             },
                             label = { Text(stringResource(R.string.adb_trusted_add_manual)) }
                         )
@@ -874,7 +865,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                                 modifier = Modifier.size(32.dp)
                                             ) {
                                                 Icon(
-                                                    Icons.Default.ContentCopy,
+                                                    painterResource(R.drawable.ic_symbol_content_copy),
                                                     contentDescription = stringResource(R.string.adb_helper_copy),
                                                     modifier = Modifier.size(16.dp),
                                                     tint = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -943,7 +934,7 @@ fun WirelessAdbCard(showTitle: Boolean = true) {
                                                     modifier = Modifier.size(32.dp)
                                                 ) {
                                                     Icon(
-                                                        Icons.Default.ContentCopy,
+                                                        painterResource(R.drawable.ic_symbol_content_copy),
                                                         contentDescription = stringResource(R.string.adb_helper_copy),
                                                         modifier = Modifier.size(16.dp),
                                                         tint = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant

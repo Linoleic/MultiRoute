@@ -1,20 +1,19 @@
 package com.multiroute.ui.wifi
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -92,7 +91,7 @@ fun WifiDetailBottomSheet(
                             overflow = TextOverflow.Ellipsis
                         )
                         if (item.isSecure) {
-                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
+                            Icon(painterResource(R.drawable.ic_symbol_lock), contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
                         }
                     }
                     Text(
@@ -113,38 +112,38 @@ fun WifiDetailBottomSheet(
             // Details List
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 DetailInfoRow(
-                    icon = Icons.Default.Fingerprint,
+                    icon = R.drawable.ic_symbol_fingerprint,
                     label = stringResource(R.string.dual_wifi_detail_bssid),
                     value = item.bssid
                 )
 
                 DetailInfoRow(
-                    icon = Icons.Default.WifiTethering,
+                    icon = R.drawable.ic_symbol_wifi_tethering,
                     label = stringResource(R.string.dual_wifi_detail_freq),
                     value = "${scanBandLabel(item.frequencyMhz)} • ${item.frequencyMhz} MHz • ${stringResource(R.string.dual_wifi_param_channel)} ${if (item.channel > 0) item.channel.toString() else stringResource(R.string.wifi_i18n_channel_unknown)}"
                 )
 
                 DetailInfoRow(
-                    icon = Icons.Default.Speed,
+                    icon = R.drawable.ic_symbol_speed,
                     label = stringResource(R.string.dual_wifi_detail_rssi),
                     value = "${item.rssi} dBm · ${signalQualityLabel(item.level)}"
                 )
 
                 DetailInfoRow(
-                    icon = Icons.Default.Security,
+                    icon = R.drawable.ic_symbol_security,
                     label = stringResource(R.string.dual_wifi_detail_security),
                     value = item.capabilities.replace("[", "").replace("]", " ").trim()
                 )
 
                 DetailInfoRow(
-                    icon = Icons.Default.Key,
+                    icon = R.drawable.ic_symbol_key,
                     label = stringResource(R.string.dual_wifi_detail_saved),
                     value = stringResource(if (item.isSaved) R.string.dual_wifi_saved_configuration else R.string.dual_wifi_unsaved_configuration)
                 )
 
                 if (isHotspotEnabled) {
                     DetailInfoRow(
-                        icon = Icons.Default.WifiTethering,
+                        icon = R.drawable.ic_symbol_wifi_tethering,
                         label = stringResource(R.string.dual_wifi_hotspot_active_title),
                         value = stringResource(
                             R.string.dual_wifi_hotspot_conflict_desc,
@@ -169,7 +168,7 @@ fun WifiDetailBottomSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.LinkOff, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_symbol_link_off), contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.dual_wifi_disconnect))
                     }
@@ -183,7 +182,7 @@ fun WifiDetailBottomSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Settings, contentDescription = null)
+                        Icon(painterResource(R.drawable.ic_symbol_settings), contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.dual_wifi_open_system_wifi))
                     }
@@ -209,7 +208,7 @@ fun WifiDetailBottomSheet(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(stringResource(R.string.dual_wifi_connecting, item.ssid))
                         } else {
-                            Icon(Icons.Default.WifiFind, contentDescription = null)
+                            Icon(painterResource(R.drawable.ic_symbol_wifi_find), contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 if (isHotspotEnabled) stringResource(R.string.wifi_i18n_hotspot_running_connect_later)
@@ -226,7 +225,7 @@ fun WifiDetailBottomSheet(
 
 @Composable
 private fun DetailInfoRow(
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     label: String,
     value: String,
     isWarning: Boolean = false
@@ -237,7 +236,7 @@ private fun DetailInfoRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Icon(
-            imageVector = icon,
+            painter = painterResource(icon),
             contentDescription = null,
             modifier = Modifier.size(18.dp).padding(top = 2.dp),
             tint = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline

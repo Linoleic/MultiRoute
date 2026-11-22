@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,21 +15,18 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -209,7 +207,7 @@ fun MainScreen(
                                 if (selectionMode) {
                                     IconButton(onClick = { viewModel.exitSelectionMode() }) {
                                         Icon(
-                                            imageVector = Icons.Default.Close,
+                                            painter = painterResource(R.drawable.ic_symbol_close),
                                             contentDescription = stringResource(com.multiroute.R.string.cd_exit_multi)
                                         )
                                     }
@@ -252,7 +250,10 @@ fun MainScreen(
                                                 )
                                             ) {
                                                 Icon(
-                                                    if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
+                                                    painterResource(
+                                                        if (uiState.scenarioEditId != null) R.drawable.ic_symbol_check
+                                                        else R.drawable.ic_symbol_layers
+                                                    ),
                                                     contentDescription = actionLabel
                                                 )
                                             }
@@ -273,7 +274,10 @@ fun MainScreen(
                                             )
                                         ) {
                                             Icon(
-                                                if (uiState.scenarioEditId != null) Icons.Default.Done else Icons.Default.Layers,
+                                                painterResource(
+                                                    if (uiState.scenarioEditId != null) R.drawable.ic_symbol_check
+                                                    else R.drawable.ic_symbol_layers
+                                                ),
                                                 contentDescription = null,
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -618,17 +622,15 @@ fun DiagnosticItem(label: String, value: String) {
     }
 }
 
-@Composable
-fun getTransportIcon(transportType: String): ImageVector = ImageVector.vectorResource(
-    when (transportType) {
-        "WLAN" -> R.drawable.ic_symbol_wifi
-        "hotspot" -> R.drawable.ic_symbol_wifi_tethering
-        "cellular" -> R.drawable.ic_symbol_signal_cellular_alt
-        "ethernet" -> R.drawable.ic_symbol_lan
-        "vpn" -> R.drawable.ic_symbol_vpn_key
-        else -> R.drawable.ic_symbol_public
-    }
-)
+@DrawableRes
+fun getTransportIcon(transportType: String): Int = when (transportType) {
+    "WLAN" -> R.drawable.ic_symbol_wifi
+    "hotspot" -> R.drawable.ic_symbol_wifi_tethering
+    "cellular" -> R.drawable.ic_symbol_signal_cellular_alt
+    "ethernet" -> R.drawable.ic_symbol_lan
+    "vpn" -> R.drawable.ic_symbol_vpn_key
+    else -> R.drawable.ic_symbol_public
+}
 
 @Composable
 fun AppIcon(drawable: Drawable?, size: androidx.compose.ui.unit.Dp = 40.dp) {
@@ -653,7 +655,7 @@ fun AppIcon(drawable: Drawable?, size: androidx.compose.ui.unit.Dp = 40.dp) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Android,
+                painter = painterResource(R.drawable.ic_symbol_android),
                 contentDescription = null,
                 modifier = Modifier.size(size * 0.6f),
                 tint = MaterialTheme.colorScheme.outline

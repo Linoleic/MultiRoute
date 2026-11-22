@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -26,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -80,7 +78,7 @@ fun HotspotUpstreamCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.WifiTethering,
+                        painter = painterResource(R.drawable.ic_symbol_wifi_tethering),
                         contentDescription = null,
                         tint = if (status.isHotspotEnabled) MaterialTheme.colorScheme.onTertiaryContainer
                         else MaterialTheme.colorScheme.outline,
@@ -244,7 +242,7 @@ fun HotspotUpstreamCard(
                             )
                         },
                         leadingIcon = if (currentTarget.isEmpty() || currentTarget == "default") {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            { Icon(painterResource(R.drawable.ic_symbol_check), contentDescription = null, modifier = Modifier.size(14.dp)) }
                         } else null
                     )
 
@@ -259,7 +257,7 @@ fun HotspotUpstreamCard(
                             )
                         },
                         leadingIcon = if (isCellularSelected) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            { Icon(painterResource(R.drawable.ic_symbol_check), contentDescription = null, modifier = Modifier.size(14.dp)) }
                         } else null
                     )
 
@@ -276,7 +274,7 @@ fun HotspotUpstreamCard(
                             )
                         },
                         leadingIcon = if (isSecSelected) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            { Icon(painterResource(R.drawable.ic_symbol_check), contentDescription = null, modifier = Modifier.size(14.dp)) }
                         } else null
                     )
                 }

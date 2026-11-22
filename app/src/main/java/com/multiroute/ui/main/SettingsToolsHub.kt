@@ -34,18 +34,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -57,17 +51,21 @@ import com.multiroute.data.RouteConfigProvider
 import com.multiroute.theme.RoutingDimensions
 import com.multiroute.theme.ThemeSettings
 
-internal enum class PreferencePage(@param:StringRes val title: Int, @param:StringRes val summary: Int, val icon: ImageVector) {
-    NETWORK(R.string.settings_network, R.string.settings_network_summary, Icons.Default.Route),
-    APPEARANCE(R.string.settings_appearance_language, R.string.settings_appearance_summary, Icons.Default.Palette),
-    BACKUP(R.string.settings_backup_title, R.string.settings_backup_summary, Icons.Default.Backup),
-    ABOUT(R.string.ui_about, R.string.settings_about_summary, Icons.Default.Info),
-    CELLULAR(R.string.cellular_control_title, R.string.tools_cellular_summary, Icons.Default.SignalCellularAlt),
-    DUAL_WIFI(R.string.settings_dual_wifi_card_title, R.string.settings_dual_wifi_card_desc, Icons.Default.Wifi),
-    HOTSPOT(R.string.settings_hotspot_card_title, R.string.settings_hotspot_card_desc_inactive, Icons.Default.WifiTethering),
-    PROXY_UPSTREAM(R.string.proxy_upstream_title, R.string.proxy_upstream_tools_summary, Icons.Default.Dns),
-    WIRELESS(R.string.adb_helper_title, R.string.tools_adb_summary, Icons.Default.Terminal),
-    LOGS(R.string.settings_logs_title, R.string.tools_logs_summary, Icons.AutoMirrored.Filled.Article)
+internal enum class PreferencePage(
+    @param:StringRes val title: Int,
+    @param:StringRes val summary: Int,
+    @param:DrawableRes val icon: Int
+) {
+    NETWORK(R.string.settings_network, R.string.settings_network_summary, R.drawable.ic_symbol_route),
+    APPEARANCE(R.string.settings_appearance_language, R.string.settings_appearance_summary, R.drawable.ic_symbol_palette),
+    BACKUP(R.string.settings_backup_title, R.string.settings_backup_summary, R.drawable.ic_symbol_backup),
+    ABOUT(R.string.ui_about, R.string.settings_about_summary, R.drawable.ic_symbol_info),
+    CELLULAR(R.string.cellular_control_title, R.string.tools_cellular_summary, R.drawable.ic_symbol_signal_cellular_alt),
+    DUAL_WIFI(R.string.settings_dual_wifi_card_title, R.string.settings_dual_wifi_card_desc, R.drawable.ic_symbol_wifi),
+    HOTSPOT(R.string.settings_hotspot_card_title, R.string.settings_hotspot_card_desc_inactive, R.drawable.ic_symbol_wifi_tethering),
+    PROXY_UPSTREAM(R.string.proxy_upstream_title, R.string.proxy_upstream_tools_summary, R.drawable.ic_symbol_dns),
+    WIRELESS(R.string.adb_helper_title, R.string.tools_adb_summary, R.drawable.ic_symbol_terminal),
+    LOGS(R.string.settings_logs_title, R.string.tools_logs_summary, R.drawable.ic_symbol_article)
 }
 
 internal enum class DestinationLayout { BottomBar, CompactRail, StandardRail }
@@ -88,7 +86,10 @@ private val mainDestinations = listOf(
 @Composable
 private fun DestinationIcon(destination: MainDestination, selected: Boolean, description: String? = null) {
     Icon(
-        painter = painterResource(if (selected) destination.selectedIcon else destination.icon),
+        painter = painterResource(
+            if (selected) destination.selectedIcon
+            else destination.icon
+        ),
         contentDescription = description
     )
 }
@@ -491,7 +492,7 @@ private fun PreferenceDetail(
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             if (!dualPane) IconButton(onClick = { onBack() }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(
+                Icon(painterResource(R.drawable.ic_symbol_arrow_back), stringResource(
                         if (uiState.networkToolReturnTab != null) R.string.channels_back else R.string.settings_back))
             }
             Text(stringResource(page.title), style = MaterialTheme.typography.titleLarge,
@@ -499,7 +500,7 @@ private fun PreferenceDetail(
             if (wifiViewModel != null) IconButton(onClick = wifiViewModel::checkCapability,
                 enabled = wifiState?.status?.isScanning != true) {
                 if (wifiState?.status?.isScanning == true) LoadingIndicator(Modifier.size(24.dp))
-                else Icon(Icons.Default.Refresh, stringResource(R.string.dual_wifi_recheck))
+                else Icon(painterResource(R.drawable.ic_symbol_refresh), stringResource(R.string.dual_wifi_recheck))
             }
         }
         if (wifiViewModel != null) {
@@ -536,7 +537,7 @@ private fun PreferenceDetail(
 internal fun SettingsEntry(
     title: String,
     summary: String,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     selected: Boolean = false,
     index: Int = 0,
     count: Int = 1,
@@ -556,14 +557,14 @@ internal fun SettingsEntry(
         ),
         leadingContent = {
             Icon(
-                icon,
+                painterResource(icon),
                 contentDescription = null,
                 tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
                 else MaterialTheme.colorScheme.primary
             )
         },
         supportingContent = { Text(summary, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_symbol_chevron_right), contentDescription = null) },
         content = { Text(title, style = MaterialTheme.typography.bodyLarge) }
     )
 }
@@ -574,7 +575,7 @@ internal fun PreferenceChoiceRow(title: String, choices: List<Pair<String, Strin
     ListItem(
         onClick = { show = true },
         supportingContent = { Text(choices.firstOrNull { it.first == selected }?.second.orEmpty()) },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_symbol_chevron_right), contentDescription = null) },
         colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
         content = { Text(title) }
     )

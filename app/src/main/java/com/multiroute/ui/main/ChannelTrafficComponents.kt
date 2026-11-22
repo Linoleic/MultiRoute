@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -36,6 +33,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -263,7 +261,10 @@ private fun CompactRateBadge(
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Icon(
-            imageVector = if (isDownload) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+            painter = painterResource(
+                if (isDownload) R.drawable.ic_symbol_arrow_downward
+                else R.drawable.ic_symbol_arrow_upward
+            ),
             contentDescription = stringResource(
                 if (isDownload) R.string.traffic_download_short else R.string.traffic_upload_short
             ),
@@ -306,7 +307,10 @@ private fun DetailSpeedMetric(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Icon(
-                    imageVector = if (isDownload) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                    painter = painterResource(
+                        if (isDownload) R.drawable.ic_symbol_arrow_downward
+                        else R.drawable.ic_symbol_arrow_upward
+                    ),
                     contentDescription = null,
                     tint = tint,
                     modifier = Modifier.size(14.dp)

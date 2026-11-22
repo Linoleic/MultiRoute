@@ -1,5 +1,6 @@
 package com.multiroute.ui.main
 
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -22,16 +23,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Android
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,9 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -145,7 +136,7 @@ private fun AppRulesContent(
                             placeholder = { Text(stringResource(R.string.ui_search_hint)) },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Default.Search,
+                                    painter = painterResource(R.drawable.ic_symbol_search),
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -154,7 +145,7 @@ private fun AppRulesContent(
                                 if (uiState.searchQuery.isNotEmpty()) {
                                     IconButton(onClick = { viewModel.setSearchQuery("") }) {
                                         Icon(
-                                            imageVector = Icons.Default.Close,
+                                            painter = painterResource(R.drawable.ic_symbol_close),
                                             contentDescription = stringResource(R.string.cd_clear_search)
                                         )
                                     }
@@ -249,7 +240,7 @@ private fun AppRulesContent(
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
                             if (uiState.filterChannelId == "configured") {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(painterResource(R.drawable.ic_symbol_check), contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                             }
                             Text(stringResource(R.string.ui_filter_routed, uiState.configuredAppsCount))
@@ -269,7 +260,7 @@ private fun AppRulesContent(
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                             ) {
                                 Icon(
-                                    imageVector = getTransportIcon(channel.transportType),
+                                    painter = painterResource(getTransportIcon(channel.transportType)),
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -285,7 +276,7 @@ private fun AppRulesContent(
                             colors = toggleColors,
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
-                            Icon(Icons.Default.Android, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(painterResource(R.drawable.ic_symbol_android), contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(stringResource(R.string.filter_system_apps))
                         }
@@ -408,7 +399,7 @@ private fun AppRulesContent(
                 ) {
                     IconButton(onClick = { viewModel.exitSelectionMode() }) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            painter = painterResource(R.drawable.ic_symbol_close),
                             contentDescription = stringResource(R.string.ui_cancel)
                         )
                     }
@@ -417,7 +408,7 @@ private fun AppRulesContent(
                         enabled = uiState.apps.isNotEmpty()
                     ) {
                         Icon(
-                            imageVector = Icons.Default.DoneAll,
+                            painter = painterResource(R.drawable.ic_symbol_done_all),
                             contentDescription = stringResource(R.string.ui_select_all)
                         )
                     }
@@ -437,7 +428,7 @@ private fun AppRulesContent(
                     contentPadding = PaddingValues(horizontal = 20.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Tune,
+                        painter = painterResource(R.drawable.ic_symbol_tune),
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
@@ -596,7 +587,7 @@ private fun AppItemRow(
                         )
                 ) {
                     AppRoutingStatusIcon(
-                        imageVector = Icons.Default.VpnKey,
+                        icon = R.drawable.ic_symbol_vpn_key,
                         contentDescription = stringResource(R.string.ui_vpn_client),
                         containerColor = MaterialTheme.colorScheme.tertiary,
                         contentColor = MaterialTheme.colorScheme.onTertiary
@@ -607,7 +598,7 @@ private fun AppItemRow(
                     val gatewayLabel = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
                         ?.let { NetworkUtils.channelLabel(context, it) } ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
                     AppRoutingStatusIcon(
-                        imageVector = Icons.Default.Dns,
+                        icon = R.drawable.ic_symbol_dns,
                         contentDescription = stringResource(R.string.proxy_gateway_app_saved, gatewayLabel),
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -658,7 +649,7 @@ private fun AppItemRow(
 
 @Composable
 private fun AppRoutingStatusIcon(
-    imageVector: ImageVector,
+    @DrawableRes icon: Int,
     contentDescription: String,
     containerColor: Color,
     contentColor: Color
@@ -673,7 +664,7 @@ private fun AppRoutingStatusIcon(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = imageVector,
+            painter = painterResource(icon),
             contentDescription = contentDescription,
             modifier = Modifier.size(with(density) { 12.sp.toDp() }),
             tint = contentColor
@@ -730,7 +721,10 @@ private fun AppChannelBadge(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        imageVector = if (current != null) getTransportIcon(current.transportType) else Icons.Default.CloudOff,
+                        painter = painterResource(
+                            if (current != null) getTransportIcon(current.transportType)
+                            else R.drawable.ic_symbol_cloud_off
+                        ),
                         contentDescription = null,
                         modifier = Modifier.size(14.dp)
                     )

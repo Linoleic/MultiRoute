@@ -2,8 +2,6 @@ package com.multiroute.ui.main
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -115,7 +113,7 @@ internal fun ModuleDiagnosticsOverlay(
                 Text(stringResource(R.string.module_status_title), style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f))
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, stringResource(R.string.module_close))
+                    Icon(painterResource(R.drawable.ic_symbol_close), stringResource(R.string.module_close))
                 }
             }
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false),
@@ -138,7 +136,7 @@ internal fun ModuleDiagnosticsOverlay(
                             },
                             enabled = !uiState.isEnvironmentRefreshing
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(painterResource(R.drawable.ic_symbol_refresh), contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.cd_refresh))
                         }

@@ -1,5 +1,6 @@
 package com.multiroute.ui.wifi
 
+import androidx.annotation.DrawableRes
 import com.multiroute.theme.AppMotion
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -14,9 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,7 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -117,7 +115,7 @@ fun DualWifiScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Info,
+                            painter = painterResource(R.drawable.ic_symbol_info),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -128,7 +126,7 @@ fun DualWifiScreen(
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(onClick = { viewModel.clearActivationResult() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                            Icon(painterResource(R.drawable.ic_symbol_close), contentDescription = "Close", modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -151,7 +149,10 @@ fun DualWifiScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
-                                imageVector = if (uiState.needsSystemWifiSettings) Icons.Default.Info else Icons.Default.CheckCircle,
+                                painter = painterResource(
+                                    if (uiState.needsSystemWifiSettings) R.drawable.ic_symbol_info
+                                    else R.drawable.ic_symbol_check_circle_filled
+                                ),
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.secondary
                             )
@@ -162,7 +163,7 @@ fun DualWifiScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { viewModel.clearInfoMessage() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                                Icon(painterResource(R.drawable.ic_symbol_close), contentDescription = "Close", modifier = Modifier.size(18.dp))
                             }
                         }
                         if (uiState.needsSystemWifiSettings) {
@@ -191,7 +192,7 @@ fun DualWifiScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
+                            painter = painterResource(R.drawable.ic_symbol_warning),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.error
                         )
@@ -233,7 +234,7 @@ fun DualWifiScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(stringResource(R.string.dual_wifi_scanning), fontSize = 13.sp)
                         } else {
-                            Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(painterResource(R.drawable.ic_symbol_wifi), contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(stringResource(R.string.dual_wifi_scan_btn), fontSize = 13.sp)
                         }
@@ -316,7 +317,7 @@ fun DualWifiScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            painter = painterResource(R.drawable.ic_symbol_arrow_back),
                             contentDescription = stringResource(R.string.ui_cancel)
                         )
                     }
@@ -335,7 +336,7 @@ fun DualWifiScreen(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                painter = painterResource(R.drawable.ic_symbol_refresh),
                                 contentDescription = stringResource(R.string.dual_wifi_recheck)
                             )
                         }
@@ -477,7 +478,10 @@ private fun DualWifiSupportCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = if (capability.hardwareSupported) Icons.Default.CheckCircle else Icons.Default.Tune,
+                    painter = painterResource(
+                        if (capability.hardwareSupported) R.drawable.ic_symbol_check_circle_filled
+                        else R.drawable.ic_symbol_tune
+                    ),
                     contentDescription = null,
                     tint = if (capability.hardwareSupported) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                 )
@@ -536,7 +540,7 @@ private fun DualWifiSupportCard(
 
                     // 1. 硬件并发能力 (STA + STA 并发)
                     DiagnosticItemRow(
-                        icon = Icons.Default.Memory,
+                        icon = R.drawable.ic_symbol_memory,
                         title = stringResource(R.string.wifi_i18n_hardware_concurrency),
                         statusText = stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_hardware_supported else R.string.wifi_i18n_hardware_unsupported),
                         isOk = capability.hardwareSupported,
@@ -550,7 +554,7 @@ private fun DualWifiSupportCard(
 
                     // 2. 系统定制环境与方案
                     DiagnosticItemRow(
-                        icon = Icons.Default.PhoneAndroid,
+                        icon = R.drawable.ic_symbol_phone_android,
                         title = stringResource(R.string.wifi_i18n_system_scheme),
                         statusText = schemeBadge(capability.effectiveScheme),
                         isOk = true,
@@ -575,7 +579,7 @@ private fun DualWifiSupportCard(
                     val isXiaomi = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.XIAOMI_SLAVE
                     val isRootDirect = capability.effectiveScheme == com.multiroute.wifi.DualWifiScheme.ROOT_DIRECT
                     DiagnosticItemRow(
-                        icon = Icons.Default.Layers,
+                        icon = R.drawable.ic_symbol_layers,
                         title = stringResource(R.string.wifi_i18n_overlay_title),
                         statusText = when {
                             isXiaomi -> stringResource(R.string.wifi_i18n_oem_builtin)
@@ -597,7 +601,7 @@ private fun DualWifiSupportCard(
 
                     // 4. 并发运行工作模式 (Multi-AP 并发)
                     DiagnosticItemRow(
-                        icon = Icons.Default.Hub,
+                        icon = R.drawable.ic_symbol_hub,
                         title = stringResource(R.string.wifi_i18n_concurrency_mode),
                         statusText = stringResource(if (capability.modeActive) R.string.wifi_i18n_mode_active else R.string.wifi_i18n_inactive),
                         isOk = capability.modeActive,
@@ -610,7 +614,7 @@ private fun DualWifiSupportCard(
                     // 5. 副 Wi-Fi 物理层链路
                     val secLinked = status.secondaryConnected
                     DiagnosticItemRow(
-                        icon = Icons.Default.WifiTethering,
+                        icon = R.drawable.ic_symbol_wifi_tethering,
                         title = stringResource(R.string.wifi_i18n_secondary_physical_link, status.secondaryIface ?: capability.secondaryIface ?: "wlan1"),
                         statusText = stringResource(if (secLinked) R.string.wifi_i18n_link_active else R.string.wifi_i18n_link_ready),
                         isOk = secLinked,
@@ -635,7 +639,7 @@ private fun DualWifiSupportCard(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CleaningServices,
+                            painter = painterResource(R.drawable.ic_symbol_cleaning_services),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
@@ -661,7 +665,7 @@ private fun DualWifiSupportCard(
 
 @Composable
 private fun DiagnosticItemRow(
-    icon: ImageVector,
+    @DrawableRes icon: Int,
     title: String,
     statusText: String,
     isOk: Boolean,
@@ -685,7 +689,7 @@ private fun DiagnosticItemRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = icon,
+                    painter = painterResource(icon),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = if (isOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -735,7 +739,10 @@ private fun DiagnosticItemRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            imageVector = if (isOk) Icons.Default.Check else Icons.Default.Close,
+                            painter = painterResource(
+                                if (isOk) R.drawable.ic_symbol_check
+                                else R.drawable.ic_symbol_close
+                            ),
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
                             tint = if (isOk) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
@@ -984,7 +991,7 @@ private fun ActiveChannelsCard(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.WifiOff,
+                                painter = painterResource(R.drawable.ic_symbol_wifi_off),
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(20.dp)
@@ -1121,7 +1128,7 @@ private fun WifiScanRow(
                     )
                     if (item.isSecure) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
+                            painter = painterResource(R.drawable.ic_symbol_lock),
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.outline

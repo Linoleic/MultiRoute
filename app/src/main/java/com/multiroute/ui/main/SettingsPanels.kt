@@ -12,15 +12,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import com.multiroute.theme.AppMotion
 import com.multiroute.util.NetworkUtils
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -55,7 +53,7 @@ internal fun ModuleDiagnosticsPanel(uiState: MainUiState, onProxyUpstream: () ->
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Security,
+                    painter = painterResource(R.drawable.ic_symbol_security),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -516,7 +514,7 @@ internal fun TestNodeSettingsPanel(uiState: MainUiState, viewModel: MainScreenVi
                     onClick = { viewModel.openTestServerDialog() },
                     shapes = ButtonDefaults.shapes()
                 ) {
-                    Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(painterResource(R.drawable.ic_symbol_tune), contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(stringResource(com.multiroute.R.string.filter_configured))
                 }
@@ -537,19 +535,19 @@ internal fun RuleActionsMenu(uiState: MainUiState, viewModel: MainScreenViewMode
     var showMenu by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { showMenu = true }) {
-            Icon(Icons.Default.MoreVert, contentDescription = stringResource(com.multiroute.R.string.rules_actions))
+            Icon(painterResource(R.drawable.ic_symbol_more_vert), contentDescription = stringResource(com.multiroute.R.string.rules_actions))
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
                 text = { Text(stringResource(if (uiState.isSyncing) com.multiroute.R.string.ui_syncing_kernel else com.multiroute.R.string.ui_force_resync)) },
-                leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_symbol_sync), contentDescription = null) },
                 enabled = !uiState.isSyncing,
                 onClick = { showMenu = false; viewModel.forceSyncAllRules() }
             )
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(stringResource(com.multiroute.R.string.ui_clear_all_rules), color = MaterialTheme.colorScheme.error) },
-                leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_symbol_delete), contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                 enabled = !uiState.isSyncing,
                 onClick = { showMenu = false; showClearDialog = true }
             )
@@ -558,7 +556,7 @@ internal fun RuleActionsMenu(uiState: MainUiState, viewModel: MainScreenViewMode
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            icon = { Icon(painterResource(R.drawable.ic_symbol_warning), contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text(stringResource(com.multiroute.R.string.ui_confirm_clear_title)) },
             text = { Text(stringResource(com.multiroute.R.string.ui_clear_rules_desc)) },
             confirmButton = {
@@ -602,7 +600,7 @@ internal fun AboutSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewM
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Info,
+                        painter = painterResource(R.drawable.ic_symbol_info),
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -715,7 +713,7 @@ internal fun AboutSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewM
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Code,
+                            painter = painterResource(R.drawable.ic_symbol_code),
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
@@ -733,7 +731,7 @@ internal fun AboutSettingsPanel(uiState: MainUiState, viewModel: MainScreenViewM
                         }
                     }
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        painter = painterResource(R.drawable.ic_symbol_open_in_new),
                         contentDescription = stringResource(com.multiroute.R.string.cd_open_link),
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(18.dp)
