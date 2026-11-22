@@ -46,6 +46,7 @@ internal class AppRoutingDelegate(
 
     private companion object {
         const val TAG = "MultiRoute-AppScan"
+        const val PROBE_PACKAGE = "com.multiroute.probe"
     }
 
     fun transformAllApps(transform: (AppItem) -> AppItem) {
@@ -475,7 +476,9 @@ internal class AppRoutingDelegate(
             allApps = loaded.map {
                 it.copy(targetChannelId = currentRules[it.ruleKey] ?: CHANNEL_DEFAULT)
             }.sortedWith(
-                compareByDescending<AppItem> { it.targetChannelId != CHANNEL_DEFAULT }
+                compareByDescending<AppItem> { it.packageName == PROBE_PACKAGE }
+                    .thenBy { if (it.packageName == PROBE_PACKAGE) it.userId else 0 }
+                    .thenByDescending { it.targetChannelId != CHANNEL_DEFAULT }
                     .thenBy { it.isSystemApp }
                     .thenBy { it.appName.lowercase() }
             )
