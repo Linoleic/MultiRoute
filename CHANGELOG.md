@@ -22,6 +22,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 - 修复开机解锁后较晚连上信任 Wi-Fi 时，无线调试未自动恢复的问题。
 - 修复查询失败被误判为没有应用分身的问题，避免清除已缓存的分身列表。
+- 修复蜂窝清单读取超时时撤除仍在线 SIM 的分流规则，避免 VPN 重连时短暂走错出口。
 
 **English**
 
@@ -38,6 +39,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 - Restored wireless debugging when a trusted Wi-Fi connects after post-boot unlock.
 - Fixed failed clone-app queries being treated as empty results and clearing cached clone entries.
+- Preserved routing for an active SIM when the cellular inventory times out, preventing a brief switch to the wrong egress during VPN reconnection.
 
 ## v1.9.0 - 2026-11-19
 

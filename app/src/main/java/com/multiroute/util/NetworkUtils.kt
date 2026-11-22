@@ -6,6 +6,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.os.Build
+import com.multiroute.cellular.CellularSubscriptions
+import com.multiroute.cellular.subscriptionForNetwork
 import com.multiroute.data.TestServerManager
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.TestServerConfig
@@ -254,7 +256,7 @@ object NetworkUtils {
     suspend fun getActiveChannels(context: Context): List<NetworkChannel> = withContext(Dispatchers.IO) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val activeDefault = cm.activeNetwork
-        val subscriptions = com.multiroute.cellular.CellularSubscriptions.read(context)
+        val subscriptions = CellularSubscriptions.read(context, useLastConfirmed = true)
         val result = mutableListOf<NetworkChannel>()
         val wifiDetails = getConnectedWifiDetails()
         val hotspotInfo = runCatching { com.multiroute.wifi.DualWifiManager.checkHotspotState(context) }.getOrNull()
@@ -338,7 +340,9 @@ object NetworkUtils {
                 }
             }
 
-            val subscription = subscriptions.firstOrNull { it.networks[network.toString()] == iface }
+            val subscription = if (transportType == "cellular") {
+                subscriptions.subscriptionForNetwork(network.toString(), iface)
+            } else null
             val simLabel = subscription?.let {
                 context.getString(com.multiroute.R.string.cellular_sim_label, it.slot, it.carrier) +
                     if (it.isDefault) context.getString(com.multiroute.R.string.cellular_default_suffix) else ""
