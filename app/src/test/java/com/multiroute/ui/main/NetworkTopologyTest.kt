@@ -20,13 +20,9 @@ import org.junit.Test
 
 class NetworkTopologyTest {
     @Test
-    fun overviewScaleUsesTheWholeViewportWithinTheSupportedRange() {
-        val threeColumns = TopologyCanvasMetrics.minWidthDp(3)
-        assertEquals(672, threeColumns)
+    fun minimumWidthAccountsForColumnsAndTheirGaps() {
+        assertEquals(672, TopologyCanvasMetrics.minWidthDp(3))
         assertEquals(448, TopologyCanvasMetrics.minWidthDp(2))
-        assertEquals(384f / threeColumns, TopologyCanvasMetrics.fitScale(384, threeColumns), 0.0001f)
-        assertEquals(TopologyCanvasMetrics.MIN_FIT_SCALE, TopologyCanvasMetrics.fitScale(180, threeColumns), 0.0001f)
-        assertEquals(1f, TopologyCanvasMetrics.fitScale(720, threeColumns), 0.0001f)
     }
 
     @Test

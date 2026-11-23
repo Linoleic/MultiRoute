@@ -311,8 +311,7 @@
     <string name="proxy_gateway_status_summary">已映射 %1$d 个通道 · 已保存 %2$d 个应用出口规则</string>
     <string name="topology_list_view">列表</string>
     <string name="topology_graph_view">拓扑</string>
-    <string name="topology_detail_view">细节</string>
-    <string name="topology_overview_view">全览</string>
+    <string name="topology_reset_view">复原拓扑视图</string>
     <string name="topology_sources">流量来源</string>
     <string name="topology_relays">隧道与代理</string>
     <string name="topology_egresses">物理出口</string>

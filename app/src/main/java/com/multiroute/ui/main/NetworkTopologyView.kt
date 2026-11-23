@@ -5,10 +5,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -20,16 +19,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -39,12 +36,14 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -58,6 +57,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
@@ -71,9 +71,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.constrainHeight
-import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multiroute.R
@@ -83,10 +82,6 @@ import com.multiroute.util.NetworkUtils
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.roundToInt
-import kotlin.math.sin
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -117,95 +112,106 @@ internal fun NetworkTopologyView(
     }
     val contentWidth = TopologyCanvasMetrics.minWidthDp(layers.size).dp
     val colors = MaterialTheme.colorScheme
-    var overview by rememberSaveable { mutableStateOf(false) }
-    val horizontalScroll = rememberScrollState()
-    val clearSelection = rememberUpdatedState(onClearSelection)
-    val blankTap = if (selectedNodeId == null) Modifier else Modifier.pointerInput(Unit) {
-        detectTapGestures(onTap = { clearSelection.value() })
-    }
-
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        val viewportWidth = maxWidth
-        val compact = viewportWidth < contentWidth
-        Column {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TopologyLegend(Modifier.weight(1f).padding(start = 8.dp))
-                if (compact) {
-                    TextButton(onClick = { overview = !overview }) {
-                        Text(stringResource(if (overview) R.string.topology_detail_view else R.string.topology_overview_view))
-                    }
-                }
-                IconButton(onClick = onTestChannels, enabled = !isTesting) {
-                    Icon(
-                        painterResource(R.drawable.ic_symbol_speed),
-                        stringResource(if (isTesting) R.string.ui_testing_channels else R.string.ui_test_channels),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+    Column(modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TopologyLegend(Modifier.weight(1f).padding(start = 8.dp))
+            IconButton(onClick = onTestChannels, enabled = !isTesting) {
+                Icon(
+                    painterResource(R.drawable.ic_symbol_speed),
+                    stringResource(if (isTesting) R.string.ui_testing_channels else R.string.ui_test_channels),
+                    modifier = Modifier.size(20.dp)
+                )
             }
-            Column(Modifier.weight(1f).fillMaxWidth().then(blankTap).verticalScroll(rememberScrollState())) {
-                if (topology.activeScenarioNames.isNotEmpty()) {
-                    FlowRow(
-                        Modifier.fillMaxWidth().padding(horizontal = TopologyCanvasMetrics.SIDE_PADDING_DP.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        for (name in topology.activeScenarioNames) {
-                            Surface(shape = RoundedCornerShape(50), color = colors.secondaryContainer) {
-                                Text(
-                                    stringResource(R.string.topology_active_scenario, name),
-                                    Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    val graph: @Composable () -> Unit = {
-                        TopologyColumns(
-                            topology, layers, trafficFlow, testResults, selectedNodeId, onNodeClick
+        }
+        if (topology.activeScenarioNames.isNotEmpty()) {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = TopologyCanvasMetrics.SIDE_PADDING_DP.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                for (name in topology.activeScenarioNames) {
+                    Surface(shape = RoundedCornerShape(50), color = colors.secondaryContainer) {
+                        Text(
+                            stringResource(R.string.topology_active_scenario, name),
+                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    when {
-                        !compact -> graph()
-                        overview -> {
-                            // A window narrower than the minimum zoom still exposes the remaining canvas.
-                            val fittedWidth = maxOf(viewportWidth, contentWidth * TopologyCanvasMetrics.MIN_FIT_SCALE)
-                            val overflow = fittedWidth > viewportWidth
-                            val viewport = if (overflow) Modifier.horizontalScroll(rememberScrollState()) else Modifier
-                            Box(Modifier.fillMaxWidth().then(viewport)) {
-                                FitTopology(contentWidth, Modifier.width(fittedWidth), graph)
-                            }
-                        }
-                        else -> Box(Modifier.fillMaxWidth().horizontalScroll(horizontalScroll)) {
-                            Box(Modifier.width(contentWidth)) { graph() }
-                        }
-                    }
                 }
+            }
+        }
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            ZoomableTopology(
+                contentWidth = contentWidth,
+                hasSelection = selectedNodeId != null,
+                onClearSelection = onClearSelection,
+                modifier = Modifier.weight(1f)
+            ) {
+                TopologyColumns(topology, layers, trafficFlow, testResults, selectedNodeId, onNodeClick)
             }
         }
     }
 }
 
+private val topologyViewportSaver = listSaver<TopologyViewport, Float>(
+    save = { listOf(it.scale, it.offset.x, it.offset.y) },
+    restore = { TopologyViewport(it[0], Offset(it[1], it[2])) }
+)
+
 @Composable
-private fun FitTopology(contentWidth: Dp, modifier: Modifier, content: @Composable () -> Unit) {
-    Layout(content = content, modifier = modifier) { measurables, constraints ->
-        val graph = measurables.single().measure(Constraints.fixedWidth(contentWidth.roundToPx()))
-        val scale = TopologyCanvasMetrics.fitScale(constraints.maxWidth, graph.width)
-        val width = (graph.width * scale).roundToInt()
-        val height = (graph.height * scale).roundToInt()
-        layout(constraints.constrainWidth(width), constraints.constrainHeight(height)) {
-            graph.placeRelativeWithLayer(0, 0) {
-                scaleX = scale
-                scaleY = scale
-                transformOrigin = TransformOrigin(0f, 0f)
+private fun ZoomableTopology(
+    contentWidth: Dp,
+    hasSelection: Boolean,
+    onClearSelection: () -> Unit,
+    modifier: Modifier,
+    content: @Composable () -> Unit
+) {
+    val viewport = rememberSaveable(stateSaver = topologyViewportSaver) { mutableStateOf(TopologyViewport()) }
+    var contentSize by remember { mutableStateOf(IntSize.Zero) }
+    val clearSelection = rememberUpdatedState(onClearSelection)
+    val blankTap = if (hasSelection) Modifier.pointerInput(Unit) {
+        detectTapGestures(onTap = { clearSelection.value() })
+    } else Modifier
+
+    Box(modifier.fillMaxSize()) {
+        Layout(
+            content = { Box(Modifier.onSizeChanged { contentSize = it }) { content() } },
+            modifier = Modifier.fillMaxSize().clipToBounds()
+                .pointerInput(Unit) {
+                    detectTransformGestures(panZoomLock = true) { centroid, pan, zoom, _ ->
+                        viewport.value = viewport.value.transformed(centroid, pan, zoom, size, contentSize)
+                    }
+                }
+                .then(blankTap)
+        ) { measurables, constraints ->
+            val viewportSize = IntSize(constraints.maxWidth, constraints.maxHeight)
+            val graphWidth = maxOf(viewportSize.width, contentWidth.roundToPx())
+            val graph = measurables.single().measure(Constraints.fixedWidth(graphWidth))
+            val graphSize = IntSize(graph.width, graph.height)
+            layout(viewportSize.width, viewportSize.height) {
+                // The graph, its connectors and its touch targets share one transformation.
+                graph.placeRelativeWithLayer(0, 0) {
+                    val view = viewport.value.constrained(viewportSize, graphSize)
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    scaleX = view.scale
+                    scaleY = view.scale
+                    translationX = view.offset.x
+                    translationY = view.offset.y
+                }
             }
+        }
+        SmallFloatingActionButton(
+            onClick = { viewport.value = TopologyViewport() },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp),
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        ) {
+            Icon(painterResource(R.drawable.ic_symbol_refresh), stringResource(R.string.topology_reset_view))
         }
     }
 }
@@ -271,19 +277,16 @@ private fun TopologyColumns(
                         if (end.x <= start.x) continue
                         val path = Path().apply { moveTo(start.x, start.y) }
                         val lane = directLanes[edge]
-                        val lastControl: Offset
                         if (lane != null) {
                             // Both turns stay in the gaps beside the relay column.
                             val turn = gap.toPx() / 3f
                             val laneY = lane.dp.toPx()
                             path.cubicTo(start.x + turn, start.y, start.x + turn, laneY, start.x + 2 * turn, laneY)
                             path.lineTo(end.x - 2 * turn, laneY)
-                            lastControl = Offset(end.x - turn, end.y)
-                            path.cubicTo(end.x - turn, laneY, lastControl.x, lastControl.y, end.x, end.y)
+                            path.cubicTo(end.x - turn, laneY, end.x - turn, end.y, end.x, end.y)
                         } else {
                             val bend = (end.x - start.x) / 2f
-                            lastControl = Offset(end.x - bend, end.y)
-                            path.cubicTo(start.x + bend, start.y, lastControl.x, lastControl.y, end.x, end.y)
+                            path.cubicTo(start.x + bend, start.y, end.x - bend, end.y, end.x, end.y)
                         }
                         val color = when (edge.style) {
                             TopologyEdgeStyle.SOLID -> colors.primary
@@ -306,7 +309,6 @@ private fun TopologyColumns(
                                 } else null
                             )
                         )
-                        drawArrowHead(end, lastControl, color, if (lineWidth == 2.5.dp) 8.dp.toPx() else 7.dp.toPx())
                     }
                 }
                 Row(
@@ -609,23 +611,3 @@ private fun topologyHasActiveNetwork(topology: NetworkTopology): Boolean =
     topology.egresses.any { it is TopologyNode.Physical } ||
         topology.relays.any { it is TopologyNode.Vpn } ||
         topology.sources.any { it is TopologyNode.Hotspot }
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawArrowHead(
-    start: Offset,
-    control: Offset,
-    color: androidx.compose.ui.graphics.Color,
-    size: Float
-) {
-    val angle = atan2(start.y - control.y, start.x - control.x)
-    val wing = size * 0.72f
-    val first = Offset(
-        start.x - size * cos(angle) + wing * sin(angle),
-        start.y - size * sin(angle) - wing * cos(angle)
-    )
-    val second = Offset(
-        start.x - size * cos(angle) - wing * sin(angle),
-        start.y - size * sin(angle) + wing * cos(angle)
-    )
-    drawLine(color, start, first, strokeWidth = size * 0.28f, cap = StrokeCap.Round)
-    drawLine(color, start, second, strokeWidth = size * 0.28f, cap = StrokeCap.Round)
-}
