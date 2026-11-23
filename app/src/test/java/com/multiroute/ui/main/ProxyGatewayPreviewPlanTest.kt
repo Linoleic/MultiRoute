@@ -60,4 +60,25 @@ class ProxyGatewayPreviewPlanTest {
         )
         assertEquals(emptyList<GatewayPreviewRow>(), rows)
     }
+
+    @Test
+    fun keepsPhysicalUnmappedWarningWhenDifferentDraftInterfaceIsAlsoUnmapped() {
+        val rows = planPhysicalSkippedRows(
+            published = mapOf(10301 to "wlan0", 10302 to "wlan0"),
+            installed4 = mapOf(10301 to "wlan0", 10302 to "wlan0"),
+            serializedUids = emptySet(),
+            existingSkipped = listOf(
+                GatewayPreviewRow("com.example.a", 10301, "wlan1", null, GatewayPreviewSkipReason.OUTBOUND_UNMAPPED),
+                GatewayPreviewRow("com.example.b", 10302, "wlan0", null, GatewayPreviewSkipReason.OUTBOUND_UNMAPPED)
+            ),
+            ruleKeysByUid = mapOf(10301 to "com.example.a", 10302 to "com.example.b"),
+            activeIfaces = setOf("wlan0", "wlan1"),
+            physicalOutbounds = emptyMap(),
+            routeStateCertain = true
+        )
+        assertEquals(
+            listOf(GatewayPreviewRow("com.example.a", 10301, "wlan0", null, GatewayPreviewSkipReason.OUTBOUND_UNMAPPED)),
+            rows
+        )
+    }
 }

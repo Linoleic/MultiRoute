@@ -138,7 +138,7 @@ internal class ProxyUpstreamController(
             onSaved(false)
             return
         }
-        val normalized = mappings.mapValues { (_, tag) -> tag.trim() }.filterValues { it.isNotEmpty() }
+        val normalized = mappings.filterValues { it.isNotBlank() }
         _state.update { it.copy(gatewayBusy = true) }
         scope.launch {
             try {
@@ -166,9 +166,8 @@ internal class ProxyUpstreamController(
             onSaved(false)
             return
         }
-        val trimmedTag = outboundTag?.trim()
         val mappings = _state.value.gatewayMappings
-        if (channelId != null && trimmedTag == null && channelId !in mappings.keys) {
+        if (channelId != null && outboundTag == null && channelId !in mappings.keys) {
             onSaved(false)
             return
         }
@@ -178,9 +177,9 @@ internal class ProxyUpstreamController(
                 val next = _state.value.gatewayAppTargets.toMutableMap().apply {
                     if (channelId == null) remove(ruleKey) else put(ruleKey, channelId)
                 }.toMap()
-                if (channelId != null && trimmedTag != null) {
-                    require(trimmedTag.isNotEmpty())
-                    val nextMappings = mappings.toMutableMap().apply { put(channelId, trimmedTag) }.toMap()
+                if (channelId != null && outboundTag != null) {
+                    require(outboundTag.isNotBlank())
+                    val nextMappings = mappings.toMutableMap().apply { put(channelId, outboundTag) }.toMap()
                     withContext(Dispatchers.IO) { store.saveGatewayMappings(nextMappings) }
                     // Persist the mapping first. If saving the app choice then fails, the mapping remains
                     // usable and the existing app choice stays untouched rather than pointing at absent data.
@@ -517,9 +516,11 @@ internal fun planPhysicalSkippedRows(
         }
         val alreadyExplained = existingSkipped.any {
             it.uid == uid && (
-                it.skipReason == reason ||
-                    it.skipReason == GatewayPreviewSkipReason.INVALID_UID ||
-                    it.skipReason == GatewayPreviewSkipReason.VPN_OWNER
+                it.skipReason == GatewayPreviewSkipReason.INVALID_UID ||
+                    it.skipReason == GatewayPreviewSkipReason.VPN_OWNER ||
+                    (it.skipReason == GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN &&
+                        reason == GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN) ||
+                    (it.skipReason == reason && it.channel == iface)
                 )
         }
         if (alreadyExplained) continue

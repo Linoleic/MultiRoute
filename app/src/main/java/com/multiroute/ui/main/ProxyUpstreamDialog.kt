@@ -152,7 +152,7 @@ private fun ProxyGatewayMappingDialog(
                 enabled = !state.gatewayBusy && (active.isNotEmpty() || draft.isNotEmpty()),
                 onClick = {
                     failed = false
-                    val mappings = draft.mapValues { it.value.trim() }.filterValues { it.isNotEmpty() }
+                    val mappings = draft.filterValues { it.isNotBlank() }
                     controller.saveGatewayMappings(mappings) { saved ->
                         failed = !saved
                         if (saved) onDismiss()

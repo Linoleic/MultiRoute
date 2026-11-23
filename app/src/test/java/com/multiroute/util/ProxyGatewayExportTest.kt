@@ -119,6 +119,18 @@ class ProxyGatewayExportTest {
     }
 
     @Test
+    fun singBoxPreservesExactOutboundTagIncludingTrailingWhitespace() {
+        val fragment = checkNotNull(ProxyGatewayExport.build(
+            publishedRules = mapOf(10301 to "rmnet_data0"),
+            installedRules = mapOf(10301 to "rmnet_data0"),
+            physicalOutbounds = mapOf("rmnet_data0" to "Cellular "),
+            format = ProxyGatewayFormat.SING_BOX
+        ))
+        val rules = JSONObject(fragment.content).getJSONObject("route").getJSONArray("rules")
+        assertEquals("Cellular ", rules.getJSONObject(0).getString("outbound"))
+    }
+
+    @Test
     fun rejectsAmbiguousMihomoTags() {
         listOf("Proxy,DIRECT", "Proxy\n  - MATCH,DIRECT", " Proxy", "Proxy\u0000").forEach { tag ->
             assertThrows(ProxyGatewayExport.InvalidMihomoOutbound::class.java) {

@@ -241,7 +241,7 @@ internal fun ChannelSelectBottomSheet(
                 TextButton(
                     enabled = !gatewayBusy && pendingChannel != null && outboundTag.isNotBlank(),
                     onClick = {
-                        onSelectGateway(pendingGatewayKey, outboundTag.trim()) { saved ->
+                        onSelectGateway(pendingGatewayKey, outboundTag) { saved ->
                             if (saved) pendingGatewayKey = null
                         }
                     }
