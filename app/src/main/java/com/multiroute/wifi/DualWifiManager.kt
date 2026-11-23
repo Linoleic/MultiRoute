@@ -594,6 +594,8 @@ object DualWifiManager {
             driver.prepareConnect(context)
             checkCurrentSecondaryIntent(ticket)
 
+            val connectStartedAt = java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
+                .format(java.util.Date())
             driverExecuting = true
             driver.executeConnect(context, ssid, bssid, frequencyMhz, passphrase, capabilities) {
                 checkCurrentSecondaryIntent(ticket)
@@ -614,23 +616,22 @@ object DualWifiManager {
                     break
                 }
 
-                // Check recent logcat for handshake failures
-                if (i in 2..(maxAttempts - 2)) {
+                // Check logcat since connectStartedAt for handshake/association failures on the secondary interface.
+                if (i in 1 until maxAttempts) {
                     val logs = SuHelper.executeShellWithOutput(
-                        "logcat -d -t 30 -s wpa_supplicant:I WifiClientModeImpl:D ClientModeImpl:D | grep -E 'WRONG_KEY|AUTH_FAILURE|Association rejection'",
+                        "logcat -d -T '$connectStartedAt' | grep -E 'WRONG_KEY|AUTH_FAILURE_WRONG_PSWD|pre-shared key may be incorrect|CTRL-EVENT-ASSOC-REJECT|Association rejection'",
                         timeoutSeconds = 2
                     )
-                    for (line in logs) {
-                        when {
-                            line.contains("WRONG_KEY") || line.contains("AUTH_FAILURE_WRONG_PSWD") -> {
-                                failureReason = context.getString(R.string.wifi_i18n_wrong_password)
-                                break
-                            }
-                            line.contains("Association rejection") -> {
-                                failureReason = context.getString(R.string.wifi_i18n_ap_rejected)
-                                break
-                            }
-                        }
+                    failureReason = when (
+                        parseSecondaryHandshakeFailure(
+                            logs,
+                            targetBssid = bssid,
+                            primaryIface = _status.value.primaryIface
+                        )
+                    ) {
+                        SecondaryHandshakeFailure.WRONG_PASSWORD -> context.getString(R.string.wifi_i18n_wrong_password)
+                        SecondaryHandshakeFailure.AP_REJECTED -> context.getString(R.string.wifi_i18n_ap_rejected)
+                        null -> null
                     }
                     if (failureReason != null) break
                 }
@@ -774,4 +775,39 @@ object DualWifiManager {
         }
         return true
     }
+}
+
+internal enum class SecondaryHandshakeFailure {
+    WRONG_PASSWORD,
+    AP_REJECTED
+}
+
+private val secondaryIfacePattern = Regex("""\bwlan([1-9]\d*)\b""")
+private val bssidValuePattern = Regex("""bssid[=:]\s*([0-9a-fA-F:]{17})""", RegexOption.IGNORE_CASE)
+
+internal fun parseSecondaryHandshakeFailure(
+    lines: List<String>,
+    targetBssid: String? = null,
+    primaryIface: String? = null
+): SecondaryHandshakeFailure? {
+    for (line in lines) {
+        val hasSecondaryIface = secondaryIfacePattern.containsMatchIn(line)
+        if (!hasSecondaryIface) continue
+        if (!primaryIface.isNullOrBlank() && Regex("""\b${Regex.escape(primaryIface)}\b""").containsMatchIn(line)) continue
+        if (!targetBssid.isNullOrBlank()) {
+            val lineBssid = bssidValuePattern.find(line)?.groupValues?.get(1)
+            if (lineBssid != null && !lineBssid.equals(targetBssid, ignoreCase = true)) continue
+        }
+        when {
+            line.contains("WRONG_KEY") ||
+                line.contains("AUTH_FAILURE_WRONG_PSWD") ||
+                line.contains("pre-shared key may be incorrect", ignoreCase = true) -> {
+                return SecondaryHandshakeFailure.WRONG_PASSWORD
+            }
+            line.contains("CTRL-EVENT-ASSOC-REJECT") || line.contains("Association rejection") -> {
+                return SecondaryHandshakeFailure.AP_REJECTED
+            }
+        }
+    }
+    return null
 }
