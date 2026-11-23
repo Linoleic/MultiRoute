@@ -91,6 +91,7 @@ MultiRoute provides four main destinations (**App routing**, **Channels**, **Too
 
 ### 2. Channels
 - **Channel list & traffic meter**: View active links (`Primary Wi-Fi`, `Secondary Wi-Fi`, `Cellular`, `VPN`, `Hotspot` downlinks, `Ethernet`) along with current RX/TX rates, a 30-second rate history graph, window peak speeds, and cumulative traffic since boot.
+- **Network topology view**: Switch between **List** and **Topology** to inspect a 3-layer directed graph of traffic sources (system default, active scenario overrides, routed apps, proxy egress drafts, hotspot downlinks), relays (VPN / transparent proxy gateway), and physical egresses with live traffic highlights; tap any node to spotlight its connected path and open quick actions.
 - **Channel details**: Tap a channel card to inspect interface name, IP addresses, gateway, DNS servers, MTU, metered status, **System-estimated throughput**, and (for WLAN links) **Wi-Fi link rate** (negotiated RX/TX Mbps) plus band and channel.
 - **Public-IP probe**: Run an on-demand test through a specific channel using HTTPS presets or a custom endpoint.
 - **Secondary SIM & inactive links**: Inactive or establishing links (such as the non-default data SIM on supported dual-SIM devices) expose management actions directly in the Channels tab or Tools.
@@ -98,7 +99,7 @@ MultiRoute provides four main destinations (**App routing**, **Channels**, **Too
 ### 3. Tools
 - **Dual Wi-Fi Manager**:
   - Choose a connection scheme (**Auto** is the default; Xiaomi/HyperOS devices use `SlaveWifiService` coordination and keepalive hooks, while Android 13+ AOSP/other ROMs provide Overlay and Root options).
-  - System Multi-Internet schemes only connect to networks already saved in Android Wi-Fi settings; MultiRoute does not store or send Wi-Fi passwords in those requests. Access points with the same SSID are listed separately by BSSID and band.
+  - System Multi-Internet schemes only connect to networks already saved in Android Wi-Fi settings; MultiRoute does not store or send Wi-Fi passwords in those requests. Access points with the same SSID are listed separately by BSSID and band, and dual-5G (HBS) capability is probed to flag 5 GHz + 5 GHz conflicts on devices that require 2.4 GHz + 5 GHz.
 - **Personal Hotspot Upstream**: Select **Cellular**, **Secondary Wi-Fi**, or **System Default** (including before turning on Hotspot) and view the reported active upstream on the status card. Forwarding, NAT, IPv6, and offload remain managed by Android Tethering.
 - **Wireless Debugging Helper**: Switch between **Native TLS** (Android 11+ dynamic port and pairing) and **Legacy TCP** (`1024..65535`, default `5555`), inspect active connections and peer IPs, copy the `adb connect` command, and configure a trusted Wi-Fi list for boot/unlock recovery, automatic enablement/switching on Wi-Fi connect (via `system_server` callbacks), or system auto-start takeover.
 - **Runtime logs & module status**: Open the toolbar status icon to verify hook readiness and build parity, or open **Tools → Runtime logs** to check per-UID rule status, boot logs, wireless ADB automation logs, and exportable diagnostic snapshots.

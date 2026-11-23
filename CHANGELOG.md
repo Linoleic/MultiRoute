@@ -11,11 +11,13 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 变更
 
+- 网络通道新增可交互拓扑视图（支持列表/拓扑切换、链路聚焦、生效场景方案展示与实时流量高亮）。
 - VPN 通道详情显示已配置上游和系统报告的上游，并在两者不同时提示重新连接。
 - 网络通道可直接更改 VPN 上游，分流规则标识 VPN 创建应用并提示回环限制。
-- 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览和导出 sing-box 或 Mihomo 应用代理出口规则。
+- 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览、复制和导出 sing-box 或 Mihomo 应用代理出口规则（记住导出格式、应用分流页新增「代理出口」筛选）。
 - 应用通道选择器显示已保存的代理出口，可直接预览导出结果和跳过原因。
 - 为兼容的 Android VPN 客户端导出逐应用 Wi-Fi 出口规则，预览会核对 VPN 的应用接管范围。README 列出客户端要求与验证范围。
+- 双 Wi-Fi 助手增加双 5G (HBS) 并发能力检测，在不支持双 5G 的机型上对同 5G 频段候选给出冲突提示。
 - 更新应用图标，统一应用内功能图标，并采用 Android 的三格 Wi-Fi 信号指示。
 
 ### 修复
@@ -23,16 +25,19 @@ bilingual, Chinese first: the release page is what most users read.
 - 修复开机解锁后较晚连上信任 Wi-Fi 时，无线调试未自动恢复的问题。
 - 修复查询失败被误判为没有应用分身的问题，避免清除已缓存的分身列表。
 - 修复蜂窝清单读取超时时撤除仍在线 SIM 的分流规则，避免 VPN 重连时短暂走错出口。
+- 修复副 Wi-Fi 关联被拒或握手失败时未能及时捕获日志、需等待超时的问题。
 
 **English**
 
 ### Changed
 
+- Added an interactive topology view in Network Channels with list/topology switching, click-to-focus path tracing, active scenario display, and live traffic highlights.
 - VPN channel details show the configured and system-reported upstream networks and suggest reconnecting when they differ.
 - Change a VPN's upstream from Network Channels. Routing rules identify the VPN client and explain loop prevention.
-- Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, and export for sing-box and Mihomo.
+- Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, copy, and export for sing-box and Mihomo (remembering the export format and adding a Proxy egress filter in App Routing).
 - The app channel picker shows the saved proxy egress and opens a preview of export eligibility and skip reasons.
 - Export per-app Wi-Fi egress rules for compatible Android VPN clients and check VPN app coverage in the preview. The README lists client requirements and verified configurations.
+- Added dual-5G (HBS) concurrency detection in Dual Wi-Fi Manager to flag 5 GHz + 5 GHz band conflicts on devices without HBS support.
 - Updated the app icon, standardized in-app interface icons, and adopted Android's three-segment Wi-Fi indicator.
 
 ### Fixed
@@ -40,6 +45,7 @@ bilingual, Chinese first: the release page is what most users read.
 - Restored wireless debugging when a trusted Wi-Fi connects after post-boot unlock.
 - Fixed failed clone-app queries being treated as empty results and clearing cached clone entries.
 - Preserved routing for an active SIM when the cellular inventory times out, preventing a brief switch to the wrong egress during VPN reconnection.
+- Fixed secondary Wi-Fi association rejections and handshake failures not being captured promptly from logcat.
 
 ## v1.9.0 - 2026-11-19
 
