@@ -2,6 +2,7 @@ package com.multiroute.ui.main
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -18,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.multiroute.R
@@ -59,6 +61,8 @@ internal fun ChannelSelectBottomSheet(
     val context = LocalContext.current
     var pendingGatewayKey by rememberSaveable { mutableStateOf<String?>(null) }
     var outboundTag by rememberSaveable { mutableStateOf("") }
+    var proxyExpansionOverride by rememberSaveable(app.ruleKey) { mutableStateOf<Boolean?>(null) }
+    val proxyRulesExpanded = proxyExpansionOverride ?: (gatewayTarget != null || gatewayMappings.isNotEmpty() || compatibleVpn != null)
     val offline = app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.matchesTarget(app) }
     val entries = buildList {
         add(
@@ -165,52 +169,71 @@ internal fun ChannelSelectBottomSheet(
         }
         if (gatewayEnabled || gatewayTarget != null) {
             item(key = "gateway-header") {
-                Text(
-                    text = stringResource(R.string.proxy_gateway_app_title),
-                    modifier = Modifier.padding(top = 16.dp).semantics { heading() },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = stringResource(when {
-                        app.targetChannelId == CHANNEL_DEFAULT -> R.string.proxy_gateway_app_hint
-                        compatibleVpn?.matchesTarget(app) == true -> R.string.proxy_gateway_app_vpn_hint
-                        else -> R.string.proxy_gateway_app_physical_draft_hint
-                    }),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (gatewayTarget != null) {
-                    val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
-                    val label = current?.let { NetworkUtils.channelLabel(context, it) }
-                        ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
-                    Text(
-                        text = stringResource(R.string.proxy_gateway_app_saved, label),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    val issue = when {
-                        current == null -> R.string.proxy_gateway_skip_offline
-                        gatewayMappings[gatewayTarget].isNullOrBlank() -> R.string.proxy_gateway_skip_mapping
-                        else -> null
+                val summary = when {
+                    gatewayTarget != null -> {
+                        val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                        val label = current?.let { NetworkUtils.channelLabel(context, it) }
+                            ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
+                        stringResource(R.string.proxy_gateway_app_saved, label)
                     }
-                    if (issue != null) {
-                        Text(stringResource(issue), style = MaterialTheme.typography.bodySmall,
+                    else -> stringResource(R.string.proxy_gateway_app_collapsed_hint)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .clickable(role = Role.Button) { proxyExpansionOverride = !proxyRulesExpanded }
+                        .semantics { heading() }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.proxy_gateway_app_title), style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary)
+                        if (!proxyRulesExpanded) Text(summary, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    TextButton(onClick = onPreviewGateway, enabled = !gatewayBusy) {
-                        Text(stringResource(R.string.proxy_gateway_open_tool))
-                    }
+                    Icon(
+                        painter = painterResource(if (proxyRulesExpanded) R.drawable.ic_symbol_expand_less else R.drawable.ic_symbol_expand_more),
+                        contentDescription = stringResource(if (proxyRulesExpanded) R.string.proxy_gateway_collapse else R.string.proxy_gateway_expand)
+                    )
                 }
-                if (gatewayEnabled && gatewayChannels.isEmpty()) {
+                if (proxyRulesExpanded) {
                     Text(
-                        stringResource(R.string.proxy_gateway_app_no_channels),
+                        text = stringResource(when {
+                            app.targetChannelId == CHANNEL_DEFAULT -> R.string.proxy_gateway_app_hint
+                            compatibleVpn?.matchesTarget(app) == true -> R.string.proxy_gateway_app_vpn_hint
+                            else -> R.string.proxy_gateway_app_physical_draft_hint
+                        }),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (gatewayTarget != null) {
+                        val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                        val label = current?.let { NetworkUtils.channelLabel(context, it) }
+                            ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
+                        Text(stringResource(R.string.proxy_gateway_app_saved, label), style = MaterialTheme.typography.bodyMedium)
+                        val issue = when {
+                            current == null -> R.string.proxy_gateway_skip_offline
+                            gatewayMappings[gatewayTarget].isNullOrBlank() -> R.string.proxy_gateway_skip_mapping
+                            else -> null
+                        }
+                        if (issue != null) Text(stringResource(issue), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onPreviewGateway, enabled = !gatewayBusy) {
+                            Text(stringResource(R.string.proxy_gateway_open_tool))
+                        }
+                    }
+                    if (gatewayEnabled && gatewayChannels.isEmpty()) {
+                        Text(stringResource(R.string.proxy_gateway_app_no_channels), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-            itemsIndexed(gatewayEntries, key = { _, entry -> entry.key }) { index, entry ->
-                ChannelOption(entry = entry, index = index, count = gatewayEntries.size)
+            if (proxyRulesExpanded) {
+                itemsIndexed(gatewayEntries, key = { _, entry -> entry.key }) { index, entry ->
+                    ChannelOption(entry = entry, index = index, count = gatewayEntries.size)
+                }
             }
         }
     }

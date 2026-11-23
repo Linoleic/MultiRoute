@@ -6,6 +6,7 @@ import com.multiroute.data.ProxyUpstreamProfile
 import com.multiroute.data.ProxyUpstreamStore
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.RuleTarget
+import com.multiroute.data.StoredProxyUpstream
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.util.AndroidVpnGateway
@@ -21,6 +22,7 @@ import com.multiroute.util.SuHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -61,11 +63,19 @@ internal data class ProxyUpstreamUiState(
     val secretSaved: Boolean = false,
     val savedGatewayMappings: Map<String, String>? = null,
     val gatewayAppTargets: Map<String, String> = emptyMap(),
-    val gatewayBusy: Boolean = true
+    val gatewayBusy: Boolean = true,
+    val preferredGatewayFormat: ProxyGatewayFormat? = null
 ) {
     val gatewayMappings: Map<String, String>
         get() = savedGatewayMappings ?: profile?.mappings.orEmpty()
 }
+
+private data class ProxyUpstreamInitialState(
+    val storedProfile: StoredProxyUpstream?,
+    val gatewayMappings: Map<String, String>?,
+    val gatewayAppTargets: Map<String, String>,
+    val gatewayFormat: ProxyGatewayFormat?
+)
 
 /** A cellular mapping requires the canonical subscription target, which survives interface changes. */
 internal fun NetworkChannel.proxyUpstreamKey(): String? = when {
@@ -102,19 +112,29 @@ internal class ProxyUpstreamController(
     val state = _state.asStateFlow()
     private val _gatewayPreviewRequest = MutableStateFlow<GatewayPreviewRequest?>(null)
     val gatewayPreviewRequest = _gatewayPreviewRequest.asStateFlow()
+    private val gatewayFormatWrites = Channel<ProxyGatewayFormat>(Channel.CONFLATED)
     var secret = ""
         private set
 
     init {
         scope.launch {
             try {
-                val (saved, gateway, appTargets) = withContext(Dispatchers.IO) {
-                    Triple(store.read(), store.readGatewayMappings(), store.readGatewayAppTargets())
+                val saved = withContext(Dispatchers.IO) {
+                    ProxyUpstreamInitialState(
+                        store.read(),
+                        store.readGatewayMappings(),
+                        store.readGatewayAppTargets(),
+                        store.readGatewayFormat()
+                    )
                 }
-                secret = saved?.savedSecret.orEmpty()
+                secret = saved.storedProfile?.savedSecret.orEmpty()
                 _state.value = ProxyUpstreamUiState(
-                    profile = saved?.profile, busy = false, secretSaved = saved?.savedSecret != null,
-                    savedGatewayMappings = gateway, gatewayAppTargets = appTargets, gatewayBusy = false
+                    profile = saved.storedProfile?.profile, busy = false,
+                    secretSaved = saved.storedProfile?.savedSecret != null,
+                    savedGatewayMappings = saved.gatewayMappings,
+                    gatewayAppTargets = saved.gatewayAppTargets,
+                    gatewayBusy = false,
+                    preferredGatewayFormat = saved.gatewayFormat
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -122,9 +142,24 @@ internal class ProxyUpstreamController(
                 _state.value = ProxyUpstreamUiState(busy = false, storageFailed = true, gatewayBusy = false)
             }
         }
+        scope.launch(Dispatchers.IO) {
+            for (format in gatewayFormatWrites) {
+                try {
+                    store.saveGatewayFormat(format)
+                } catch (error: Exception) {
+                    Log.w("ProxyUpstreamController", "Could not save gateway export format", error)
+                }
+            }
+        }
     }
 
     fun refresh() = updateSelection()
+
+    fun saveGatewayFormat(format: ProxyGatewayFormat) {
+        if (_state.value.gatewayBusy || _state.value.preferredGatewayFormat == format) return
+        _state.update { it.copy(preferredGatewayFormat = format) }
+        gatewayFormatWrites.trySend(format)
+    }
 
     fun requestGatewayPreview(app: RuleTarget, preferredFormat: ProxyGatewayFormat?) {
         _gatewayPreviewRequest.value = GatewayPreviewRequest(app, preferredFormat)

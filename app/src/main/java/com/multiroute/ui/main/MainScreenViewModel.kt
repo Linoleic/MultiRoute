@@ -18,6 +18,8 @@ import com.multiroute.wifi.DualWifiManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -101,6 +103,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     init {
+        viewModelScope.launch {
+            proxyUpstream.state.map { it.gatewayAppTargets.keys }.distinctUntilChanged()
+                .collect(appRoutingDelegate::setProxyGatewayRuleKeys)
+        }
         envDelegate.loadTestServerConfig()
         envDelegate.refreshEnvironment()
         envDelegate.registerNetworkCallbacks()

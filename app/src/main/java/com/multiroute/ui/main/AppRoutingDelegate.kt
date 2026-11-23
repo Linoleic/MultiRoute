@@ -41,6 +41,7 @@ internal class AppRoutingDelegate(
 ) {
     private var allApps: List<AppItem> = emptyList()
     private var packageNamesByUid: Map<Int, List<String>> = emptyMap()
+    private var proxyGatewayRuleKeys: Set<String> = emptySet()
     private var loadAppsJob: Job? = null
     private var vpnUpstreamJob: Job? = null
 
@@ -221,6 +222,12 @@ internal class AppRoutingDelegate(
 
     fun setFilterChannelId(channelId: String?) {
         uiStateFlow.update { it.copy(routing = it.routing.copy(filterChannelId = channelId)) }
+        filterApps()
+    }
+
+    fun setProxyGatewayRuleKeys(ruleKeys: Set<String>) {
+        if (proxyGatewayRuleKeys == ruleKeys) return
+        proxyGatewayRuleKeys = ruleKeys
         filterApps()
     }
 
@@ -497,7 +504,7 @@ internal class AppRoutingDelegate(
             val routing = state.routing
             val query = routing.searchQuery.trim().lowercase()
             val showSys = routing.showSystemApps
-            val filterChannel = routing.filterChannelId
+            val filterChannel = resolveProxyEgressFilter(routing.filterChannelId, proxyGatewayRuleKeys)
             val channels = state.channelProbe.channels
 
             val filtered = allApps.filter { app ->
@@ -509,6 +516,7 @@ internal class AppRoutingDelegate(
                 val matchesChannel = when (filterChannel) {
                     null -> true
                     "configured" -> app.targetChannelId != CHANNEL_DEFAULT
+                    FILTER_PROXY_EGRESS -> matchesProxyGatewayRule(app.ruleKey, proxyGatewayRuleKeys)
                     else -> app.targetChannelId == filterChannel || channels.any {
                         it.id == filterChannel && it.interfaceName == app.targetChannelId
                     }
@@ -521,6 +529,8 @@ internal class AppRoutingDelegate(
             state.copy(
                 routing = routing.copy(
                     apps = filtered,
+                    filterChannelId = filterChannel,
+                    proxyGatewayRuleCount = proxyGatewayRuleKeys.size,
                     totalAppsCount = allApps.size,
                     configuredAppsCount = configuredCount
                 )
@@ -528,3 +538,11 @@ internal class AppRoutingDelegate(
         }
     }
 }
+
+internal const val FILTER_PROXY_EGRESS = "gateway"
+
+internal fun resolveProxyEgressFilter(filter: String?, configuredRuleKeys: Set<String>): String? =
+    filter.takeUnless { it == FILTER_PROXY_EGRESS && configuredRuleKeys.isEmpty() }
+
+internal fun matchesProxyGatewayRule(ruleKey: String, configuredRuleKeys: Set<String>): Boolean =
+    ruleKey in configuredRuleKeys

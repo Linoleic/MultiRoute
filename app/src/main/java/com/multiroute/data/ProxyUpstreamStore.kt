@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import com.multiroute.util.ProxyGatewayFormat
 import org.json.JSONObject
 import java.io.File
 import java.io.FileNotFoundException
@@ -14,6 +15,16 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+
+internal fun resolveGatewayFormat(
+    saved: ProxyGatewayFormat?,
+    compatibleVpnAvailable: Boolean
+): ProxyGatewayFormat = when {
+    saved == ProxyGatewayFormat.MIHOMO_ANDROID_VPN && !compatibleVpnAvailable -> ProxyGatewayFormat.SING_BOX
+    saved != null -> saved
+    compatibleVpnAvailable -> ProxyGatewayFormat.MIHOMO_ANDROID_VPN
+    else -> ProxyGatewayFormat.SING_BOX
+}
 
 internal data class ProxyUpstreamProfile(
     val port: Int,
@@ -37,6 +48,17 @@ internal class ProxyUpstreamStore(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, FILE_NAME))
     private val gatewayFile = AtomicFile(File(context.noBackupFilesDir, "proxy-gateway-mappings.json"))
     private val gatewayAppTargetsFile = AtomicFile(File(context.noBackupFilesDir, "proxy-gateway-app-targets.json"))
+    private val gatewayFormatFile = AtomicFile(File(context.noBackupFilesDir, "proxy-gateway-format"))
+
+    fun readGatewayFormat(): ProxyGatewayFormat? = synchronized(diskLock) {
+        val value = runCatching { gatewayFormatFile.readFully().toString(Charsets.UTF_8) }.getOrNull()
+            ?: return null
+        ProxyGatewayFormat.entries.firstOrNull { it.name == value }
+    }
+
+    fun saveGatewayFormat(format: ProxyGatewayFormat) = synchronized(diskLock) {
+        writeRecord(gatewayFormatFile, format.name.toByteArray(Charsets.UTF_8))
+    }
 
     /** Per-app proxy intent is device-local and independent from kernel route assignments. */
     fun readGatewayAppTargets(): Map<String, String> = synchronized(diskLock) {

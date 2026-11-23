@@ -246,6 +246,26 @@ private fun AppRulesContent(
                             Text(stringResource(R.string.ui_filter_routed, uiState.configuredAppsCount))
                         }
 
+                        if (uiState.routing.proxyGatewayRuleCount > 0) {
+                            ToggleButton(
+                                checked = uiState.filterChannelId == FILTER_PROXY_EGRESS,
+                                onCheckedChange = {
+                                    viewModel.setFilterChannelId(
+                                        if (uiState.filterChannelId == FILTER_PROXY_EGRESS) null else FILTER_PROXY_EGRESS
+                                    )
+                                },
+                                shapes = toggleShapes,
+                                colors = toggleColors,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                if (uiState.filterChannelId == FILTER_PROXY_EGRESS) {
+                                    Icon(painterResource(R.drawable.ic_symbol_check), contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Text(stringResource(R.string.ui_filter_proxy_egress, uiState.routing.proxyGatewayRuleCount))
+                            }
+                        }
+
                         // 动态按在线物理通道过滤 (排除热点下行通道)
                         for (channel in uiState.channels.filter { !it.isHotspot }) {
                             ToggleButton(

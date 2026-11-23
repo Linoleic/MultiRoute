@@ -67,6 +67,7 @@
     <string name="ui_test_channel_egress">测试 %1$s 独立公网出口</string>
     <string name="ui_probing_channel">正在通过 %1$s 探测公网 IP...</string>
     <string name="ui_filter_routed">已分流 (%1$d)</string>
+    <string name="ui_filter_proxy_egress">代理出口 (%1$d)</string>
     <string name="ui_test_node">测试节点: %1$s</string>
     <string name="ui_test_node_short">测试节点: %1$s</string>
     <string name="ui_egress_prefix">出口: %1$s</string>
@@ -300,6 +301,14 @@
     <string name="proxy_gateway_app_no_channels">连接一个物理网络后即可选择代理出口。</string>
     <string name="proxy_gateway_open_tool">查看导出预览</string>
     <string name="proxy_gateway_preview_open">预览导出规则</string>
+    <string name="proxy_gateway_expand">展开</string>
+    <string name="proxy_gateway_app_collapsed_hint">为此应用配置代理出口</string>
+    <string name="proxy_gateway_collapse">收起</string>
+    <string name="proxy_gateway_copy">复制片段</string>
+    <string name="proxy_gateway_copied">已复制</string>
+    <string name="proxy_gateway_show_source">查看规则原文</string>
+    <string name="proxy_gateway_hide_source">收起规则原文</string>
+    <string name="proxy_gateway_status_summary">已映射 %1$d 个通道 · 已保存 %2$d 个应用出口规则</string>
     <string name="proxy_gateway_preview_loading">正在检查导出规则</string>
     <string name="proxy_gateway_preview_title">导出预览 · %1$s</string>
     <string name="proxy_gateway_preview_included">可导出</string>

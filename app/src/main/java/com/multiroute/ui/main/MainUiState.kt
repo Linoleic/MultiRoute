@@ -39,6 +39,7 @@ data class AppRoutingUiState(
     val apps: List<AppItem> = emptyList(),
     val totalAppsCount: Int = 0,
     val configuredAppsCount: Int = 0,
+    val proxyGatewayRuleCount: Int = 0,
     val searchQuery: String = "",
     val showSystemApps: Boolean = false,
     val filterChannelId: String? = null,

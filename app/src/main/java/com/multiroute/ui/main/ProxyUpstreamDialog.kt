@@ -1,6 +1,7 @@
 package com.multiroute.ui.main
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,9 +9,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -41,14 +45,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multiroute.R
 import com.multiroute.data.ProxyUpstreamProfile
+import com.multiroute.data.resolveGatewayFormat
 import com.multiroute.data.RuleTarget
 import com.multiroute.model.NetworkChannel
 import com.multiroute.util.ClashProxyUpstreamClient
@@ -72,14 +80,10 @@ internal fun ProxyUpstreamToolPanel(
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     var showSetup by rememberSaveable { mutableStateOf(false) }
-    var showGatewaySetup by rememberSaveable { mutableStateOf(false) }
     var showLiveSwitching by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.proxy_gateway_title), style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = { showGatewaySetup = true }, enabled = !state.gatewayBusy) {
-            Text(stringResource(R.string.proxy_gateway_configure))
-        }
-        ProxyGatewayExportSection(channels, controller, enabled = !state.gatewayBusy, compatibleVpn = compatibleVpn, onConfigure = { showGatewaySetup = true })
+        ProxyGatewayExportSection(channels, state, controller, enabled = !state.gatewayBusy, compatibleVpn = compatibleVpn)
         HorizontalDivider()
         TextButton(onClick = { showLiveSwitching = !showLiveSwitching }) {
             Text(stringResource(R.string.proxy_upstream_live_title))
@@ -100,9 +104,6 @@ internal fun ProxyUpstreamToolPanel(
         }
     }
     if (showSetup) ProxyUpstreamDialog(channels, controller) { showSetup = false }
-    if (showGatewaySetup) {
-        ProxyGatewayMappingDialog(channels, state, controller) { showGatewaySetup = false }
-    }
 }
 
 @Composable
@@ -110,7 +111,8 @@ private fun ProxyGatewayMappingDialog(
     channels: List<NetworkChannel>,
     state: ProxyUpstreamUiState,
     controller: ProxyUpstreamController,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val active = channels.mapNotNull { channel -> channel.proxyUpstreamKey()?.let { it to channel } }.toMap()
@@ -155,7 +157,7 @@ private fun ProxyGatewayMappingDialog(
                     val mappings = draft.filterValues { it.isNotBlank() }
                     controller.saveGatewayMappings(mappings) { saved ->
                         failed = !saved
-                        if (saved) onDismiss()
+                        if (saved) onSaved()
                     }
                 }
             ) { Text(stringResource(android.R.string.ok)) }
@@ -172,25 +174,29 @@ private data class GatewayPreview(
     val focusedApp: RuleTarget?
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProxyGatewayExportSection(
     channels: List<NetworkChannel>,
+    state: ProxyUpstreamUiState,
     controller: ProxyUpstreamController,
     enabled: Boolean,
-    compatibleVpn: NetworkChannel?,
-    onConfigure: () -> Unit
+    compatibleVpn: NetworkChannel?
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var formatName by rememberSaveable { mutableStateOf(ProxyGatewayFormat.SING_BOX.name) }
     val supportsAndroidVpn = compatibleVpn != null
     val formats = ProxyGatewayFormat.entries.filter { it != ProxyGatewayFormat.MIHOMO_ANDROID_VPN || supportsAndroidVpn }
-    val format = formats.firstOrNull { it.name == formatName } ?: ProxyGatewayFormat.SING_BOX
+    val format = resolveGatewayFormat(state.preferredGatewayFormat, supportsAndroidVpn)
     val androidVpnLabel = stringResource(R.string.proxy_gateway_android_vpn_format)
     var pendingContent by rememberSaveable { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<GatewayPreview?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var showMappingSetup by rememberSaveable { mutableStateOf(false) }
+    var repreviewFormat by rememberSaveable { mutableStateOf<ProxyGatewayFormat?>(null) }
+    var repreviewAppKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var repreviewAppUid by rememberSaveable { mutableStateOf(-1) }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val uri = result.data?.data?.takeIf { result.resultCode == Activity.RESULT_OK }
         val content = pendingContent
@@ -234,6 +240,7 @@ private fun ProxyGatewayExportSection(
 
     fun beginPreview(exportFormat: ProxyGatewayFormat, focusedApp: RuleTarget? = null) {
         busy = true
+        preview = null
         message = null
         scope.launch {
             try {
@@ -252,6 +259,18 @@ private fun ProxyGatewayExportSection(
         }
     }
 
+    fun openMappingSetup(repreview: GatewayPreview? = null) {
+        repreviewFormat = repreview?.format
+        repreviewAppKey = repreview?.focusedApp?.key
+        repreviewAppUid = repreview?.focusedApp?.uid ?: -1
+        showMappingSetup = true
+    }
+
+    Text(
+        stringResource(R.string.proxy_gateway_status_summary, state.gatewayMappings.size, state.gatewayAppTargets.size),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
     Text(
         stringResource(when (format) {
             ProxyGatewayFormat.MIHOMO_ANDROID_VPN -> R.string.proxy_gateway_android_vpn_help
@@ -267,13 +286,12 @@ private fun ProxyGatewayExportSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-    val canExport = enabled && !busy && preview == null && pendingContent == null
+    val canExport = enabled && !busy && !showMappingSetup && preview == null && pendingContent == null
     val previewRequest by controller.gatewayPreviewRequest.collectAsStateWithLifecycle()
-    LaunchedEffect(previewRequest, canExport) {
+    LaunchedEffect(previewRequest, canExport, format, supportsAndroidVpn) {
         val request = previewRequest ?: return@LaunchedEffect
         if (canExport && controller.consumeGatewayPreviewRequest(request)) {
             val requestedFormat = request.preferredFormat?.takeIf { it in formats } ?: format
-            formatName = requestedFormat.name
             beginPreview(requestedFormat, request.app)
         }
     }
@@ -284,17 +302,43 @@ private fun ProxyGatewayExportSection(
             if (candidate == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) androidVpnLabel else candidate.label
         },
         enabled = canExport,
-        onSelect = { selected -> formatName = selected; message = null }
+        onSelect = {
+            ProxyGatewayFormat.valueOf(it).takeIf { candidate -> candidate in formats }?.let(controller::saveGatewayFormat)
+            message = null
+        }
     )
-    Button(enabled = canExport, onClick = { beginPreview(format) }) {
-        Text(stringResource(if (busy) R.string.proxy_gateway_preview_loading else R.string.proxy_gateway_preview_open))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(enabled = canExport, onClick = { beginPreview(format) }) {
+            Text(stringResource(if (busy) R.string.proxy_gateway_preview_loading else R.string.proxy_gateway_preview_open))
+        }
+        OutlinedButton(onClick = { openMappingSetup() }, enabled = canExport) {
+            Text(stringResource(R.string.proxy_gateway_configure))
+        }
     }
     message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
-    preview?.let { snapshot ->
+    preview?.takeUnless { showMappingSetup }?.let { snapshot ->
         ProxyGatewayPreviewDialog(snapshot, channels, onDismiss = { preview = null },
             onSave = { launchFilePicker(it, snapshot.format) },
-            onConfigure = { preview = null; onConfigure() })
+            onConfigure = { openMappingSetup(snapshot) })
+    }
+    if (showMappingSetup) {
+        ProxyGatewayMappingDialog(
+            channels, state, controller,
+            onDismiss = {
+                showMappingSetup = false
+                repreviewFormat = null
+                repreviewAppKey = null
+            },
+            onSaved = {
+                showMappingSetup = false
+                val pending = repreviewFormat
+                val app = repreviewAppKey?.let { RuleTarget(it, repreviewAppUid) }
+                repreviewFormat = null
+                repreviewAppKey = null
+                if (pending != null) beginPreview(pending, app)
+            }
+        )
     }
 }
 
@@ -307,6 +351,10 @@ private fun ProxyGatewayPreviewDialog(
     onConfigure: () -> Unit
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    var copied by remember(snapshot) { mutableStateOf(false) }
+    var showRawSource by rememberSaveable(snapshot.format, snapshot.focusedApp) { mutableStateOf(false) }
     val preview = snapshot.export
     val formatLabel = if (snapshot.format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
         stringResource(R.string.proxy_gateway_android_vpn_format)
@@ -361,6 +409,17 @@ private fun ProxyGatewayPreviewDialog(
                         else stringResource(R.string.proxy_gateway_export_summary, fragment.uidCount, fragment.outboundCount),
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    if (fragment != null) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                val label = context.getString(R.string.proxy_gateway_title)
+                                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, fragment.content)))
+                                copied = true
+                            }
+                        }) {
+                            Text(stringResource(if (copied) R.string.proxy_gateway_copied else R.string.proxy_gateway_copy))
+                        }
+                    }
                 }
                 if (preview.possibleBypassInterfaces.isNotEmpty()) {
                     item {
@@ -379,8 +438,20 @@ private fun ProxyGatewayPreviewDialog(
                     item { Text(stringResource(R.string.proxy_gateway_preview_skipped), style = MaterialTheme.typography.titleSmall) }
                     items(skipped) { row -> ProxyGatewayPreviewEntry(row, channels, appNames[row]) }
                 }
-                if (preview.rows.isEmpty() || preview.rows.any { it.skipReason == GatewayPreviewSkipReason.OUTBOUND_UNMAPPED }) {
-                    item { TextButton(onClick = onConfigure) { Text(stringResource(R.string.proxy_gateway_configure)) } }
+                item(key = "configure") { TextButton(onClick = onConfigure) { Text(stringResource(R.string.proxy_gateway_configure)) } }
+                preview.fragment?.let { fragment ->
+                    item(key = "source") {
+                        TextButton(onClick = { showRawSource = !showRawSource }) {
+                            Text(stringResource(if (showRawSource) R.string.proxy_gateway_hide_source else R.string.proxy_gateway_show_source))
+                        }
+                        if (showRawSource) {
+                            Text(
+                                fragment.content,
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                            )
+                        }
+                    }
                 }
             }
         },
