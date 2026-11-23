@@ -321,6 +321,7 @@
     <string name="proxy_gateway_skip_vpn_capture_unknown">无法读取当前 VPN 的应用接管范围。</string>
     <string name="proxy_gateway_skip_vpn_app_excluded">当前 VPN 未接管此应用，请检查客户端的应用列表。</string>
     <string name="proxy_gateway_skip_vpn_outbound_shared">不同 Wi-Fi 需要使用不同的代理出站名称。</string>
+    <string name="proxy_gateway_skip_vpn_wifi_only">Android VPN 导出目前仅支持 Wi-Fi 出口。</string>
     <string name="proxy_gateway_skip_shared">同一 UID 对应了不同通道，请统一选择。</string>
     <string name="proxy_gateway_skip_stale">实际路由与已配置规则不一致，请同步分流后再试。</string>
     <string name="ui_vpn_routed_apps">MultiRoute 配置走此 VPN 的应用 (%1$d)</string>

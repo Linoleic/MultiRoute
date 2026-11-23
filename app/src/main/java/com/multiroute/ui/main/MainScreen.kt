@@ -40,9 +40,9 @@ import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.RuleTarget
 import com.multiroute.model.CHANNEL_DEFAULT
+import com.multiroute.model.NetworkChannel
 import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
-import com.multiroute.util.AndroidVpnGateway
 import com.multiroute.util.ProxyGatewayFormat
 import com.multiroute.util.RouteRuleBuilder
 import kotlinx.coroutines.flow.filterNotNull
@@ -94,6 +94,7 @@ fun MainScreen(
     var isWideContent by remember { mutableStateOf(false) }
     var selectedToolName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var programmaticTarget by remember { mutableStateOf<Int?>(null) }
+    var vpnForUpstreamPicker by remember { mutableStateOf<NetworkChannel?>(null) }
     val latestSelectedTab by rememberUpdatedState(uiState.selectedTab)
     val tabScrollSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
 
@@ -376,7 +377,7 @@ fun MainScreen(
                         val showGateway = uiState.scenarioEditId == null && RouteRuleBuilder.isValidUid(app.uid)
                         val canConfigureGateway = showGateway && uiState.channels.none { it.isVpn && it.vpnOwnerUid == app.uid }
                         fun openGatewayPreview() {
-                            val vpn = AndroidVpnGateway.findSupportedVpn(importContext, uiState.channels)
+                            val vpn = uiState.supportedAndroidVpn
                             val preferredFormat = vpn?.takeIf { it.id == app.targetChannelId || it.interfaceName == app.targetChannelId }
                                 ?.let { ProxyGatewayFormat.MIHOMO_ANDROID_VPN }
                             viewModel.closeAppSheet()
@@ -396,6 +397,7 @@ fun MainScreen(
                             gatewayTarget = proxy.gatewayAppTargets[app.ruleKey].takeIf { showGateway },
                             gatewayBusy = proxy.gatewayBusy,
                             gatewayEnabled = canConfigureGateway,
+                            compatibleVpn = uiState.supportedAndroidVpn,
                             onSelectGateway = { target, outboundTag, onSaved ->
                                 viewModel.proxyUpstream.saveGatewayAppTarget(app.ruleKey, target, outboundTag) { saved ->
                                     if (saved) viewModel.closeAppSheet()
@@ -404,9 +406,10 @@ fun MainScreen(
                                         val message = when {
                                             !saved -> R.string.proxy_gateway_app_save_failed
                                             target == null -> R.string.proxy_gateway_app_removed
-                                            app.targetChannelId != CHANNEL_DEFAULT && uiState.channels.none {
-                                                it.isVpn && (it.id == app.targetChannelId || it.interfaceName == app.targetChannelId)
-                                            } -> R.string.proxy_gateway_app_draft_saved
+                                            app.targetChannelId != CHANNEL_DEFAULT &&
+                                                uiState.supportedAndroidVpn?.let {
+                                                    it.id == app.targetChannelId || it.interfaceName == app.targetChannelId
+                                                } != true -> R.string.proxy_gateway_app_draft_saved
                                             else -> R.string.proxy_gateway_app_saved_hint
                                         }
                                         val action = if (saved && target != null) importContext.getString(R.string.proxy_gateway_open_tool) else null
@@ -466,9 +469,41 @@ fun MainScreen(
                             testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
                             testServerUrl = uiState.testServerConfig.activeUrl,
                             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
+                            onChangeVpnUpstream = if (channel.isVpn) {
+                                {
+                                    viewModel.closeChannelDetail()
+                                    vpnForUpstreamPicker = channel
+                                }
+                            } else null,
                             onTestChannel = { viewModel.testSingleChannel(channel) },
                             onDismiss = { viewModel.closeChannelDetail() }
                         )
+                    }
+
+                    vpnForUpstreamPicker?.let { selected ->
+                        val vpn = uiState.channels.firstOrNull {
+                            it.id == selected.id && it.interfaceName == selected.interfaceName &&
+                                it.isVpn && it.vpnOwnerUid == selected.vpnOwnerUid
+                        }
+                        if (vpn != null) {
+                            val upstream = rememberVpnUpstream(vpn, uiState.channels, uiState.scenario)
+                            val owner = upstream.ownerTarget
+                            if (owner != null) {
+                                VpnUpstreamPicker(
+                                    upstream = upstream,
+                                    channels = uiState.channels.filter { it.isVpnUpstream() },
+                                    onSelectChannel = { target ->
+                                        vpnForUpstreamPicker = null
+                                        viewModel.updateVpnUpstream(vpn, owner, target)
+                                    },
+                                    onDismiss = { vpnForUpstreamPicker = null }
+                                )
+                            } else {
+                                LaunchedEffect(selected) { vpnForUpstreamPicker = null }
+                            }
+                        } else {
+                            LaunchedEffect(selected) { vpnForUpstreamPicker = null }
+                        }
                     }
 
                     if (showDiagnostics) ModuleDiagnosticsOverlay(

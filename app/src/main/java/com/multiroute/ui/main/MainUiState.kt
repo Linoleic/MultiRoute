@@ -50,6 +50,7 @@ data class AppRoutingUiState(
 
 data class ChannelProbeUiState(
     val channels: List<NetworkChannel> = emptyList(),
+    val supportedAndroidVpn: NetworkChannel? = null,
     val testResults: Map<String, String> = emptyMap(),
     val isTesting: Boolean = false,
     val isTestingSingleChannel: Boolean = false,
@@ -145,6 +146,7 @@ data class MainUiState(
 
     // Channels & testing
     val channels: List<NetworkChannel> get() = channelProbe.channels
+    val supportedAndroidVpn: NetworkChannel? get() = channelProbe.supportedAndroidVpn
     val testResults: Map<String, String> get() = channelProbe.testResults
     val isTesting: Boolean get() = channelProbe.isTesting
     val isTestingSingleChannel: Boolean get() = channelProbe.isTestingSingleChannel

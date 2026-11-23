@@ -524,7 +524,7 @@ private fun PreferenceDetail(
                 PreferencePage.WIRELESS -> item { WirelessAdbCard(showTitle = false) }
                 PreferencePage.CELLULAR -> item { CellularControlCard(uiState, viewModel, observeState = false) }
                 PreferencePage.HOTSPOT -> item { HotspotManagementPanel(viewModel) }
-                PreferencePage.PROXY_UPSTREAM -> item { ProxyUpstreamToolPanel(uiState.channels, viewModel.proxyUpstream) }
+                PreferencePage.PROXY_UPSTREAM -> item { ProxyUpstreamToolPanel(uiState.channels, viewModel.proxyUpstream, uiState.supportedAndroidVpn) }
                 PreferencePage.DUAL_WIFI -> Unit // Rendered in the bounded content pane above.
                 PreferencePage.LOGS -> Unit // The overview opens the log dialog directly.
             }

@@ -18,6 +18,7 @@ import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.ScenarioStore
 import com.multiroute.data.TestServerManager
 import com.multiroute.model.NetworkChannel
+import com.multiroute.util.AndroidVpnGateway
 import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.util.ChannelTrafficTracker
 import com.multiroute.util.NetworkUtils
@@ -90,13 +91,20 @@ internal class EnvironmentAndChannelDelegate(
         }
     }
 
+    private suspend fun loadActiveChannels(): Pair<List<NetworkChannel>, NetworkChannel?> = withContext(Dispatchers.IO) {
+        val active = NetworkUtils.getActiveChannels(application)
+        active to AndroidVpnGateway.findSupportedVpn(application, active)
+    }
+
     private fun refreshVpnChannels() {
         vpnChannelRefreshJob?.cancel()
         vpnChannelRefreshJob = scope.launch {
             delay(350L)
             try {
-                val channels = NetworkUtils.getActiveChannels(application)
-                uiStateFlow.update { it.copy(channelProbe = it.channelProbe.copy(channels = channels)) }
+                val (channels, supportedVpn) = loadActiveChannels()
+                uiStateFlow.update {
+                    it.copy(channelProbe = it.channelProbe.copy(channels = channels, supportedAndroidVpn = supportedVpn))
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -196,8 +204,10 @@ internal class EnvironmentAndChannelDelegate(
         lastNetworkChangeTime = now
         scope.launch {
             try {
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(application) }
-                uiStateFlow.update { it.copy(channelProbe = it.channelProbe.copy(channels = activeChannels)) }
+                val (activeChannels, supportedVpn) = loadActiveChannels()
+                uiStateFlow.update {
+                    it.copy(channelProbe = it.channelProbe.copy(channels = activeChannels, supportedAndroidVpn = supportedVpn))
+                }
                 onRefreshScenario()
                 withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(application) }
             } catch (_: Exception) {}
@@ -214,8 +224,10 @@ internal class EnvironmentAndChannelDelegate(
                 delay(holdOffSecs * 1000L)
             }
             try {
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(application) }
-                uiStateFlow.update { it.copy(channelProbe = it.channelProbe.copy(channels = activeChannels)) }
+                val (activeChannels, supportedVpn) = loadActiveChannels()
+                uiStateFlow.update {
+                    it.copy(channelProbe = it.channelProbe.copy(channels = activeChannels, supportedAndroidVpn = supportedVpn))
+                }
                 onRefreshScenario()
                 withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(application) }
             } catch (_: Exception) {}
@@ -229,8 +241,10 @@ internal class EnvironmentAndChannelDelegate(
         lastNetworkChangeTime = now
         scope.launch {
             try {
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(application) }
-                uiStateFlow.update { it.copy(channelProbe = it.channelProbe.copy(channels = activeChannels)) }
+                val (activeChannels, supportedVpn) = loadActiveChannels()
+                uiStateFlow.update {
+                    it.copy(channelProbe = it.channelProbe.copy(channels = activeChannels, supportedAndroidVpn = supportedVpn))
+                }
                 onRefreshScenario()
                 withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(application) }
             } catch (_: Exception) {}
@@ -266,11 +280,11 @@ internal class EnvironmentAndChannelDelegate(
                 if (diag.isRootGranted) {
                     trafficTracker.clearProcCooldown()
                 }
-                val activeChannels = withContext(Dispatchers.IO) { NetworkUtils.getActiveChannels(application) }
+                val (activeChannels, supportedVpn) = loadActiveChannels()
 
                 uiStateFlow.update { state ->
                     state.copy(
-                        channelProbe = state.channelProbe.copy(channels = activeChannels),
+                        channelProbe = state.channelProbe.copy(channels = activeChannels, supportedAndroidVpn = supportedVpn),
                         env = state.env.copy(
                             isRootGranted = diag.isRootGranted,
                             isMobileDataAlwaysOn = diag.mobileDataAlwaysOn,

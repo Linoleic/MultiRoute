@@ -38,6 +38,7 @@ internal enum class GatewayPreviewSkipReason {
     VPN_CAPTURE_UNKNOWN,
     VPN_APP_EXCLUDED,
     VPN_OUTBOUND_SHARED,
+    VPN_WIFI_ONLY,
     SHARED_UID_CONFLICT,
     ROUTE_STATE_UNCERTAIN
 }
@@ -83,7 +84,7 @@ internal class ProxyUpstreamController(
 
     private data class GatewaySnapshot(
         val fragment: ProxyGatewayExport.Fragment?,
-        val activeVpnInterfaces: List<String>,
+        val activeUpstreamInterfaces: List<String>,
         val rows: List<GatewayPreviewRow>
     )
 
@@ -133,12 +134,16 @@ internal class ProxyUpstreamController(
         _gatewayPreviewRequest.compareAndSet(request, null)
 
     fun saveGatewayMappings(mappings: Map<String, String>, onSaved: (Boolean) -> Unit) {
-        if (_state.value.gatewayBusy) return
+        if (_state.value.gatewayBusy) {
+            onSaved(false)
+            return
+        }
+        val normalized = mappings.mapValues { (_, tag) -> tag.trim() }.filterValues { it.isNotEmpty() }
         _state.update { it.copy(gatewayBusy = true) }
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { store.saveGatewayMappings(mappings) }
-                _state.update { it.copy(savedGatewayMappings = mappings) }
+                withContext(Dispatchers.IO) { store.saveGatewayMappings(normalized) }
+                _state.update { it.copy(savedGatewayMappings = normalized) }
                 onSaved(true)
             } catch (error: CancellationException) {
                 throw error
@@ -161,8 +166,9 @@ internal class ProxyUpstreamController(
             onSaved(false)
             return
         }
+        val trimmedTag = outboundTag?.trim()
         val mappings = _state.value.gatewayMappings
-        if (channelId != null && outboundTag == null && channelId !in mappings.keys) {
+        if (channelId != null && trimmedTag == null && channelId !in mappings.keys) {
             onSaved(false)
             return
         }
@@ -172,9 +178,9 @@ internal class ProxyUpstreamController(
                 val next = _state.value.gatewayAppTargets.toMutableMap().apply {
                     if (channelId == null) remove(ruleKey) else put(ruleKey, channelId)
                 }.toMap()
-                if (channelId != null && outboundTag != null) {
-                    require(outboundTag.isNotBlank())
-                    val nextMappings = mappings.toMutableMap().apply { put(channelId, outboundTag) }.toMap()
+                if (channelId != null && trimmedTag != null) {
+                    require(trimmedTag.isNotEmpty())
+                    val nextMappings = mappings.toMutableMap().apply { put(channelId, trimmedTag) }.toMap()
                     withContext(Dispatchers.IO) { store.saveGatewayMappings(nextMappings) }
                     // Persist the mapping first. If saving the app choice then fails, the mapping remains
                     // usable and the existing app choice stays untouched rather than pointing at absent data.
@@ -220,7 +226,7 @@ internal class ProxyUpstreamController(
                 val published = RouteRuleBuilder.parseRuleCache(publishedText)
                 val result4 = runCatching {
                     SuHelper.executeShellWithOutput(
-                        "ip -4 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY4_OK",
+                        "${RouteRuleBuilder.IP_BIN} -4 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY4_OK",
                         timeoutSeconds = 3
                     )
                 }.getOrDefault(emptyList())
@@ -229,7 +235,7 @@ internal class ProxyUpstreamController(
                 val result6 = if (appTargets.isNotEmpty() && routeStateBaseCertain) {
                     val result6 = runCatching {
                         SuHelper.executeShellWithOutput(
-                            "ip -6 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY6_OK",
+                            "${RouteRuleBuilder.IP_BIN} -6 rule show pref ${RouteRuleBuilder.DEFAULT_RULE_PREF} && echo __MR_GATEWAY6_OK",
                             timeoutSeconds = 3
                         )
                     }.getOrDefault(emptyList())
@@ -246,6 +252,9 @@ internal class ProxyUpstreamController(
                     SuHelper.resolveScenarioProfile(application, baseRules)
                 } else null
 
+                val allChannelsByKey = active.mapNotNull { channel ->
+                    channel.proxyUpstreamKey()?.let { it to channel }
+                }.toMap()
                 val channelIfaces = gatewayChannels.mapNotNull { channel ->
                     val key = channel.proxyUpstreamKey() ?: return@mapNotNull null
                     key to channel.interfaceName
@@ -277,11 +286,16 @@ internal class ProxyUpstreamController(
                         continue
                     }
                     ruleKeysByUid.putIfAbsent(uid, ruleKey)
-                    val channelIface = channelIfaces[channelId]
-                    if (channelIface == null) {
+                    val channel = allChannelsByKey[channelId]
+                    if (channel == null) {
                         skip(GatewayPreviewSkipReason.CHANNEL_UNAVAILABLE, uid)
                         continue
                     }
+                    if (androidVpn && !channel.transportType.equals("WLAN", ignoreCase = true)) {
+                        skip(GatewayPreviewSkipReason.VPN_WIFI_ONLY, uid, channel.interfaceName)
+                        continue
+                    }
+                    val channelIface = channel.interfaceName
                     val outbound = physicalOutbounds[channelIface]
                     if (outbound == null) {
                         skip(GatewayPreviewSkipReason.OUTBOUND_UNMAPPED, uid, channelIface)
@@ -365,23 +379,18 @@ internal class ProxyUpstreamController(
                     defaultRouteInterfaces = defaultRouteTargets
                 )
                 val serializedUids = fragment?.rules.orEmpty().mapTo(mutableSetOf()) { it.uid }
-                val explicitUids = ruleKeysByUid.keys
-                val physicalCandidates = if (androidVpn) emptySet() else published.keys + installed4.keys
                 val activeIfaces = active.mapTo(mutableSetOf()) { it.interfaceName }
-                for (uid in physicalCandidates) {
-                    if (uid in serializedUids || uid in explicitUids) continue
-                    val publishedIface = published[uid]
-                    val installedIface = installed4[uid]
-                    val iface = publishedIface ?: installedIface
-                    val reason = when {
-                        !routeStateCertain -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
-                        publishedIface != null && publishedIface != installedIface -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
-                        installedIface != null && installedIface != publishedIface -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
-                        iface == null || iface !in activeIfaces -> GatewayPreviewSkipReason.CHANNEL_UNAVAILABLE
-                        iface !in physicalOutbounds -> GatewayPreviewSkipReason.OUTBOUND_UNMAPPED
-                        else -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
-                    }
-                    skipped += GatewayPreviewRow(ruleKeysByUid[uid], uid, iface, iface?.let(physicalOutbounds::get), reason)
+                if (!androidVpn) {
+                    skipped += planPhysicalSkippedRows(
+                        published = published,
+                        installed4 = installed4,
+                        serializedUids = serializedUids,
+                        existingSkipped = skipped,
+                        ruleKeysByUid = ruleKeysByUid,
+                        activeIfaces = activeIfaces,
+                        physicalOutbounds = physicalOutbounds,
+                        routeStateCertain = routeStateCertain
+                    )
                 }
                 val included = fragment?.rules.orEmpty().map { rule ->
                     val ruleKey = candidateKeys[rule.uid to rule.interfaceName]?.firstOrNull()
@@ -394,7 +403,7 @@ internal class ProxyUpstreamController(
                 return@withContext GatewayExport(fragment, emptyList(), snapshot.rows)
             }
             val diagnostics = try {
-                SuHelper.getTransparentProxyDiagnostics(snapshot.activeVpnInterfaces)
+                SuHelper.getTransparentProxyDiagnostics(snapshot.activeUpstreamInterfaces)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -479,4 +488,42 @@ internal class ProxyUpstreamController(
             }
         }
     }
+}
+
+internal fun planPhysicalSkippedRows(
+    published: Map<Int, String>,
+    installed4: Map<Int, String>,
+    serializedUids: Set<Int>,
+    existingSkipped: List<GatewayPreviewRow>,
+    ruleKeysByUid: Map<Int, String>,
+    activeIfaces: Set<String>,
+    physicalOutbounds: Map<String, String>,
+    routeStateCertain: Boolean
+): List<GatewayPreviewRow> {
+    val rows = mutableListOf<GatewayPreviewRow>()
+    for (uid in (published.keys + installed4.keys).sorted()) {
+        if (uid in serializedUids) continue
+        val publishedIface = published[uid]
+        val installedIface = installed4[uid]
+        val iface = publishedIface ?: installedIface
+        val reason = when {
+            !RouteRuleBuilder.isValidUid(uid) -> GatewayPreviewSkipReason.INVALID_UID
+            !routeStateCertain -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+            publishedIface != null && publishedIface != installedIface -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+            installedIface != null && installedIface != publishedIface -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+            iface == null || iface !in activeIfaces -> GatewayPreviewSkipReason.CHANNEL_UNAVAILABLE
+            iface !in physicalOutbounds -> GatewayPreviewSkipReason.OUTBOUND_UNMAPPED
+            else -> GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN
+        }
+        val alreadyExplained = existingSkipped.any {
+            it.uid == uid && (
+                it.skipReason == reason ||
+                    it.skipReason == GatewayPreviewSkipReason.INVALID_UID ||
+                    it.skipReason == GatewayPreviewSkipReason.VPN_OWNER
+                )
+        }
+        if (alreadyExplained) continue
+        rows += GatewayPreviewRow(ruleKeysByUid[uid], uid, iface, iface?.let(physicalOutbounds::get), reason)
+    }
+    return rows
 }

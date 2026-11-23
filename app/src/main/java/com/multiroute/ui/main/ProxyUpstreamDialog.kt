@@ -58,7 +58,6 @@ import com.multiroute.util.ClashProxyUpstreamClient.Selector
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.ProxyGatewayExport
 import com.multiroute.util.ProxyGatewayFormat
-import com.multiroute.util.AndroidVpnGateway
 import com.multiroute.util.RouteRuleBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -66,9 +65,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun ProxyUpstreamToolPanel(channels: List<NetworkChannel>, controller: ProxyUpstreamController) {
+internal fun ProxyUpstreamToolPanel(
+    channels: List<NetworkChannel>,
+    controller: ProxyUpstreamController,
+    compatibleVpn: NetworkChannel? = null
+) {
     val state by controller.state.collectAsStateWithLifecycle()
-    var showSetup by remember { mutableStateOf(false) }
+    var showSetup by rememberSaveable { mutableStateOf(false) }
     var showGatewaySetup by rememberSaveable { mutableStateOf(false) }
     var showLiveSwitching by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -76,7 +79,7 @@ internal fun ProxyUpstreamToolPanel(channels: List<NetworkChannel>, controller: 
         OutlinedButton(onClick = { showGatewaySetup = true }, enabled = !state.gatewayBusy) {
             Text(stringResource(R.string.proxy_gateway_configure))
         }
-        ProxyGatewayExportSection(channels, controller, enabled = !state.gatewayBusy, onConfigure = { showGatewaySetup = true })
+        ProxyGatewayExportSection(channels, controller, enabled = !state.gatewayBusy, compatibleVpn = compatibleVpn, onConfigure = { showGatewaySetup = true })
         HorizontalDivider()
         TextButton(onClick = { showLiveSwitching = !showLiveSwitching }) {
             Text(stringResource(R.string.proxy_upstream_live_title))
@@ -149,7 +152,7 @@ private fun ProxyGatewayMappingDialog(
                 enabled = !state.gatewayBusy && (active.isNotEmpty() || draft.isNotEmpty()),
                 onClick = {
                     failed = false
-                    val mappings = draft.filterValues { it.isNotBlank() }
+                    val mappings = draft.mapValues { it.value.trim() }.filterValues { it.isNotEmpty() }
                     controller.saveGatewayMappings(mappings) { saved ->
                         failed = !saved
                         if (saved) onDismiss()
@@ -174,15 +177,13 @@ private fun ProxyGatewayExportSection(
     channels: List<NetworkChannel>,
     controller: ProxyUpstreamController,
     enabled: Boolean,
+    compatibleVpn: NetworkChannel?,
     onConfigure: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var formatName by rememberSaveable { mutableStateOf(ProxyGatewayFormat.SING_BOX.name) }
-    val vpnChannels = channels.filter { it.isVpn }
-    val supportsAndroidVpn = remember(context, vpnChannels) {
-        AndroidVpnGateway.findSupportedVpn(context, vpnChannels) != null
-    }
+    val supportsAndroidVpn = compatibleVpn != null
     val formats = ProxyGatewayFormat.entries.filter { it != ProxyGatewayFormat.MIHOMO_ANDROID_VPN || supportsAndroidVpn }
     val format = formats.firstOrNull { it.name == formatName } ?: ProxyGatewayFormat.SING_BOX
     val androidVpnLabel = stringResource(R.string.proxy_gateway_android_vpn_format)
@@ -310,12 +311,17 @@ private fun ProxyGatewayPreviewDialog(
     val formatLabel = if (snapshot.format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
         stringResource(R.string.proxy_gateway_android_vpn_format)
     } else snapshot.format.label
-    val appNames by produceState(emptyMap<GatewayPreviewRow, Pair<String, Int>>(), preview.rows) {
+    val focusedApp = snapshot.focusedApp
+    val focusedRow = focusedApp?.let { app ->
+        preview.rows.firstOrNull { it.ruleKey == app.key }
+            ?: preview.rows.firstOrNull { it.uid == app.uid && it.skipReason == null }
+    }
+    val appNames by produceState(emptyMap<GatewayPreviewRow, Pair<String, Int>>(), preview.rows, focusedApp) {
         value = withContext(Dispatchers.IO) {
             val manager = context.packageManager
             val labels = mutableMapOf<String, String>()
             preview.rows.mapNotNull { row ->
-                val key = row.ruleKey ?: row.uid?.let { uid ->
+                val key = (focusedApp?.key?.takeIf { row == focusedRow }) ?: row.ruleKey ?: row.uid?.let { uid ->
                     runCatching { manager.getPackagesForUid(uid)?.singleOrNull() }.getOrNull()?.let { pkg ->
                         RouteRuleBuilder.ruleKey(pkg, uid / 100_000)
                     }
@@ -328,11 +334,6 @@ private fun ProxyGatewayPreviewDialog(
                 row to (label to userId)
             }.toMap()
         }
-    }
-    val focusedApp = snapshot.focusedApp
-    val focusedRow = focusedApp?.let { app ->
-        preview.rows.firstOrNull { it.ruleKey == app.key }
-            ?: preview.rows.firstOrNull { it.uid == app.uid && it.skipReason == null }
     }
     val included = preview.rows.filter { it.skipReason == null && it != focusedRow }
     val skipped = preview.rows.filter { it.skipReason != null && it != focusedRow }
@@ -349,8 +350,7 @@ private fun ProxyGatewayPreviewDialog(
                             val status = if (focusedRow.skipReason == null) R.string.proxy_gateway_preview_focus_included
                             else R.string.proxy_gateway_preview_focus_skipped
                             Text(stringResource(status), style = MaterialTheme.typography.titleSmall)
-                            val name = appNames[focusedRow].takeIf { focusedRow.ruleKey == focusedApp.key }
-                            ProxyGatewayPreviewEntry(focusedRow.copy(ruleKey = focusedApp.key), channels, name)
+                            ProxyGatewayPreviewEntry(focusedRow.copy(ruleKey = focusedApp.key), channels, appNames[focusedRow])
                         }
                     }
                 }
@@ -418,6 +418,7 @@ private fun ProxyGatewayPreviewEntry(row: GatewayPreviewRow, channels: List<Netw
         GatewayPreviewSkipReason.VPN_CAPTURE_UNKNOWN -> R.string.proxy_gateway_skip_vpn_capture_unknown
         GatewayPreviewSkipReason.VPN_APP_EXCLUDED -> R.string.proxy_gateway_skip_vpn_app_excluded
         GatewayPreviewSkipReason.VPN_OUTBOUND_SHARED -> R.string.proxy_gateway_skip_vpn_outbound_shared
+        GatewayPreviewSkipReason.VPN_WIFI_ONLY -> R.string.proxy_gateway_skip_vpn_wifi_only
         GatewayPreviewSkipReason.SHARED_UID_CONFLICT -> R.string.proxy_gateway_skip_shared
         GatewayPreviewSkipReason.ROUTE_STATE_UNCERTAIN -> R.string.proxy_gateway_skip_stale
         null -> null

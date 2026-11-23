@@ -43,6 +43,7 @@ fun ChannelDetailBottomSheet(
     testServerName: String = "",
     testServerUrl: String = "",
     mayBypassTransparentProxy: Boolean = false,
+    onChangeVpnUpstream: (() -> Unit)? = null,
     onTestChannel: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -66,6 +67,7 @@ fun ChannelDetailBottomSheet(
             testServerUrl = testServerUrl,
             mayBypassTransparentProxy = mayBypassTransparentProxy,
             showCloseButton = true,
+            onChangeVpnUpstream = onChangeVpnUpstream,
             onTestChannel = onTestChannel,
             onDismiss = onDismiss
         )

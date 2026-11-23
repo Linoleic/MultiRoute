@@ -321,6 +321,7 @@
     <string name="proxy_gateway_skip_vpn_capture_unknown">The active VPN’s app coverage could not be read.</string>
     <string name="proxy_gateway_skip_vpn_app_excluded">The active VPN excludes this app. Check the app list in the VPN client.</string>
     <string name="proxy_gateway_skip_vpn_outbound_shared">Use a different proxy outbound name for each Wi-Fi network.</string>
+    <string name="proxy_gateway_skip_vpn_wifi_only">Android VPN export currently supports Wi-Fi egress only.</string>
     <string name="proxy_gateway_skip_shared">Apps sharing this UID have different channel selections. Choose a common channel.</string>
     <string name="proxy_gateway_skip_stale">The installed route and saved rules differ. Sync routing and try again.</string>
     <string name="ui_vpn_routed_apps">Apps assigned to this VPN in MultiRoute (%1$d)</string>
