@@ -19,6 +19,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetworkTopologyTest {
+    @Test
+    fun overviewScaleUsesTheWholeViewportWithinTheSupportedRange() {
+        val threeColumns = TopologyCanvasMetrics.minWidthDp(3)
+        assertEquals(672, threeColumns)
+        assertEquals(448, TopologyCanvasMetrics.minWidthDp(2))
+        assertEquals(384f / threeColumns, TopologyCanvasMetrics.fitScale(384, threeColumns), 0.0001f)
+        assertEquals(TopologyCanvasMetrics.MIN_FIT_SCALE, TopologyCanvasMetrics.fitScale(180, threeColumns), 0.0001f)
+        assertEquals(1f, TopologyCanvasMetrics.fitScale(720, threeColumns), 0.0001f)
+    }
+
+    @Test
+    fun everyDirectEdgeHasItsOwnLaneBelowTheHeadingsAndAboveTheCards() {
+        assertEquals(0, TopologyCanvasMetrics.laneHeightDp(0))
+        val count = 7
+        val offsets = (0 until count).map(TopologyCanvasMetrics::laneOffsetDp)
+        assertEquals(count, offsets.toSet().size)
+        assertTrue(offsets.first() > 0)
+        assertTrue(offsets.last() < TopologyCanvasMetrics.laneHeightDp(count))
+    }
+
     private val wifi = channel("wlan0").copy(isDefault = true)
     private val simKey = "sim_" + "a".repeat(64)
     private val cellular = channel("rmnet_data2").copy(id = simKey, subscriptionKey = simKey, transportType = "cellular")

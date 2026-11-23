@@ -86,7 +86,8 @@ private fun rememberChannelTrafficStats(
 fun ChannelTrafficRateRow(
     interfaceName: String,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    dense: Boolean = false
 ) {
     val currentStats = rememberChannelTrafficStats(interfaceName, trafficFlow)
     val rxColor = MaterialTheme.colorScheme.primary
@@ -103,18 +104,20 @@ fun ChannelTrafficRateRow(
     }
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (dense) 8.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         CompactRateBadge(
             isDownload = true,
             speedText = rxSpeedText,
-            tint = rxColor
+            tint = rxColor,
+            dense = dense
         )
         CompactRateBadge(
             isDownload = false,
             speedText = txSpeedText,
-            tint = txColor
+            tint = txColor,
+            dense = dense
         )
     }
 }
@@ -254,11 +257,12 @@ fun ChannelTrafficDetailCard(
 private fun CompactRateBadge(
     isDownload: Boolean,
     speedText: String,
-    tint: Color
+    tint: Color,
+    dense: Boolean
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (dense) 2.dp else 3.dp)
     ) {
         Icon(
             painter = painterResource(
@@ -269,11 +273,11 @@ private fun CompactRateBadge(
                 if (isDownload) R.string.traffic_download_short else R.string.traffic_upload_short
             ),
             tint = tint,
-            modifier = Modifier.size(13.dp)
+            modifier = Modifier.size(if (dense) 12.dp else 13.dp)
         )
         Text(
             text = speedText,
-            style = MaterialTheme.typography.labelMedium.copy(
+            style = (if (dense) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium).copy(
                 fontWeight = FontWeight.Bold,
                 fontFeatureSettings = "tnum"
             ),

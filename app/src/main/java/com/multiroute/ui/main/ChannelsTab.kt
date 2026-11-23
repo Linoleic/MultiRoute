@@ -243,11 +243,12 @@ fun ChannelsTab(
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     NetworkTopologyView(
                         topology = topology,
-                        wide = dualPane,
                         trafficFlow = viewModel.channelTraffic,
                         testResults = uiState.testResults,
                         selectedNodeId = selectedNode?.id,
                         onClearSelection = { selectedTopologyNodeId = null },
+                        isTesting = uiState.isTesting || uiState.isTestingSingleChannel,
+                        onTestChannels = viewModel::runChannelTests,
                         modifier = Modifier.weight(1f),
                         onNodeClick = { node ->
                             if (selectedTopologyNodeId == node.id) selectedTopologyNodeId = null
@@ -305,7 +306,6 @@ fun ChannelsTab(
                     }
                     TopologyActionBar(selectedNode, shortcuts, wide = dualPane, onDismiss = { selectedTopologyNodeId = null })
                 }
-                ChannelsTestFooter(uiState, viewModel, compactRow = compactLandscape && !dualPane)
             } else {
                 ChannelListLayout(
                     Modifier.weight(1f).fillMaxWidth(), dualPane, leftPaneWidth, activeDetail, uiState, viewModel,
@@ -367,7 +367,7 @@ private fun TopologyActionBar(
     onDismiss: () -> Unit
 ) {
     val title = topologyNodeTitle(node)
-    val target = (node as? TopologyNode.RoutedApps)?.channel?.shortName ?: (node as? TopologyNode.Vpn)?.channel?.interfaceName
+    val target = (node as? TopologyNode.RoutedApps)?.channel?.let { topologyChannelTitle(it) }
     val summary = if (target == null) title else stringResource(R.string.topology_action_summary, title, target)
     val actions: @Composable () -> Unit = {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {

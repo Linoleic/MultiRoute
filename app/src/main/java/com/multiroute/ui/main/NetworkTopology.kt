@@ -17,6 +17,23 @@ internal data class NetworkTopology(
     val activeScenarioNames: List<String> = emptyList()
 )
 
+internal object TopologyCanvasMetrics {
+    const val COLUMN_WIDTH_DP = 192
+    const val COLUMN_GAP_DP = 32
+    const val SIDE_PADDING_DP = 16
+    const val MIN_FIT_SCALE = 0.45f
+
+    fun minWidthDp(columnCount: Int): Int =
+        SIDE_PADDING_DP * 2 + COLUMN_WIDTH_DP * columnCount + COLUMN_GAP_DP * (columnCount - 1)
+
+    fun fitScale(availableWidthPx: Int, contentWidthPx: Int): Float =
+        (availableWidthPx.toFloat() / contentWidthPx).coerceIn(MIN_FIT_SCALE, 1f)
+
+    fun laneOffsetDp(directIndex: Int): Int = 7 + directIndex * 6
+
+    fun laneHeightDp(directCount: Int): Int = if (directCount == 0) 0 else 14 + directCount * 6
+}
+
 /** Effective per-app destinations for the current link observation, plus the selected plans. */
 internal data class EffectiveAppTargets(
     val targetsByRuleKey: Map<String, String>,
