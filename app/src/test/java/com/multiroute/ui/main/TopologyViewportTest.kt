@@ -13,6 +13,28 @@ class TopologyViewportTest {
     }
 
     @Test
+    fun fitUsesAvailableWidthOnNarrowScreens() {
+        val fitted = TopologyViewport.fit(IntSize(360, 600), IntSize(672, 500))
+
+        assertEquals(360f / 672f, fitted.scale)
+        assertEquals(Offset.Zero, fitted.offset)
+    }
+
+    @Test
+    fun fitUsesAvailableHeightForTallGraphs() {
+        val fitted = TopologyViewport.fit(IntSize(720, 320), IntSize(672, 800))
+
+        assertEquals(0.4f, fitted.scale)
+        assertEquals(Offset.Zero, fitted.offset)
+    }
+
+    @Test
+    fun fitKeepsOriginalScaleWhenWholeGraphAlreadyFitsOrHasNotBeenMeasured() {
+        assertEquals(TopologyViewport(), TopologyViewport.fit(IntSize(720, 600), IntSize(672, 500)))
+        assertEquals(TopologyViewport(), TopologyViewport.fit(IntSize(720, 600), IntSize.Zero))
+    }
+
+    @Test
     fun zoomKeepsContentPointUnderFocalPointBeforeApplyingPan() {
         val viewport = IntSize(width = 600, height = 500)
         val content = IntSize(width = 1200, height = 1000)
@@ -37,7 +59,7 @@ class TopologyViewportTest {
     @Test
     fun transformedViewportClampsZoomAndPanToContentBounds() {
         val viewport = IntSize(width = 400, height = 300)
-        val content = IntSize(width = 2000, height = 1500)
+        val content = IntSize(width = 1000, height = 800)
 
         val zoomedIn = TopologyViewport(scale = 2f, offset = Offset(-100f, -100f)).transformed(
             centroid = Offset(200f, 150f),
@@ -57,7 +79,17 @@ class TopologyViewportTest {
             content = content,
         )
         assertEquals(0.35f, zoomedOut.scale)
-        assertEquals(Offset(-300f, -225f), zoomedOut.offset)
+        assertEquals(Offset.Zero, zoomedOut.offset)
+    }
+
+    @Test
+    fun fittingAnOversizedGraphAllowsZoomingInGraduallyFromBelowTheNormalMinimum() {
+        val viewport = IntSize(width = 400, height = 300)
+        val content = IntSize(width = 2000, height = 1500)
+        val fitted = TopologyViewport.fit(viewport, content)
+
+        assertEquals(0.2f, fitted.scale)
+        assertEquals(0.22f, fitted.transformed(Offset.Zero, Offset.Zero, 1.1f, viewport, content).scale, 0.001f)
     }
 
     @Test

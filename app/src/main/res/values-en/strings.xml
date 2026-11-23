@@ -311,7 +311,7 @@
     <string name="proxy_gateway_status_summary">Mapped channels %1$d · Saved app rules %2$d</string>
     <string name="topology_list_view">List</string>
     <string name="topology_graph_view">Topology</string>
-    <string name="topology_reset_view">Reset topology view</string>
+    <string name="topology_reset_view">Fit topology to view</string>
     <string name="topology_sources">Traffic sources</string>
     <string name="topology_relays">Tunnels and proxies</string>
     <string name="topology_egresses">Physical egress</string>

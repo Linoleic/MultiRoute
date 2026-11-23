@@ -172,6 +172,7 @@ private fun ZoomableTopology(
     content: @Composable () -> Unit
 ) {
     val viewport = rememberSaveable(stateSaver = topologyViewportSaver) { mutableStateOf(TopologyViewport()) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var contentSize by remember { mutableStateOf(IntSize.Zero) }
     val clearSelection = rememberUpdatedState(onClearSelection)
     val blankTap = if (hasSelection) Modifier.pointerInput(Unit) {
@@ -182,6 +183,7 @@ private fun ZoomableTopology(
         Layout(
             content = { Box(Modifier.onSizeChanged { contentSize = it }) { content() } },
             modifier = Modifier.fillMaxSize().clipToBounds()
+                .onSizeChanged { viewportSize = it }
                 .pointerInput(Unit) {
                     detectTransformGestures(panZoomLock = true) { centroid, pan, zoom, _ ->
                         viewport.value = viewport.value.transformed(centroid, pan, zoom, size, contentSize)
@@ -189,14 +191,14 @@ private fun ZoomableTopology(
                 }
                 .then(blankTap)
         ) { measurables, constraints ->
-            val viewportSize = IntSize(constraints.maxWidth, constraints.maxHeight)
-            val graphWidth = maxOf(viewportSize.width, contentWidth.roundToPx())
+            val layoutSize = IntSize(constraints.maxWidth, constraints.maxHeight)
+            val graphWidth = maxOf(layoutSize.width, contentWidth.roundToPx())
             val graph = measurables.single().measure(Constraints.fixedWidth(graphWidth))
             val graphSize = IntSize(graph.width, graph.height)
-            layout(viewportSize.width, viewportSize.height) {
+            layout(layoutSize.width, layoutSize.height) {
                 // The graph, its connectors and its touch targets share one transformation.
                 graph.placeRelativeWithLayer(0, 0) {
-                    val view = viewport.value.constrained(viewportSize, graphSize)
+                    val view = viewport.value.constrained(layoutSize, graphSize)
                     transformOrigin = TransformOrigin(0f, 0f)
                     scaleX = view.scale
                     scaleY = view.scale
@@ -206,7 +208,7 @@ private fun ZoomableTopology(
             }
         }
         SmallFloatingActionButton(
-            onClick = { viewport.value = TopologyViewport() },
+            onClick = { viewport.value = TopologyViewport.fit(viewportSize, contentSize) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp),
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer
