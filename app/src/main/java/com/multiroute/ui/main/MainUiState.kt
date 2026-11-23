@@ -8,7 +8,13 @@ import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
 import com.multiroute.model.TestServerConfig
 import com.multiroute.util.DiagnosticInfo
+import com.multiroute.util.RouteRuleBuilder
 import com.multiroute.util.TransparentProxyDiagnostics
+
+internal enum class PhysicalVpnBypassWarning {
+    MODULE_INACTIVE,
+    VPN_LOCKDOWN
+}
 
 data class CellularControlUiState(
     val mode: Int = 0,
@@ -197,6 +203,19 @@ data class MainUiState(
         !channel.isVpn && !channel.isHotspot &&
             channel.transportType in setOf("WLAN", "cellular", "ethernet", "bluetooth") &&
             env.transparentProxyDiagnostics?.mayBypassOn(channel.interfaceName) == true
+
+    internal fun physicalVpnBypassWarning(channel: NetworkChannel): PhysicalVpnBypassWarning? {
+        if (channel.isVpn || channel.isHotspot || RouteRuleBuilder.isTunnelInterface(channel.interfaceName)) {
+            return null
+        }
+        if (channels.none { it.isVpn }) return null
+        val diag = env.diagnosticInfo ?: return null
+        return when {
+            diag.isVpnLockdownEnabled -> PhysicalVpnBypassWarning.VPN_LOCKDOWN
+            !diag.isModuleActive -> PhysicalVpnBypassWarning.MODULE_INACTIVE
+            else -> null
+        }
+    }
     val isEnvironmentRefreshing: Boolean get() = env.isEnvironmentRefreshing
     val environmentRefreshFailed: Boolean get() = env.environmentRefreshFailed
 }

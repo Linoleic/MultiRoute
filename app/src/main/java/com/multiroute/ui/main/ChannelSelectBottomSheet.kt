@@ -40,6 +40,11 @@ private data class ChannelPickerEntry(
     val onClick: () -> Unit
 )
 
+internal fun PhysicalVpnBypassWarning.stringResId(): Int = when (this) {
+    PhysicalVpnBypassWarning.MODULE_INACTIVE -> R.string.vpn_physical_manual_bypass_hint
+    PhysicalVpnBypassWarning.VPN_LOCKDOWN -> R.string.vpn_lockdown_physical_hint
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ChannelSelectBottomSheet(
@@ -47,6 +52,7 @@ internal fun ChannelSelectBottomSheet(
     channels: List<NetworkChannel>,
     isForbidden: (NetworkChannel) -> Boolean,
     mayBypassTransparentProxy: (NetworkChannel) -> Boolean = { false },
+    physicalVpnBypassWarning: (NetworkChannel) -> PhysicalVpnBypassWarning? = { null },
     gatewayChannels: List<NetworkChannel> = emptyList(),
     gatewayMappings: Map<String, String> = emptyMap(),
     gatewayTarget: String? = null,
@@ -64,6 +70,7 @@ internal fun ChannelSelectBottomSheet(
     var proxyExpansionOverride by rememberSaveable(app.ruleKey) { mutableStateOf<Boolean?>(null) }
     val proxyRulesExpanded = proxyExpansionOverride ?: (gatewayTarget != null || gatewayMappings.isNotEmpty() || compatibleVpn != null)
     val offline = app.targetChannelId != CHANNEL_DEFAULT && channels.none { it.matchesTarget(app) }
+    val isVpnOwner = app.uid > 0 && channels.any { it.isVpn && it.vpnOwnerUid == app.uid }
     val entries = buildList {
         add(
             ChannelPickerEntry(
@@ -77,6 +84,7 @@ internal fun ChannelSelectBottomSheet(
         )
         channels.forEach { channel ->
             val forbidden = isForbidden(channel)
+            val vpnWarning = if (!forbidden && !isVpnOwner) physicalVpnBypassWarning(channel) else null
             add(
                 ChannelPickerEntry(
                     key = "channel:${channel.id}",
@@ -86,9 +94,12 @@ internal fun ChannelSelectBottomSheet(
                         forbidden -> stringResource(R.string.ui_vpn_loop_blocked)
                         else -> channelOptionSubtitle(channel)
                     },
-                    note = if (!forbidden && mayBypassTransparentProxy(channel)) {
-                        stringResource(R.string.transparent_proxy_channel_bypass)
-                    } else null,
+                    note = listOfNotNull(
+                        if (!forbidden && mayBypassTransparentProxy(channel)) {
+                            stringResource(R.string.transparent_proxy_channel_bypass)
+                        } else null,
+                        vpnWarning?.let { stringResource(it.stringResId()) }
+                    ).joinToString("\n").ifEmpty { null },
                     icon = getTransportIcon(channel.transportType),
                     selected = channel.matchesTarget(app),
                     enabled = !forbidden,
@@ -386,6 +397,7 @@ internal fun BatchChannelSelectBottomSheet(
     channels: List<NetworkChannel>,
     blockedVpnCounts: Map<String, Int>,
     mayBypassTransparentProxy: (NetworkChannel) -> Boolean = { false },
+    physicalVpnBypassWarning: (NetworkChannel) -> PhysicalVpnBypassWarning? = { null },
     onSelectChannel: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -403,6 +415,7 @@ internal fun BatchChannelSelectBottomSheet(
         channels.forEach { channel ->
             val blocked = blockedVpnCounts[channel.id] ?: 0
             val available = selectedCount > blocked
+            val vpnWarning = if (available) physicalVpnBypassWarning(channel) else null
             add(
                 ChannelPickerEntry(
                     key = "channel:${channel.id}",
@@ -416,7 +429,8 @@ internal fun BatchChannelSelectBottomSheet(
                         },
                         if (available && mayBypassTransparentProxy(channel)) {
                             stringResource(R.string.transparent_proxy_channel_bypass)
-                        } else null
+                        } else null,
+                        vpnWarning?.let { stringResource(it.stringResId()) }
                     ).joinToString("\n").ifEmpty { null },
                     icon = getTransportIcon(channel.transportType),
                     enabled = available,

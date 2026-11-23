@@ -62,7 +62,7 @@ class VpnUidRangePolicyTest {
             deniedPackages = setOf("com.example.denied"),
             nativeRanges = native,
             oldRanges = native,
-            wasInjected = false,
+            wasOverridden = false,
             isCloneUser = { userId -> userId == 10 },
             packagesForUid = { uid ->
                 when (uid) {
@@ -77,6 +77,7 @@ class VpnUidRangePolicyTest {
 
         assertEquals(setOf(1010358), result.injectedUids)
         assertTrue(result.hasInjection)
+        assertTrue(result.hasOverride)
         assertTrue(result.shouldPublish)
     }
 
@@ -91,7 +92,7 @@ class VpnUidRangePolicyTest {
             deniedPackages = emptySet(),
             nativeRanges = native,
             oldRanges = native,
-            wasInjected = false,
+            wasOverridden = false,
             isCloneUser = { it == 10 },
             packagesForUid = { uid ->
                 when (uid) {
@@ -119,12 +120,13 @@ class VpnUidRangePolicyTest {
             deniedPackages = emptySet(),
             nativeRanges = native,
             oldRanges = withClone,
-            wasInjected = true,
+            wasOverridden = true,
             isCloneUser = { it == 10 },
             packagesForUid = { listOf("com.ss.android.ugc.trill") }
         )
         assertFalse(steady.shouldPublish)
         assertTrue(steady.hasInjection)
+        assertTrue(steady.hasOverride)
 
         val removed = VpnUidRangePolicy.evaluate(
             routeUids = emptySet(),
@@ -134,12 +136,129 @@ class VpnUidRangePolicyTest {
             deniedPackages = emptySet(),
             nativeRanges = native,
             oldRanges = withClone,
-            wasInjected = true,
+            wasOverridden = true,
             isCloneUser = { it == 10 },
             packagesForUid = { emptyList() }
         )
         assertTrue(removed.injectedUids.isEmpty())
         assertFalse(removed.hasInjection)
+        assertFalse(removed.hasOverride)
         assertTrue(removed.shouldPublish)
+    }
+
+    @Test
+    fun subtractUidsSplitsBoundariesAndIgnoresSystemUids() {
+        assertEquals(
+            setOf(10362..10364),
+            VpnUidRangePolicy.subtractUids(
+                listOf(10361..10366),
+                setOf(10361, 10365, 10366)
+            )
+        )
+        assertTrue(
+            VpnUidRangePolicy.subtractUids(
+                listOf(10365..10365),
+                setOf(10365)
+            ).isEmpty()
+        )
+        assertEquals(
+            setOf(0..99998, 100000..(Int.MAX_VALUE - 1)),
+            VpnUidRangePolicy.subtractUids(
+                listOf(0..Int.MAX_VALUE),
+                setOf(0, 1000, 9999, 1001000, 99999, Int.MAX_VALUE)
+            )
+        )
+    }
+
+    @Test
+    fun excludesPhysicalRoutedUidCombinedWithCloneInjectionAndSupportsRollback() {
+        val native = setOf(0..10360, 10361..10366, 10367..99999)
+        val evaluated = VpnUidRangePolicy.evaluate(
+            routeUids = setOf(1010358, 10365), // 10365 also in routeUids -> routeUids takes precedence
+            excludedUids = setOf(10365, 10400, 1000), // 10400 excluded, 1000 system UID ignored
+            hostUserId = 0,
+            ownerUid = 10294,
+            allowedPackages = null,
+            deniedPackages = emptySet(),
+            nativeRanges = native,
+            oldRanges = native,
+            wasOverridden = false,
+            isCloneUser = { it == 10 },
+            packagesForUid = { uid ->
+                when (uid) {
+                    1010358 -> listOf("com.ss.android.ugc.trill")
+                    else -> emptyList()
+                }
+            }
+        )
+        assertEquals(setOf(1010358), evaluated.injectedUids)
+        assertEquals(setOf(10400), evaluated.excludedUids)
+        assertEquals(
+            setOf(0..10360, 10361..10366, 10367..10399, 10401..99999, 1010358..1010358),
+            evaluated.desiredRanges
+        )
+        assertTrue(evaluated.hasOverride)
+        assertTrue(evaluated.shouldPublish)
+
+        // Idempotent when oldRanges already matches desiredRanges
+        val steady = VpnUidRangePolicy.evaluate(
+            routeUids = setOf(1010358, 10365),
+            excludedUids = setOf(10365, 10400),
+            hostUserId = 0,
+            ownerUid = 10294,
+            allowedPackages = null,
+            deniedPackages = emptySet(),
+            nativeRanges = native,
+            oldRanges = evaluated.desiredRanges,
+            wasOverridden = true,
+            isCloneUser = { it == 10 },
+            packagesForUid = { uid ->
+                when (uid) {
+                    1010358 -> listOf("com.ss.android.ugc.trill")
+                    else -> emptyList()
+                }
+            }
+        )
+        assertFalse(steady.shouldPublish)
+        assertTrue(steady.hasOverride)
+
+        // Rollback to native ranges when rules are cleared
+        val rolledBack = VpnUidRangePolicy.evaluate(
+            routeUids = emptySet(),
+            excludedUids = emptySet(),
+            hostUserId = 0,
+            ownerUid = 10294,
+            allowedPackages = null,
+            deniedPackages = emptySet(),
+            nativeRanges = native,
+            oldRanges = evaluated.desiredRanges,
+            wasOverridden = true,
+            isCloneUser = { it == 10 },
+            packagesForUid = { emptyList() }
+        )
+        assertEquals(native, rolledBack.desiredRanges)
+        assertFalse(rolledBack.hasOverride)
+        assertTrue(rolledBack.shouldPublish)
+    }
+
+    @Test
+    fun negativeOwnerUidIsNoOp() {
+        val native = setOf(0..99999)
+        val result = VpnUidRangePolicy.evaluate(
+            routeUids = setOf(1010358),
+            excludedUids = setOf(10365),
+            hostUserId = 0,
+            ownerUid = -1,
+            allowedPackages = null,
+            deniedPackages = emptySet(),
+            nativeRanges = native,
+            oldRanges = native,
+            wasOverridden = false,
+            isCloneUser = { true },
+            packagesForUid = { listOf("com.example.app") }
+        )
+        assertFalse(result.shouldPublish)
+        assertFalse(result.hasOverride)
+        assertEquals(native, result.desiredRanges)
     }
 }

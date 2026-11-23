@@ -563,6 +563,7 @@ private fun ChannelInspector(
             testServerName = effectiveTestServer.displayName(LocalContext.current),
             testServerUrl = effectiveTestServer.activeUrl,
             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
+            physicalVpnBypassWarning = uiState.physicalVpnBypassWarning(channel),
             showCloseButton = onDismiss != null,
             modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
             onChangeVpnUpstream = if (channel.isVpn && onSelectVpn != null) ({ onSelectVpn(channel) }) else null,

@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChannelDetailBottomSheet(
+internal fun ChannelDetailBottomSheet(
     channel: NetworkChannel,
     channels: List<NetworkChannel>,
     scenario: ScenarioUiState,
@@ -43,6 +43,7 @@ fun ChannelDetailBottomSheet(
     testServerName: String = "",
     testServerUrl: String = "",
     mayBypassTransparentProxy: Boolean = false,
+    physicalVpnBypassWarning: PhysicalVpnBypassWarning? = null,
     onChangeVpnUpstream: (() -> Unit)? = null,
     onTestChannel: () -> Unit,
     onDismiss: () -> Unit
@@ -66,6 +67,7 @@ fun ChannelDetailBottomSheet(
             testServerName = testServerName,
             testServerUrl = testServerUrl,
             mayBypassTransparentProxy = mayBypassTransparentProxy,
+            physicalVpnBypassWarning = physicalVpnBypassWarning,
             showCloseButton = true,
             onChangeVpnUpstream = onChangeVpnUpstream,
             onTestChannel = onTestChannel,
@@ -89,6 +91,7 @@ internal fun ChannelDetailContent(
     testServerName: String = "",
     testServerUrl: String = "",
     mayBypassTransparentProxy: Boolean = false,
+    physicalVpnBypassWarning: PhysicalVpnBypassWarning? = null,
     showCloseButton: Boolean = true,
     modifier: Modifier = Modifier,
     onChangeVpnUpstream: (() -> Unit)? = null,
@@ -199,6 +202,14 @@ internal fun ChannelDetailContent(
             if (mayBypassTransparentProxy) {
                 Text(
                     text = stringResource(R.string.transparent_proxy_channel_bypass),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (physicalVpnBypassWarning != null) {
+                Text(
+                    text = stringResource(physicalVpnBypassWarning.stringResId()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

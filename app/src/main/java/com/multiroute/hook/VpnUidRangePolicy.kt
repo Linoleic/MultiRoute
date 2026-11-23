@@ -1,18 +1,22 @@
 package com.multiroute.hook
 
 /**
- * Pure policy logic deciding which clone-profile UIDs to inject into an active VPN network's
- * UID ranges and whether the resulting capability update should be published.
+ * Pure policy logic deciding which clone-profile UIDs to inject into, and which explicitly
+ * non-VPN-routed UIDs to subtract from, an active VPN network's UID ranges.
  */
 internal object VpnUidRangePolicy {
     const val CLONE_USER_TYPE = "android.os.usertype.profile.CLONE"
     private const val PER_USER_RANGE = 100000
 
     data class SelectionResult(
+        val desiredRanges: Set<IntRange>,
         val injectedUids: Set<Int>,
-        val hasInjection: Boolean,
+        val excludedUids: Set<Int>,
+        val hasOverride: Boolean,
         val shouldPublish: Boolean
-    )
+    ) {
+        val hasInjection: Boolean get() = injectedUids.isNotEmpty()
+    }
 
     fun isEligibleCloneUser(
         targetUserId: Int,
@@ -24,20 +28,63 @@ internal object VpnUidRangePolicy {
         return userType == CLONE_USER_TYPE && profileParentId == hostUserId
     }
 
+    internal fun subtractUids(
+        ranges: Collection<IntRange>,
+        excludedUids: Set<Int>
+    ): Set<IntRange> {
+        val sortedExcluded = excludedUids
+            .asSequence()
+            .filter { it >= 10000 && it % PER_USER_RANGE >= 10000 }
+            .sorted()
+            .toList()
+        if (sortedExcluded.isEmpty()) return ranges.toSet()
+
+        val result = linkedSetOf<IntRange>()
+        for (range in ranges) {
+            if (range.isEmpty()) continue
+            var cursor = range.first
+            var exhausted = false
+            for (uid in sortedExcluded) {
+                if (uid < cursor) continue
+                if (uid > range.last) break
+                if (cursor < uid) {
+                    result.add(cursor..(uid - 1))
+                }
+                if (uid == range.last) {
+                    exhausted = true
+                    break
+                }
+                cursor = uid + 1
+            }
+            if (!exhausted && cursor <= range.last) {
+                result.add(cursor..range.last)
+            }
+        }
+        return result
+    }
+
     fun evaluate(
         routeUids: Set<Int>,
+        excludedUids: Set<Int> = emptySet(),
         hostUserId: Int,
         ownerUid: Int,
         allowedPackages: Set<String>?,
         deniedPackages: Set<String>,
         nativeRanges: Collection<IntRange>,
         oldRanges: Collection<IntRange>,
-        wasInjected: Boolean,
+        wasOverridden: Boolean,
         isCloneUser: (Int) -> Boolean,
         packagesForUid: (Int) -> List<String>
     ): SelectionResult {
+        val nativeSet = nativeRanges.toSet()
         if (ownerUid < 0) {
-            return SelectionResult(emptySet(), hasInjection = false, shouldPublish = false)
+            return SelectionResult(
+                desiredRanges = nativeSet,
+                injectedUids = emptySet(),
+                excludedUids = emptySet(),
+                hasOverride = false,
+                shouldPublish = false
+            )
         }
         val injected = linkedSetOf<Int>()
         val cloneUsers = mutableMapOf<Int, Boolean>()
@@ -54,13 +101,26 @@ internal object VpnUidRangePolicy {
             if (allowedPackages != null && packages.any { it !in allowedPackages }) continue
             injected.add(uid)
         }
-        val nativeSet = nativeRanges.toSet()
-        val desiredSet = nativeSet + injected.map { it..it }
-        val hasInjection = desiredSet != nativeSet
-        val unchanged = desiredSet == oldRanges.toSet() || (!hasInjection && !wasInjected)
+
+        val excluded = excludedUids
+            .asSequence()
+            .filter { uid ->
+                uid >= 10000 &&
+                    uid % PER_USER_RANGE >= 10000 &&
+                    uid !in routeUids &&
+                    nativeRanges.any { uid in it }
+            }
+            .sorted()
+            .toCollection(linkedSetOf())
+
+        val desiredRanges = subtractUids(nativeRanges, excluded) + injected.map { it..it }
+        val hasOverride = desiredRanges != nativeSet
+        val unchanged = desiredRanges == oldRanges.toSet() || (!hasOverride && !wasOverridden)
         return SelectionResult(
+            desiredRanges = desiredRanges,
             injectedUids = injected,
-            hasInjection = hasInjection,
+            excludedUids = excluded,
+            hasOverride = hasOverride,
             shouldPublish = !unchanged
         )
     }

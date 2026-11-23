@@ -38,7 +38,9 @@ data class DiagnosticInfo(
     /** uid→table as it actually exists in the kernel, so the two can be compared in the UI. */
     val kernelUidRules: Map<Int, String> = emptyMap(),
     /** Tail of the boot-recovery log written by the generated `service.d` script. */
-    val bootRestoreLog: List<String> = emptyList()
+    val bootRestoreLog: List<String> = emptyList(),
+    /** Whether Android's always-on VPN lockdown ("block connections without VPN") is enabled. */
+    val isVpnLockdownEnabled: Boolean = false
 )
 
 /**
@@ -201,6 +203,9 @@ internal class ModuleDiagnosticsCollector(
 
         val wifiSsids = NetworkUtils.getConnectedWifiSsids()
         val keepSlaveWifi = RouteConfigProvider.isKeepSlaveWifiScreenOff(context)
+        val vpnLockdown = runCatching {
+            Settings.Secure.getInt(context.contentResolver, "always_on_vpn_lockdown", 0) != 0
+        }.getOrDefault(false)
 
         DiagnosticInfo(
             isRootGranted = isRoot,
@@ -217,7 +222,8 @@ internal class ModuleDiagnosticsCollector(
             wifiSsids = wifiSsids,
             configuredUidRules = RouteConfigProvider.getUidRules(context),
             kernelUidRules = RouteRuleBuilder.parseKernelUidRules(kernelRules),
-            bootRestoreLog = readBootRestoreLog()
+            bootRestoreLog = readBootRestoreLog(),
+            isVpnLockdownEnabled = vpnLockdown
         )
     }
 

@@ -13,10 +13,13 @@ import io.github.libxposed.api.XposedModule
 import java.io.File
 import java.util.WeakHashMap
 
-/** Adds explicitly routed clone-profile UIDs to an active VpnService network. */
+/**
+ * Adjusts active VpnService UID ranges: injects explicitly VPN-routed clone-profile UIDs and
+ * subtracts UIDs explicitly assigned to other (non-VPN) channels.
+ */
 internal class VpnUidRoutingHook(private val xposed: XposedModule) {
     private class TrackedVpn(val handler: Handler) {
-        var injected = false
+        var overridden = false
     }
 
     private val active = WeakHashMap<Any, TrackedVpn>()
@@ -41,7 +44,7 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
                 result
             }
             platform = api
-            xposed.log(Log.INFO, HOOK_TAG, "[VpnUid] Clone VPN routing hook installed")
+            xposed.log(Log.INFO, HOOK_TAG, "[VpnUid] VPN UID routing hook installed")
         } catch (t: Throwable) {
             logFailure(t)
         }
@@ -79,8 +82,10 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
         val denied = api.denied.get(config) as? List<*>
         val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
         if (boot < 0 || published.lineSequence().firstOrNull() != "#boot:$boot") return
-        val routes = RouteRuleBuilder.parseRuleCache(published).filterValues { it == iface }
-        if (routes.isEmpty() && !state.injected) return
+        val allRoutes = RouteRuleBuilder.parseRuleCache(published)
+        val vpnRouteUids = allRoutes.filterValues { it == iface }.keys
+        val excludedUids = allRoutes.filterValues { it != iface }.keys
+        if (vpnRouteUids.isEmpty() && excludedUids.isEmpty() && !state.overridden) return
 
         @Suppress("UNCHECKED_CAST")
         val oldRanges = api.getUids.invoke(oldCaps) as? Set<Range<Int>> ?: return
@@ -90,14 +95,15 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
         val allowedSet = allowed?.mapNotNull { it as? String }?.toSet()
         val deniedSet = denied?.mapNotNull { it as? String }?.toSet().orEmpty()
         val decision = VpnUidRangePolicy.evaluate(
-            routeUids = routes.keys,
+            routeUids = vpnRouteUids,
+            excludedUids = excludedUids,
             hostUserId = userId,
             ownerUid = ownerUid,
             allowedPackages = allowedSet,
             deniedPackages = deniedSet,
             nativeRanges = native.map { it.lower..it.upper },
             oldRanges = oldRanges.map { it.lower..it.upper },
-            wasInjected = state.injected,
+            wasOverridden = state.overridden,
             isCloneUser = { targetUser ->
                 val info = api.getUserInfo.invoke(users, targetUser) ?: return@evaluate false
                 val parent = api.getProfileParent.invoke(users, targetUser) ?: return@evaluate false
@@ -113,12 +119,11 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
             }
         )
         if (!decision.shouldPublish) {
-            state.injected = decision.hasInjection
+            state.overridden = decision.hasOverride
             return
         }
-        val desired = native.toMutableSet()
-        for (uid in decision.injectedUids) {
-            desired.add(Range(uid, uid))
+        val desired = decision.desiredRanges.mapTo(LinkedHashSet(decision.desiredRanges.size)) {
+            Range(it.first, it.last)
         }
 
         val builder = api.capBuilder.newInstance(oldCaps)
@@ -127,8 +132,12 @@ internal class VpnUidRoutingHook(private val xposed: XposedModule) {
         try {
             api.caps.set(vpn, newCaps)
             api.send.invoke(null, agent, newCaps)
-            state.injected = decision.hasInjection
-            xposed.log(Log.INFO, HOOK_TAG, "[VpnUid] Updated clone UID ranges for $iface")
+            state.overridden = decision.hasOverride
+            xposed.log(
+                Log.INFO,
+                HOOK_TAG,
+                "[VpnUid] Updated UID ranges for $iface (injected=${decision.injectedUids.size}, excluded=${decision.excludedUids.size})"
+            )
         } catch (t: Throwable) {
             runCatching {
                 api.caps.set(vpn, oldCaps)

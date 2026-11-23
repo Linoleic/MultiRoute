@@ -23,6 +23,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 修复
 
+- 修复开启 VPN 时，已显式指定到物理通道的应用仍被 VPN 劫持 DNS/Fake-IP 导致无法联网的问题：LSPosed 模块自动将其从非锁定 VPN 的接管 UID 范围中排除，并在模块未激活或开启系统 VPN 锁定时提供界面提示。
 - 修复开机解锁后较晚连上信任 Wi-Fi 时，无线调试未自动恢复的问题。
 - 修复查询失败被误判为没有应用分身的问题，避免清除已缓存的分身列表。
 - 修复蜂窝清单读取超时时撤除仍在线 SIM 的分流规则，避免 VPN 重连时短暂走错出口。
@@ -44,6 +45,7 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### Fixed
 
+- Fixed apps explicitly routed to a physical channel failing to connect while a VPN is active due to VPN DNS/Fake-IP interception: the LSPosed module now automatically excludes them from non-lockdown VPN UID ranges, with fallback UI hints when the module is inactive or VPN lockdown is enabled.
 - Restored wireless debugging when a trusted Wi-Fi connects after post-boot unlock.
 - Fixed failed clone-app queries being treated as empty results and clearing cached clone entries.
 - Preserved routing for an active SIM when the cellular inventory times out, preventing a brief switch to the wrong egress during VPN reconnection.

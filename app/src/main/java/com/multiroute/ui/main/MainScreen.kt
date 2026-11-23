@@ -427,6 +427,7 @@ fun MainScreen(
                             channels = uiState.channels.filter { !it.isHotspot },
                             isForbidden = { viewModel.isVpnSelfLoop(it, app) },
                             mayBypassTransparentProxy = uiState::mayBypassTransparentProxy,
+                            physicalVpnBypassWarning = uiState::physicalVpnBypassWarning,
                             gatewayChannels = if (canConfigureGateway) uiState.channels.filter {
                                 it.proxyUpstreamKey() != null
                             } else emptyList(),
@@ -478,6 +479,7 @@ fun MainScreen(
                             channels = channels,
                             blockedVpnCounts = viewModel.blockedBatchVpnCounts(channels, uiState.selectedRuleKeys),
                             mayBypassTransparentProxy = uiState::mayBypassTransparentProxy,
+                            physicalVpnBypassWarning = uiState::physicalVpnBypassWarning,
                             onSelectChannel = { channelId ->
                                 viewModel.batchAssignChannel(channelId)
                             },
@@ -507,6 +509,7 @@ fun MainScreen(
                             testServerName = effectiveTestServer.displayName(androidx.compose.ui.platform.LocalContext.current),
                             testServerUrl = effectiveTestServer.activeUrl,
                             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
+                            physicalVpnBypassWarning = uiState.physicalVpnBypassWarning(channel),
                             onChangeVpnUpstream = if (channel.isVpn) {
                                 {
                                     viewModel.closeChannelDetail()
