@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +31,8 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +68,7 @@ fun ChannelsTab(
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var showTopology by rememberSaveable { mutableStateOf(false) }
     var showTopologyDetail by rememberSaveable { mutableStateOf(false) }
+    var showChannelTests by rememberSaveable { mutableStateOf(false) }
     var selectedTopologyNodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
     var showProxyPicker by rememberSaveable { mutableStateOf(false) }
@@ -78,7 +83,6 @@ fun ChannelsTab(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val dualPane = maxWidth >= RoutingDimensions.dualPaneMinWidth
         val dockTopologyDetail = maxWidth >= RoutingDimensions.dualPaneMinWidth + 360.dp
-        val compactLandscape = maxHeight < 500.dp && maxWidth >= 520.dp
         val leftPaneWidth = RoutingDimensions.dualPaneLeftWidth(
             availableWidth = maxWidth,
             minWidth = 310.dp,
@@ -171,36 +175,51 @@ fun ChannelsTab(
                         viewModel.openNetworkTool(target)
                     }
                 }
-
-                ChannelsTestFooter(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    compactRow = compactLandscape && !dualPane
-                )
             }
         }
 
         Column(Modifier.fillMaxSize()) {
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(horizontal = RoutingDimensions.contentPadding)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                SegmentedButton(
-                    selected = !showTopology,
-                    onClick = {
-                        showTopology = false
-                        showTopologyDetail = false
-                        selectedTopologyNodeId = null
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                ) { Text(stringResource(R.string.topology_list_view)) }
-                SegmentedButton(
-                    selected = showTopology,
-                    onClick = {
-                        showTopology = true
-                        viewModel.refreshTransparentProxyDiagnostics()
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                ) { Text(stringResource(R.string.topology_graph_view)) }
+                Spacer(Modifier.width(48.dp))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    SingleChoiceSegmentedButtonRow {
+                        SegmentedButton(
+                            selected = !showTopology,
+                            onClick = {
+                                showTopology = false
+                                showTopologyDetail = false
+                                selectedTopologyNodeId = null
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                        ) { Text(stringResource(R.string.topology_list_view)) }
+                        SegmentedButton(
+                            selected = showTopology,
+                            onClick = {
+                                showTopology = true
+                                viewModel.refreshTransparentProxyDiagnostics()
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                        ) { Text(stringResource(R.string.topology_graph_view)) }
+                    }
+                }
+                val testLabel = stringResource(if (uiState.isTesting) R.string.ui_testing_channels else R.string.channel_egress_tests)
+                IconButton(
+                    onClick = { showChannelTests = true },
+                    modifier = Modifier.semantics { contentDescription = testLabel }
+                ) {
+                    if (uiState.isTesting) {
+                        CircularWavyProgressIndicator(Modifier.size(20.dp))
+                    } else {
+                        Icon(
+                            painterResource(R.drawable.ic_symbol_speed),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
             if (showTopology) {
                 val vpnUpstreams = buildMap {
@@ -247,8 +266,6 @@ fun ChannelsTab(
                         testResults = uiState.testResults,
                         selectedNodeId = selectedNode?.id,
                         onClearSelection = { selectedTopologyNodeId = null },
-                        isTesting = uiState.isTesting || uiState.isTestingSingleChannel,
-                        onTestChannels = viewModel::runChannelTests,
                         modifier = Modifier.weight(1f),
                         onNodeClick = { node ->
                             if (selectedTopologyNodeId == node.id) selectedTopologyNodeId = null
@@ -314,6 +331,18 @@ fun ChannelsTab(
                 )
             }
         }
+    }
+
+    if (showChannelTests && !uiState.showTestServerDialog) {
+        ChannelsTestSheet(
+            uiState = uiState,
+            onChangeServer = viewModel::openTestServerDialog,
+            onRun = {
+                showChannelTests = false
+                viewModel.runChannelTests()
+            },
+            onDismiss = { showChannelTests = false }
+        )
     }
 
     vpnForPicker?.let { selected ->
@@ -549,97 +578,72 @@ private fun VpnUpstreamShortcut(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ChannelsTestFooter(
+private fun ChannelsTestSheet(
     uiState: MainUiState,
-    viewModel: MainScreenViewModel,
-    compactRow: Boolean
+    onChangeServer: () -> Unit,
+    onRun: () -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(topStart = if (compactRow) 16.dp else 20.dp, topEnd = if (compactRow) 16.dp else 20.dp)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+        )
     ) {
-        val serverRow: @Composable (Modifier) -> Unit = { rowModifier ->
+        Column(
+            Modifier.fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(stringResource(R.string.channel_egress_tests), style = MaterialTheme.typography.titleLarge)
             Row(
-                modifier = rowModifier
-                    .clip(MaterialTheme.shapes.small)
-                    .clickable { viewModel.openTestServerDialog() }
-                    .padding(horizontal = 6.dp, vertical = if (compactRow) 8.dp else 4.dp),
+                modifier = Modifier.fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .clickable(onClick = onChangeServer)
+                    .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_symbol_dns),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Icon(
+                    painterResource(R.drawable.ic_symbol_dns),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_test_endpoint), style = MaterialTheme.typography.labelMedium)
                     Text(
-                        text = stringResource(R.string.ui_test_node_2, uiState.testServerConfig.displayName(LocalContext.current)),
-                        style = MaterialTheme.typography.labelMedium,
+                        uiState.testServerConfig.displayName(LocalContext.current),
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = stringResource(R.string.ui_change),
-                    style = MaterialTheme.typography.labelMedium,
+                    stringResource(R.string.ui_change),
+                    style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-        }
-        val testButton: @Composable (Modifier) -> Unit = { btnModifier ->
+            if (uiState.channels.isEmpty()) {
+                Text(
+                    stringResource(R.string.ui_no_active_network),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Button(
-                onClick = { viewModel.runChannelTests() },
-                modifier = btnModifier.heightIn(min = 42.dp),
-                enabled = !uiState.isTesting && uiState.channels.isNotEmpty(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                onClick = onRun,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isTesting && !uiState.isTestingSingleChannel && uiState.channels.isNotEmpty(),
                 shapes = ButtonDefaults.shapes()
             ) {
-                if (uiState.isTesting) {
-                    CircularWavyProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.ui_testing_channels), maxLines = 1)
-                } else {
-                    Icon(painterResource(R.drawable.ic_symbol_speed), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.ui_test_channels), maxLines = 1)
-                }
-            }
-        }
-
-        if (compactRow) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                serverRow(Modifier.weight(1f))
-                testButton(Modifier)
-            }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                serverRow(Modifier.fillMaxWidth())
-                testButton(Modifier.fillMaxWidth())
+                Text(stringResource(if (uiState.isTesting) R.string.ui_testing_channels else R.string.ui_test_channels))
             }
         }
     }

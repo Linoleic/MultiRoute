@@ -49,6 +49,7 @@
     <string name="ui_cancel">取消</string>
     <string name="ui_done">完成</string>
     <string name="ui_save_apply">保存生效</string>
+    <string name="channel_egress_tests">出口测试</string>
     <string name="ui_test_channels">测试各通道出口</string>
     <string name="ui_testing_channels">正在测试各通道出口...</string>
     <string name="ui_probing_prefix">正在通过</string>
@@ -122,7 +123,6 @@
     <string name="ui_selected_items">已选 %1$d 项</string>
     <string name="ui_app_list">应用列表 (%1$d)</string>
     <string name="ui_assign_channel_n">分配通道 (%1$d)</string>
-    <string name="ui_test_node_2">测试节点: %1$s</string>
     <string name="vm_test_node_set">测试节点已配置为: %1$s</string>
     <string name="vm_system_default">系统默认</string>
     <string name="vm_batch_assigned">已为 %1$d 个应用批量分配至: %2$s</string>

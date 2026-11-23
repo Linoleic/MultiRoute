@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
@@ -92,8 +91,6 @@ internal fun NetworkTopologyView(
     onNodeClick: (TopologyNode) -> Unit,
     selectedNodeId: String?,
     onClearSelection: () -> Unit,
-    isTesting: Boolean,
-    onTestChannels: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (!topologyHasActiveNetwork(topology)) {
@@ -113,19 +110,7 @@ internal fun NetworkTopologyView(
     val contentWidth = TopologyCanvasMetrics.minWidthDp(layers.size).dp
     val colors = MaterialTheme.colorScheme
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TopologyLegend(Modifier.weight(1f).padding(start = 8.dp))
-            IconButton(onClick = onTestChannels, enabled = !isTesting) {
-                Icon(
-                    painterResource(R.drawable.ic_symbol_speed),
-                    stringResource(if (isTesting) R.string.ui_testing_channels else R.string.ui_test_channels),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
+        TopologyLegend(Modifier.padding(horizontal = TopologyCanvasMetrics.SIDE_PADDING_DP.dp, vertical = 4.dp))
         if (topology.activeScenarioNames.isNotEmpty()) {
             FlowRow(
                 Modifier.fillMaxWidth().padding(horizontal = TopologyCanvasMetrics.SIDE_PADDING_DP.dp, vertical = 4.dp),
