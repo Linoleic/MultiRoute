@@ -101,4 +101,40 @@ internal object ProxyGatewayExport {
         }
         append(rules)
     }
+
+    fun buildOutboundReference(fragment: Fragment, format: ProxyGatewayFormat): String? {
+        val pairs = fragment.rules
+            .map { it.outbound to it.interfaceName }
+            .distinct()
+            .sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second })
+        if (pairs.isEmpty()) return null
+
+        return when (format) {
+            ProxyGatewayFormat.SING_BOX -> {
+                val outbounds = JSONArray()
+                for ((outbound, iface) in pairs) {
+                    outbounds.put(JSONObject().put("tag", outbound).put("bind_interface", iface))
+                }
+                JSONObject().put("outbounds", outbounds).toString(2)
+            }
+            ProxyGatewayFormat.MIHOMO, ProxyGatewayFormat.MIHOMO_ANDROID_VPN -> buildString {
+                appendLine(
+                    if (format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
+                        "# Set interface-name on each matching outbound in your Android VPN config or override:"
+                    } else {
+                        "# Set interface-name on each matching outbound in your proxy config or override:"
+                    }
+                )
+                appendLine("proxies:")
+                for ((outbound, iface) in pairs) {
+                    val quoted = JSONObject.quote(outbound).replace("\\/", "/")
+                    val boundIface = if (format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
+                        "android-vpn:$iface"
+                    } else iface
+                    appendLine("  - name: $quoted")
+                    appendLine("    interface-name: $boundIface")
+                }
+            }
+        }
+    }
 }

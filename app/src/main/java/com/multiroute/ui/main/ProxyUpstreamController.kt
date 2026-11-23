@@ -57,6 +57,7 @@ internal data class GatewayPreviewRow(
 internal data class ProxyUpstreamUiState(
     val profile: ProxyUpstreamProfile? = null,
     val selector: Selector? = null,
+    val availableOutbounds: Set<String> = emptySet(),
     val busy: Boolean = true,
     val failure: Failure? = null,
     val storageFailed: Boolean = false,
@@ -101,7 +102,8 @@ internal class ProxyUpstreamController(
     data class GatewayExport(
         val fragment: ProxyGatewayExport.Fragment?,
         val possibleBypassInterfaces: List<String>,
-        val rows: List<GatewayPreviewRow>
+        val rows: List<GatewayPreviewRow>,
+        val unverifiedOutbounds: List<String> = emptyList()
     )
 
     data class GatewayPreviewRequest(val app: RuleTarget, val preferredFormat: ProxyGatewayFormat?)
@@ -433,8 +435,18 @@ internal class ProxyUpstreamController(
                 GatewaySnapshot(fragment, active.filter { it.isVpnUpstream() }.map { it.interfaceName }, included + skipped)
             }
             val fragment = snapshot.fragment
-            if (fragment == null || fragment.directInterfaces.isEmpty()) {
-                return@withContext GatewayExport(fragment, emptyList(), snapshot.rows)
+            if (fragment == null) {
+                return@withContext GatewayExport(null, emptyList(), snapshot.rows)
+            }
+            val knownOutbounds = _state.value.profile?.let { profile ->
+                runCatching { ClashProxyUpstreamClient(profile.port, secret).listProxyNames() }.getOrNull()
+                    ?.also { names -> _state.update { it.copy(availableOutbounds = names) } }
+            } ?: _state.value.availableOutbounds.takeIf { it.isNotEmpty() }
+            val unverifiedOutbounds = if (knownOutbounds != null) {
+                fragment.rules.map { it.outbound }.distinct().filterNot { it in knownOutbounds }.sorted()
+            } else emptyList()
+            if (fragment.directInterfaces.isEmpty()) {
+                return@withContext GatewayExport(fragment, emptyList(), snapshot.rows, unverifiedOutbounds)
             }
             val diagnostics = try {
                 SuHelper.getTransparentProxyDiagnostics(snapshot.activeUpstreamInterfaces)
@@ -445,7 +457,7 @@ internal class ProxyUpstreamController(
                 null
             }
             val possibleBypassInterfaces = fragment.directInterfaces.filter { diagnostics?.mayBypassOn(it) == true }.sorted()
-            GatewayExport(fragment, possibleBypassInterfaces, snapshot.rows)
+            GatewayExport(fragment, possibleBypassInterfaces, snapshot.rows, unverifiedOutbounds)
         }
     }
 
@@ -464,13 +476,15 @@ internal class ProxyUpstreamController(
         _state.update { it.copy(busy = true, failure = null, storageFailed = false) }
         scope.launch {
             try {
-                val selected = withContext(Dispatchers.IO) {
-                    if (member == null) client.read(profile.group) else client.select(profile.group, member)
+                val (selected, allOutbounds) = withContext(Dispatchers.IO) {
+                    val readback = if (member == null) client.read(profile.group) else client.select(profile.group, member)
+                    val names = runCatching { client.listProxyNames() }.getOrDefault(readback.members)
+                    readback to names
                 }
-                _state.update { it.copy(selector = selected) }
+                _state.update { it.copy(selector = selected, availableOutbounds = allOutbounds) }
                 if (member != null) onSelectionConfirmed()
             } catch (error: ControllerException) {
-                _state.update { it.copy(selector = null, failure = error.failure) }
+                _state.update { it.copy(selector = null, availableOutbounds = emptySet(), failure = error.failure) }
             } finally {
                 _state.update { it.copy(busy = false) }
             }
@@ -483,14 +497,18 @@ internal class ProxyUpstreamController(
         _state.update { it.copy(busy = true, storageFailed = false, failure = null) }
         scope.launch {
             try {
-                val selector = withContext(Dispatchers.IO) {
-                    val readback = ClashProxyUpstreamClient(profile.port, secret).read(profile.group)
+                val (selector, allOutbounds) = withContext(Dispatchers.IO) {
+                    val client = ClashProxyUpstreamClient(profile.port, secret)
+                    val readback = client.read(profile.group)
                     if (!readback.members.containsAll(profile.mappings.values)) throw ControllerException(Failure.INVALID_SELECTOR)
+                    val names = runCatching { client.listProxyNames() }.getOrDefault(readback.members)
                     store.save(profile, savedSecret)
-                    readback
+                    readback to names
                 }
                 this@ProxyUpstreamController.secret = secret
-                _state.update { it.copy(profile = profile, selector = selector, secretSaved = savedSecret != null) }
+                _state.update {
+                    it.copy(profile = profile, selector = selector, availableOutbounds = allOutbounds, secretSaved = savedSecret != null)
+                }
                 onSaved()
             } catch (error: CancellationException) {
                 throw error
@@ -511,7 +529,9 @@ internal class ProxyUpstreamController(
             try {
                 withContext(Dispatchers.IO) { store.clear() }
                 secret = ""
-                _state.update { it.copy(profile = null, selector = null, failure = null, secretSaved = false) }
+                _state.update {
+                    it.copy(profile = null, selector = null, availableOutbounds = emptySet(), failure = null, secretSaved = false)
+                }
                 onRemoved()
             } catch (error: CancellationException) {
                 throw error

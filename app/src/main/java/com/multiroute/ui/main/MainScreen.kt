@@ -438,6 +438,7 @@ fun MainScreen(
                             gatewayNotice = uiState.proxyGatewayAvailabilityNotice(
                                 hasSavedMappings = proxy.gatewayMappings.isNotEmpty()
                             ),
+                            availableOutbounds = proxy.availableOutbounds,
                             compatibleVpn = uiState.supportedAndroidVpn,
                             onSelectGateway = { target, outboundTag, onSaved ->
                                 viewModel.proxyUpstream.saveGatewayAppTarget(app.ruleKey, target, outboundTag) { saved ->

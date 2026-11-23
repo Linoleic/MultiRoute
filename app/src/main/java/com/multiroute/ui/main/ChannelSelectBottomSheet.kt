@@ -59,6 +59,7 @@ internal fun ChannelSelectBottomSheet(
     gatewayBusy: Boolean = false,
     gatewayEnabled: Boolean = true,
     gatewayNotice: ProxyGatewayAvailabilityNotice? = null,
+    availableOutbounds: Set<String> = emptySet(),
     compatibleVpn: NetworkChannel? = null,
     onSelectGateway: (String?, String?, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
     onPreviewGateway: () -> Unit,
@@ -284,12 +285,13 @@ internal fun ChannelSelectBottomSheet(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     pendingChannel?.let { Text(NetworkUtils.channelLabel(context, it), style = MaterialTheme.typography.labelMedium) }
-                    OutlinedTextField(
+                    OutboundTagInputField(
                         value = outboundTag,
                         onValueChange = { outboundTag = it },
-                        label = { Text(stringResource(R.string.proxy_gateway_outbound_tag)) },
-                        singleLine = true,
+                        label = stringResource(R.string.proxy_gateway_outbound_tag),
+                        placeholder = null,
                         enabled = !gatewayBusy && pendingChannel != null,
+                        availableOutbounds = availableOutbounds,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

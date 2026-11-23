@@ -23,20 +23,29 @@ internal class ClashProxyUpstreamClient(port: Int, private val secret: String) {
 
     class ControllerException(val failure: Failure) : IOException()
 
-    fun listSelectors(): List<String> {
+    private fun fetchProxies(): JSONObject {
         val reply = request(URL(controller, "/proxies"), "GET", HttpURLConnection.HTTP_OK) { connection ->
             readBody(connection, MAX_LIST_RESPONSE_BYTES)
         }
         try {
-            val proxies = JSONObject(reply).getJSONObject("proxies")
-            return proxies.keys().asSequence()
-                .filter { name -> isValidGroup(name) && proxies.optJSONObject(name)?.optString("type") == "Selector" }
-                .sorted()
-                .toList()
+            return JSONObject(reply).getJSONObject("proxies")
         } catch (_: JSONException) {
             fail(Failure.INVALID_SELECTOR)
         }
     }
+
+    fun listSelectors(): List<String> {
+        val proxies = fetchProxies()
+        return proxies.keys().asSequence()
+            .filter { name -> isValidGroup(name) && proxies.optJSONObject(name)?.optString("type") == "Selector" }
+            .sorted()
+            .toList()
+    }
+
+    fun listProxyNames(): Set<String> = fetchProxies().keys().asSequence()
+        .filter(::isValidGroup)
+        .sorted()
+        .toCollection(linkedSetOf())
 
     fun read(group: String = SELECTOR): Selector {
         if (!isValidGroup(group)) fail(Failure.INVALID_SELECTOR)

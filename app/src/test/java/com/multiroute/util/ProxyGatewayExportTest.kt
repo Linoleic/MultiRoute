@@ -119,6 +119,53 @@ class ProxyGatewayExportTest {
     }
 
     @Test
+    fun buildOutboundReferenceGeneratesDeduplicatedBindingSnippetsPerFormat() {
+        val fragment = ProxyGatewayExport.Fragment(
+            content = "",
+            uidCount = 3,
+            outboundCount = 2,
+            directInterfaces = emptySet(),
+            rules = listOf(
+                ProxyGatewayExport.PlannedRule(10301, "wlan0", "Main", false),
+                ProxyGatewayExport.PlannedRule(10302, "wlan0", "Main", false),
+                ProxyGatewayExport.PlannedRule(10303, "wlan1", "Secondary", false)
+            )
+        )
+
+        val singBoxRef = JSONObject(checkNotNull(ProxyGatewayExport.buildOutboundReference(fragment, ProxyGatewayFormat.SING_BOX)))
+        val outbounds = singBoxRef.getJSONArray("outbounds")
+        assertEquals(2, outbounds.length())
+        assertEquals("Main", outbounds.getJSONObject(0).getString("tag"))
+        assertEquals("wlan0", outbounds.getJSONObject(0).getString("bind_interface"))
+        assertEquals("Secondary", outbounds.getJSONObject(1).getString("tag"))
+        assertEquals("wlan1", outbounds.getJSONObject(1).getString("bind_interface"))
+
+        assertEquals(
+            listOf(
+                "# Set interface-name on each matching outbound in your proxy config or override:",
+                "proxies:",
+                "  - name: \"Main\"",
+                "    interface-name: wlan0",
+                "  - name: \"Secondary\"",
+                "    interface-name: wlan1"
+            ),
+            checkNotNull(ProxyGatewayExport.buildOutboundReference(fragment, ProxyGatewayFormat.MIHOMO)).trimEnd().lines()
+        )
+
+        assertEquals(
+            listOf(
+                "# Set interface-name on each matching outbound in your Android VPN config or override:",
+                "proxies:",
+                "  - name: \"Main\"",
+                "    interface-name: android-vpn:wlan0",
+                "  - name: \"Secondary\"",
+                "    interface-name: android-vpn:wlan1"
+            ),
+            checkNotNull(ProxyGatewayExport.buildOutboundReference(fragment, ProxyGatewayFormat.MIHOMO_ANDROID_VPN)).trimEnd().lines()
+        )
+    }
+
+    @Test
     fun singBoxPreservesExactOutboundTagIncludingTrailingWhitespace() {
         val fragment = checkNotNull(ProxyGatewayExport.build(
             publishedRules = mapOf(10301 to "rmnet_data0"),

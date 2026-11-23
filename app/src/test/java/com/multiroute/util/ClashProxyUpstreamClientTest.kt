@@ -30,7 +30,9 @@ class ClashProxyUpstreamClientTest {
         }
         server.start()
         try {
-            assertEquals(setOf("auto", "manual"), ClashProxyUpstreamClient(server.address.port, "").listSelectors().toSet())
+            val client = ClashProxyUpstreamClient(server.address.port, "")
+            assertEquals(setOf("auto", "manual"), client.listSelectors().toSet())
+            assertEquals(setOf("auto", "direct", "manual", "padding"), client.listProxyNames())
         } finally {
             server.stop(0)
         }

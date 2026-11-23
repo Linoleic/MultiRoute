@@ -34,6 +34,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -274,6 +275,62 @@ internal fun ProxyUpstreamToolPanel(
 }
 
 @Composable
+internal fun OutboundTagInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String?,
+    enabled: Boolean,
+    availableOutbounds: Set<String>,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val showMissingWarning = availableOutbounds.isNotEmpty() && value.isNotBlank() && value.trim() !in availableOutbounds
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            placeholder = placeholder?.let { { Text(it) } },
+            singleLine = true,
+            enabled = enabled,
+            isError = showMissingWarning,
+            supportingText = if (showMissingWarning) {
+                { Text(stringResource(R.string.proxy_gateway_outbound_not_found)) }
+            } else null,
+            trailingIcon = if (availableOutbounds.isNotEmpty()) {
+                {
+                    IconButton(onClick = { expanded = true }, enabled = enabled) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_symbol_expand_more),
+                            contentDescription = stringResource(R.string.proxy_gateway_outbound_pick)
+                        )
+                    }
+                }
+            } else null,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (availableOutbounds.isNotEmpty()) {
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = 260.dp)
+            ) {
+                availableOutbounds.sorted().forEach { name ->
+                    DropdownMenuItem(
+                        text = { Text(name) },
+                        onClick = {
+                            onValueChange(name)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProxyGatewayMappingDialog(
     channels: List<NetworkChannel>,
     state: ProxyUpstreamUiState,
@@ -303,13 +360,13 @@ private fun ProxyGatewayMappingDialog(
                 keys.forEach { key ->
                     val label = active[key]?.let { NetworkUtils.channelLabel(context, it) }
                         ?: NetworkUtils.savedTargetLabel(context, key)
-                    OutlinedTextField(
+                    OutboundTagInputField(
                         value = draft[key].orEmpty(),
                         onValueChange = { draft = LinkedHashMap(draft + (key to it)) },
-                        label = { Text(label) },
-                        placeholder = { Text(stringResource(R.string.proxy_gateway_outbound_tag)) },
-                        singleLine = true,
+                        label = label,
+                        placeholder = stringResource(R.string.proxy_gateway_outbound_tag),
                         enabled = !state.gatewayBusy,
+                        availableOutbounds = state.availableOutbounds,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -526,7 +583,9 @@ private fun ProxyGatewayPreviewDialog(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var copied by remember(snapshot) { mutableStateOf(false) }
+    var refCopied by remember(snapshot) { mutableStateOf(false) }
     var showRawSource by rememberSaveable(snapshot.format, snapshot.focusedApp) { mutableStateOf(false) }
+    var showOutboundRef by rememberSaveable(snapshot.format, snapshot.focusedApp) { mutableStateOf(false) }
     val preview = snapshot.export
     val formatLabel = if (snapshot.format == ProxyGatewayFormat.MIHOMO_ANDROID_VPN) {
         stringResource(R.string.proxy_gateway_android_vpn_format)
@@ -591,6 +650,18 @@ private fun ProxyGatewayPreviewDialog(
                         )
                     }
                 }
+                if (preview.unverifiedOutbounds.isNotEmpty()) {
+                    item {
+                        Text(
+                            stringResource(
+                                R.string.proxy_gateway_unverified_outbounds,
+                                preview.unverifiedOutbounds.joinToString(", ")
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
                 if (included.isNotEmpty()) {
                     item { Text(stringResource(R.string.proxy_gateway_preview_included), style = MaterialTheme.typography.titleSmall) }
                     items(included) { row -> ProxyGatewayPreviewEntry(row, channels, appNames[row]) }
@@ -611,6 +682,39 @@ private fun ProxyGatewayPreviewDialog(
                                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                             )
+                        }
+                    }
+                    val outboundRef = ProxyGatewayExport.buildOutboundReference(fragment, snapshot.format)
+                    if (outboundRef != null) {
+                        item(key = "outbound-ref") {
+                            TextButton(onClick = { showOutboundRef = !showOutboundRef }) {
+                                Text(stringResource(if (showOutboundRef) R.string.proxy_gateway_hide_reference else R.string.proxy_gateway_show_reference))
+                            }
+                            AnimatedVisibility(
+                                visible = showOutboundRef,
+                                enter = AppMotion.expand(),
+                                exit = AppMotion.collapse()
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        outboundRef,
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                                    )
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            val label = context.getString(R.string.proxy_gateway_title)
+                                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, outboundRef)))
+                                            refCopied = true
+                                        }
+                                    }) {
+                                        Text(
+                                            stringResource(if (refCopied) R.string.proxy_gateway_reference_copied else R.string.proxy_gateway_copy_reference),
+                                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
