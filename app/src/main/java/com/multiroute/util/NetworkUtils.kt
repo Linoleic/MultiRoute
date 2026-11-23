@@ -467,11 +467,28 @@ object NetworkUtils {
             } else trimmed
         }
 
-        // 3. JSON 格式: {"ip":"..."} 或 {"origin":"..."} 或 {"client_ip":"..."}
+        // 3. JSON 格式: ip.sb / ipinfo.io / {"ip":"..."} 等
         if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-            val jsonIpMatch = Regex(""""(?:ip|origin|query|client_ip)"\s*:\s*"([^"]+)"""").find(trimmed)
-            if (jsonIpMatch != null) {
-                return jsonIpMatch.groupValues[1]
+            val ip = extractJsonString(trimmed, "ip", "origin", "query", "client_ip")
+            if (ip != null) {
+                val country = extractJsonString(trimmed, "country", "country_code")
+                val city = extractJsonString(trimmed, "city")?.takeUnless { it.equals(country, ignoreCase = true) }
+                val org = extractJsonString(trimmed, "isp", "organization", "org")
+                val location = listOfNotNull(country, city, org).joinToString(" · ")
+                return if (location.isNotEmpty()) "$ip ($location)" else ip
+            }
+        }
+
+        // 4. Cloudflare cdn-cgi/trace 格式: key=value 按行分布
+        if (trimmed.contains("ip=") && trimmed.contains("loc=")) {
+            val traceFields = trimmed.lines().mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx <= 0) null else line.substring(0, idx).trim() to line.substring(idx + 1).trim()
+            }.toMap()
+            val ip = traceFields["ip"]?.takeIf { it.isNotEmpty() }
+            if (ip != null) {
+                val loc = traceFields["loc"]?.takeIf { it.isNotEmpty() && !it.equals("XX", ignoreCase = true) }
+                return if (loc != null) "$ip ($loc)" else ip
             }
         }
 
@@ -490,6 +507,16 @@ object NetworkUtils {
 
         // 6. 截取前 80 字符作为结果
         return trimmed.take(80)
+    }
+
+    private fun extractJsonString(json: String, vararg keys: String): String? {
+        val pattern = keys.joinToString("|") { Regex.escape(it) }
+        val match = Regex(""""(?:$pattern)"\s*:\s*"((?:\\.|[^"\\])*)"""").find(json) ?: return null
+        return match.groupValues[1]
+            .replace("\\/", "/")
+            .replace("\\\"", "\"")
+            .trim()
+            .takeIf { it.isNotEmpty() }
     }
 
     const val PROBE_URL_MIUI = "http://connect.rom.miui.com/generate_204"
@@ -550,7 +577,7 @@ object NetworkUtils {
         if (targetNetwork == null) {
             ERR_IFACE_OFFLINE
         } else {
-            fetchPublicIpViaNetwork(targetNetwork, serverConfig)
+            fetchPublicIpViaNetwork(targetNetwork, serverConfig, isVpn = channel.isVpn)
         }
     }
 
@@ -582,7 +609,7 @@ object NetworkUtils {
                 } else {
                     val net = ifaceToNetworkMap[channel.interfaceName]
                     val ipOrError = if (net != null) {
-                        fetchPublicIpViaNetwork(net, serverConfig)
+                        fetchPublicIpViaNetwork(net, serverConfig, isVpn = channel.isVpn)
                     } else {
                         ERR_IFACE_OFFLINE
                     }
@@ -594,53 +621,72 @@ object NetworkUtils {
         deferredList.awaitAll().toMap()
     }
 
-    private fun fetchPublicIpViaNetwork(network: Network, config: TestServerConfig): String {
-        val targetUrl = config.activeUrl
-        val isCustom = config.isCustom
+    internal fun fallbackUrlsForChannel(targetUrl: String, isVpn: Boolean): List<String> =
+        (if (isVpn) TestServerConfig.OVERSEAS_FALLBACK_URLS else TestServerConfig.DOMESTIC_FALLBACK_URLS)
+            .filter { it != targetUrl }
+
+    private fun fetchPublicIpViaNetwork(network: Network, config: TestServerConfig, isVpn: Boolean = false): String {
+        val effectiveConfig = config.effectiveForChannel(isVpn)
+        val targetUrl = effectiveConfig.activeUrl
+        val isCustom = effectiveConfig.isCustom
 
         // 1. 优先使用用户配置的主测试节点
+        var primaryConn: HttpURLConnection? = null
         try {
+            val startedNs = System.nanoTime()
             val url = URL(targetUrl)
-            val conn = network.openConnection(url) as HttpURLConnection
-            conn.connectTimeout = 4000
-            conn.readTimeout = 4000
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", "curl/7.88.1")
-            conn.setRequestProperty("Accept", "*/*")
-            val code = conn.responseCode
+            primaryConn = (network.openConnection(url) as HttpURLConnection).apply {
+                connectTimeout = 4000
+                readTimeout = 4000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "curl/7.88.1")
+                setRequestProperty("Accept", "*/*")
+            }
+            val code = primaryConn.responseCode
             if (code == 200) {
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                val text = primaryConn.inputStream.bufferedReader().use { it.readText() }
                 val parsed = parseServerResponse(targetUrl, text)
-                if (parsed.isNotEmpty()) return parsed
-            } else {
-                if (isCustom) {
-                    return ERR_CUSTOM_HTTP + code
+                if (parsed.isNotEmpty()) {
+                    val elapsedMs = ((System.nanoTime() - startedNs) / 1_000_000L).coerceAtLeast(1L)
+                    return formatEgressResult(parsed, elapsedMs)
                 }
+            } else if (isCustom) {
+                return ERR_CUSTOM_HTTP + code
             }
         } catch (e: Exception) {
             if (isCustom) {
                 return ERR_CUSTOM_CONNECT + (e.localizedMessage ?: e.message ?: "")
             }
+        } finally {
+            try { primaryConn?.disconnect() } catch (_: Exception) {}
         }
 
         // 2. 预设服务器容错回退机制（仅在非自定义模式或预设节点临时故障时触发）
-        val fallbackUrls = listOf("https://myip.ipip.net", "https://cip.cc", "https://ifconfig.me/ip")
-            .filter { it != targetUrl }
+        val fallbackUrls = fallbackUrlsForChannel(targetUrl, isVpn)
 
         for (fallbackUrl in fallbackUrls) {
+            var fallbackConn: HttpURLConnection? = null
             try {
+                val startedNs = System.nanoTime()
                 val url = URL(fallbackUrl)
-                val conn = network.openConnection(url) as HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("User-Agent", "curl/7.88.1")
-                if (conn.responseCode == 200) {
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    val parsed = parseServerResponse(fallbackUrl, text)
-                    if (parsed.isNotEmpty()) return parsed
+                fallbackConn = (network.openConnection(url) as HttpURLConnection).apply {
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "curl/7.88.1")
                 }
-            } catch (_: Exception) {}
+                if (fallbackConn.responseCode == 200) {
+                    val text = fallbackConn.inputStream.bufferedReader().use { it.readText() }
+                    val parsed = parseServerResponse(fallbackUrl, text)
+                    if (parsed.isNotEmpty()) {
+                        val elapsedMs = ((System.nanoTime() - startedNs) / 1_000_000L).coerceAtLeast(1L)
+                        return formatEgressResult(parsed, elapsedMs)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                try { fallbackConn?.disconnect() } catch (_: Exception) {}
+            }
         }
 
         return ERR_TIMEOUT
@@ -712,6 +758,26 @@ object NetworkUtils {
     const val ERR_CUSTOM_HTTP = "ERR_CUSTOM_HTTP:"
     const val ERR_CUSTOM_CONNECT = "ERR_CUSTOM_CONNECT:"
     const val ERR_EXCEPTION = "ERR_EXCEPTION:"
+
+    data class EgressSummary(val detail: String, val latencyMs: Long?)
+
+    private val EGRESS_LATENCY_SUFFIX_REGEX = Regex("""^(.*)\s·\s(\d+)\sms$""")
+
+    fun formatEgressResult(detail: String, latencyMs: Long): String =
+        "$detail · ${latencyMs.coerceAtLeast(1L)} ms"
+
+    fun splitEgressLatency(result: String): EgressSummary {
+        if (isFailure(result) || result.startsWith(INFO_PREFIX)) return EgressSummary(result, null)
+        val match = EGRESS_LATENCY_SUFFIX_REGEX.matchEntire(result) ?: return EgressSummary(result, null)
+        val detail = match.groupValues[1]
+        if (detail.isBlank()) return EgressSummary(result, null)
+        return EgressSummary(detail, match.groupValues[2].toLongOrNull())
+    }
+
+    fun compactEgressWithLatencyFirst(result: String): String {
+        val split = splitEgressLatency(result)
+        return if (split.latencyMs != null) "${split.latencyMs} ms · ${split.detail}" else result
+    }
 
     fun isFailure(result: String?): Boolean = result != null && result.startsWith(ERR_PREFIX)
 

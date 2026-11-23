@@ -49,9 +49,14 @@
     <string name="ui_cancel">取消</string>
     <string name="ui_done">完成</string>
     <string name="ui_save_apply">保存生效</string>
-    <string name="channel_egress_tests">出口测试</string>
-    <string name="ui_test_channels">测试各通道出口</string>
-    <string name="ui_testing_channels">正在测试各通道出口...</string>
+    <string name="channel_egress_tests">出口检测</string>
+    <string name="channel_egress_sheet_subtitle">验证各通道公网连通性、出口 IP 与响应延迟</string>
+    <string name="channel_egress_not_tested">未检测</string>
+    <string name="channel_egress_probing">检测中...</string>
+    <string name="channel_egress_retest_cd">重新检测 %1$s</string>
+    <string name="channel_egress_vpn_overseas_hint">VPN 通道将自动使用海外节点（%1$s）以避开国内直连规则</string>
+    <string name="ui_test_channels">检测各通道出口</string>
+    <string name="ui_testing_channels">正在检测各通道出口...</string>
     <string name="ui_probing_prefix">正在通过</string>
     <string name="ui_view_log">查看系统运行与诊断日志</string>
     <string name="ui_copy_log">复制日志</string>
@@ -312,6 +317,7 @@
     <string name="topology_list_view">列表</string>
     <string name="topology_graph_view">拓扑</string>
     <string name="topology_reset_view">适应画布</string>
+    <string name="topology_actual_size">原尺寸</string>
     <string name="topology_sources">流量来源</string>
     <string name="topology_relays">隧道与代理</string>
     <string name="topology_egresses">物理出口</string>
@@ -340,7 +346,7 @@
     <string name="topology_offline">离线</string>
     <string name="topology_default_badge">默认</string>
     <string name="topology_wifi_title">Wi-Fi</string>
-    <string name="topology_test_result">测速 %1$s</string>
+    <string name="topology_test_result">出口 %1$s</string>
     <string name="topology_legend_solid">系统或分流规则</string>
     <string name="topology_legend_dashed">待生效或离线</string>
     <string name="topology_legend_warning">可能绕过代理</string>
@@ -392,6 +398,8 @@
     <string name="preset_ipip_desc">国内响应极快，返回外网 IPv4 及省市运营商归属</string>
     <string name="preset_cip_name">cip.cc (含归属地)</string>
     <string name="preset_cip_desc">轻量接口，包含公网 IP 及网络运营商与位置归属</string>
+    <string name="preset_ipsb_name">ip.sb (海外 / 含归属地)</string>
+    <string name="preset_ipsb_desc">海外与代理响应快，返回公网 IP 及国家、城市与运营商</string>
     <string name="preset_ipify_name">api.ipify.org (纯公网 IP)</string>
     <string name="preset_ipify_desc">全球 Anycast CDN，仅返回公网 IPv4 纯文本</string>
     <string name="preset_ifconfig_name">ifconfig.me (纯公网 IP)</string>
@@ -557,7 +565,7 @@
     <string name="scenario_moved">已调整方案顺序</string>
     <string name="scenario_details_title">方案名称与触发条件</string>
     <string name="config_card_title">配置备份</string>
-    <string name="config_card_hint">备份分流、场景、网络策略与外观设置。包含 Wi-Fi 网络名称和测速地址，不含 Wi-Fi 密码。导入前可预览并选择类别。</string>
+    <string name="config_card_hint">备份分流、场景、网络策略与外观设置。包含 Wi-Fi 网络名称和出口检测地址，不含 Wi-Fi 密码。导入前可预览并选择类别。</string>
     <string name="config_export_file">导出到文件</string>
     <string name="config_export_clipboard">复制到剪贴板</string>
     <string name="config_import_clipboard">从剪贴板导入</string>
@@ -578,7 +586,7 @@
     <string name="config_section_dual_wifi">双 Wi-Fi 偏好与网络名称</string>
     <string name="config_section_hotspot">热点出口偏好</string>
     <string name="config_section_appearance">主题、动态配色与语言</string>
-    <string name="config_section_test_server">测速节点</string>
+    <string name="config_section_test_server">出口检测节点</string>
     <string name="config_missing_apps">找不到的应用：%1$s。基础指派将跳过，场景中的条目保留供以后使用。</string>
     <string name="config_offline_channels">当前不可用的通道：%1$s。保留配置，当前流量使用可用网络。</string>
     <string name="config_ignored_entries">将跳过 %1$d 个无效指派或旧版设置条目。</string>

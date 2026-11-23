@@ -491,7 +491,7 @@ internal fun ChannelDetailContent(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(com.multiroute.R.string.ui_probing_channel, channel.interfaceName))
                             } else {
-                                Icon(painterResource(R.drawable.ic_symbol_network_check), contentDescription = null)
+                                Icon(painterResource(R.drawable.ic_symbol_travel_explore), contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(com.multiroute.R.string.ui_test_channel_egress, channel.interfaceName))
                             }

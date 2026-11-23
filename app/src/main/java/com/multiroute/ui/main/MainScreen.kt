@@ -61,6 +61,7 @@ fun MainScreen(
         if (uiState.selectedTab == 1) viewModel.refreshTransparentProxyDiagnostics()
     }
     var showDiagnostics by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showChannelTests by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -309,6 +310,37 @@ fun MainScreen(
                                     ) {
                                         RuleActionsMenu(uiState, viewModel)
                                     }
+                                    AnimatedVisibility(
+                                        visible = uiState.selectedTab == 1,
+                                        enter = expandHorizontally(
+                                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                                            expandFrom = Alignment.End
+                                        ) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                                        exit = shrinkHorizontally(
+                                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                                            shrinkTowards = Alignment.End
+                                        ) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec())
+                                    ) {
+                                        val testLabel = stringResource(
+                                            if (uiState.isTesting) R.string.ui_testing_channels else R.string.channel_egress_tests
+                                        )
+                                        TooltipBox(
+                                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+                                            tooltip = { PlainTooltip { Text(testLabel) } },
+                                            state = rememberTooltipState()
+                                        ) {
+                                            IconButton(onClick = { showChannelTests = true }) {
+                                                if (uiState.isTesting) {
+                                                    CircularWavyProgressIndicator(Modifier.size(20.dp))
+                                                } else {
+                                                    Icon(
+                                                        painterResource(R.drawable.ic_symbol_travel_explore),
+                                                        contentDescription = testLabel
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -351,6 +383,8 @@ fun MainScreen(
                                 1 -> ChannelsTab(
                                     uiState = uiState,
                                     viewModel = viewModel,
+                                    showChannelTests = showChannelTests,
+                                    onShowChannelTestsChange = { showChannelTests = it },
                                     onOpenProxyGateway = {
                                         selectedToolName = PreferencePage.PROXY_UPSTREAM.name
                                         viewModel.setSelectedTab(2)
@@ -461,6 +495,7 @@ fun MainScreen(
                         val routedApps = remember(channel.id, channel.interfaceName, uiState.routing.baseApps) {
                             uiState.routing.baseApps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
                         }
+                        val effectiveTestServer = uiState.testServerConfig.effectiveForChannel(channel.isVpn)
                         ChannelDetailBottomSheet(
                             channel = channel,
                             channels = uiState.channels,
@@ -469,8 +504,8 @@ fun MainScreen(
                             testResult = uiState.testResults[channel.id],
                             isTestingSingle = uiState.isTestingSingleChannel,
                             trafficFlow = viewModel.channelTraffic,
-                            testServerName = uiState.testServerConfig.displayName(androidx.compose.ui.platform.LocalContext.current),
-                            testServerUrl = uiState.testServerConfig.activeUrl,
+                            testServerName = effectiveTestServer.displayName(androidx.compose.ui.platform.LocalContext.current),
+                            testServerUrl = effectiveTestServer.activeUrl,
                             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
                             onChangeVpnUpstream = if (channel.isVpn) {
                                 {

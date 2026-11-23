@@ -3,6 +3,8 @@ package com.multiroute.ui.main
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TopologyViewportTest {
@@ -78,8 +80,62 @@ class TopologyViewportTest {
             viewport = viewport,
             content = content,
         )
-        assertEquals(0.35f, zoomedOut.scale)
+        assertEquals(0.375f, zoomedOut.scale)
         assertEquals(Offset.Zero, zoomedOut.offset)
+    }
+
+    @Test
+    fun wideScreenCannotZoomSmallerThanFitScale() {
+        val viewport = IntSize(width = 800, height = 600)
+        val content = IntSize(width = 672, height = 400)
+
+        val zoomedOut = TopologyViewport().transformed(
+            centroid = Offset(400f, 300f),
+            pan = Offset.Zero,
+            zoom = 0.2f,
+            viewport = viewport,
+            content = content,
+        )
+
+        assertEquals(1f, zoomedOut.scale)
+        assertEquals(Offset.Zero, zoomedOut.offset)
+    }
+
+    @Test
+    fun constrainedClampsStaleSmallerScaleUpToFitScale() {
+        val viewport = IntSize(width = 800, height = 600)
+        val content = IntSize(width = 672, height = 400)
+
+        val constrained = TopologyViewport(scale = 0.5f, offset = Offset(-20f, -20f)).constrained(
+            viewport = viewport,
+            content = content,
+        )
+
+        assertEquals(1f, constrained.scale)
+        assertEquals(Offset.Zero, constrained.offset)
+    }
+
+    @Test
+    fun bottomInsetAllowsPanningBottomContentClearOfFloatingActionButton() {
+        val viewport = IntSize(width = 600, height = 500)
+        val content = IntSize(width = 600, height = 500)
+
+        val constrained = TopologyViewport(scale = 1f, offset = Offset(0f, -200f)).constrained(
+            viewport = viewport,
+            content = content,
+            bottomInset = 72,
+        )
+
+        assertEquals(Offset(0f, -72f), constrained.offset)
+        assertEquals(1f, TopologyViewport.fit(viewport, content).scale)
+    }
+
+    @Test
+    fun isCloseToMatchesWithinToleranceAndDetectsChanges() {
+        val base = TopologyViewport(scale = 0.6f, offset = Offset(-10f, -20f))
+        assertTrue(base.isCloseTo(TopologyViewport(scale = 0.605f, offset = Offset(-11f, -19f))))
+        assertFalse(base.isCloseTo(TopologyViewport(scale = 0.7f, offset = Offset(-10f, -20f))))
+        assertFalse(base.isCloseTo(TopologyViewport(scale = 0.6f, offset = Offset(-20f, -20f))))
     }
 
     @Test

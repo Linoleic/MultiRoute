@@ -78,7 +78,7 @@ private data class MainDestination(
 
 private val mainDestinations = listOf(
     MainDestination(R.string.tab_routing, R.drawable.ic_symbol_grid_view, R.drawable.ic_symbol_grid_view_filled),
-    MainDestination(R.string.tab_channels, R.drawable.ic_symbol_hub, R.drawable.ic_symbol_hub_filled),
+    MainDestination(R.string.tab_channels, R.drawable.ic_symbol_router, R.drawable.ic_symbol_router_filled),
     MainDestination(R.string.tab_tools, R.drawable.ic_symbol_build, R.drawable.ic_symbol_build_filled),
     MainDestination(R.string.tab_settings, R.drawable.ic_symbol_settings, R.drawable.ic_symbol_settings_filled)
 )

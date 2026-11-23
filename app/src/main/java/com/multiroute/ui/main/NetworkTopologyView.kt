@@ -1,6 +1,11 @@
 package com.multiroute.ui.main
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -58,6 +63,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -143,11 +149,12 @@ internal fun NetworkTopologyView(
     }
 }
 
-private val topologyViewportSaver = listSaver<TopologyViewport, Float>(
-    save = { listOf(it.scale, it.offset.x, it.offset.y) },
-    restore = { TopologyViewport(it[0], Offset(it[1], it[2])) }
+private val topologyViewportSaver = listSaver<TopologyViewport?, Float>(
+    save = { if (it == null) emptyList() else listOf(it.scale, it.offset.x, it.offset.y) },
+    restore = { if (it.size == 3) TopologyViewport(it[0], Offset(it[1], it[2])) else null }
 )
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ZoomableTopology(
     contentWidth: Dp,
@@ -156,10 +163,24 @@ private fun ZoomableTopology(
     modifier: Modifier,
     content: @Composable () -> Unit
 ) {
-    val viewport = rememberSaveable(stateSaver = topologyViewportSaver) { mutableStateOf(TopologyViewport()) }
+    val viewport = rememberSaveable(stateSaver = topologyViewportSaver) { mutableStateOf<TopologyViewport?>(null) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var contentSize by remember { mutableStateOf(IntSize.Zero) }
     val clearSelection = rememberUpdatedState(onClearSelection)
+    val fabClearancePx = with(LocalDensity.current) { 72.dp.roundToPx() }
+    val hasMeasured = viewportSize.width > 0 && viewportSize.height > 0 &&
+        contentSize.width > 0 && contentSize.height > 0
+    val fitViewport = TopologyViewport.fit(viewportSize, contentSize)
+    val canZoomToActualSize = hasMeasured && fitViewport.scale < 0.999f
+    val currentViewport = (viewport.value ?: fitViewport).constrained(
+        viewportSize,
+        contentSize,
+        bottomInset = if (canZoomToActualSize || viewport.value != null) fabClearancePx else 0
+    )
+    val atFit = currentViewport.isCloseTo(fitViewport)
+    val showViewportFab = hasMeasured && (canZoomToActualSize || !atFit)
+    val bottomInset = if (showViewportFab) fabClearancePx else 0
+    val activeBottomInset = rememberUpdatedState(bottomInset)
     val blankTap = if (hasSelection) Modifier.pointerInput(Unit) {
         detectTapGestures(onTap = { clearSelection.value() })
     } else Modifier
@@ -171,7 +192,17 @@ private fun ZoomableTopology(
                 .onSizeChanged { viewportSize = it }
                 .pointerInput(Unit) {
                     detectTransformGestures(panZoomLock = true) { centroid, pan, zoom, _ ->
-                        viewport.value = viewport.value.transformed(centroid, pan, zoom, size, contentSize)
+                        val current = viewport.value ?: TopologyViewport.fit(size, contentSize)
+                        val candidate = current.transformed(
+                            centroid,
+                            pan,
+                            zoom,
+                            size,
+                            contentSize,
+                            bottomInset = activeBottomInset.value
+                        )
+                        val fit = TopologyViewport.fit(size, contentSize)
+                        viewport.value = if (candidate.isCloseTo(fit)) null else candidate
                     }
                 }
                 .then(blankTap)
@@ -183,7 +214,8 @@ private fun ZoomableTopology(
             layout(layoutSize.width, layoutSize.height) {
                 // The graph, its connectors and its touch targets share one transformation.
                 graph.placeRelativeWithLayer(0, 0) {
-                    val view = viewport.value.constrained(layoutSize, graphSize)
+                    val fit = TopologyViewport.fit(layoutSize, graphSize)
+                    val view = (viewport.value ?: fit).constrained(layoutSize, graphSize, bottomInset = bottomInset)
                     transformOrigin = TransformOrigin(0f, 0f)
                     scaleX = view.scale
                     scaleY = view.scale
@@ -192,13 +224,29 @@ private fun ZoomableTopology(
                 }
             }
         }
-        SmallFloatingActionButton(
-            onClick = { viewport.value = TopologyViewport.fit(viewportSize, contentSize) },
+        AnimatedVisibility(
+            visible = showViewportFab,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp),
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()),
+            exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                scaleOut(MaterialTheme.motionScheme.fastSpatialSpec())
         ) {
-            Icon(painterResource(R.drawable.ic_symbol_refresh), stringResource(R.string.topology_reset_view))
+            val switchToActualSize = atFit && canZoomToActualSize
+            SmallFloatingActionButton(
+                onClick = { viewport.value = if (switchToActualSize) TopologyViewport() else null },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ) {
+                Icon(
+                    painterResource(
+                        if (switchToActualSize) R.drawable.ic_symbol_zoom_in else R.drawable.ic_symbol_fit_screen
+                    ),
+                    stringResource(
+                        if (switchToActualSize) R.string.topology_actual_size else R.string.topology_reset_view
+                    )
+                )
+            }
         }
     }
 }
@@ -494,10 +542,19 @@ private fun PhysicalMetrics(channel: NetworkChannel, trafficFlow: StateFlow<Map<
     }
     ChannelTrafficRateRow(channel.interfaceName, trafficFlow, dense = true)
     if (testResult != null) {
+        val context = LocalContext.current
+        val failed = NetworkUtils.isFailure(testResult)
+        val info = testResult.startsWith(NetworkUtils.INFO_PREFIX)
+        val label = NetworkUtils.egressResultLabel(context, testResult)
+        val text = if (failed || info) {
+            label
+        } else {
+            stringResource(R.string.topology_test_result, NetworkUtils.compactEgressWithLatencyFirst(label))
+        }
         Text(
-            text = stringResource(R.string.topology_test_result, testResult),
+            text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (NetworkUtils.isFailure(testResult)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

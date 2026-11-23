@@ -49,9 +49,14 @@
     <string name="ui_cancel">Cancel</string>
     <string name="ui_done">Done</string>
     <string name="ui_save_apply">Save &amp; apply</string>
-    <string name="channel_egress_tests">Egress tests</string>
-    <string name="ui_test_channels">Test every channel</string>
-    <string name="ui_testing_channels">Testing every channel...</string>
+    <string name="channel_egress_tests">Egress check</string>
+    <string name="channel_egress_sheet_subtitle">Verify public reachability, egress IP, and response latency per channel</string>
+    <string name="channel_egress_not_tested">Not checked</string>
+    <string name="channel_egress_probing">Checking...</string>
+    <string name="channel_egress_retest_cd">Recheck %1$s</string>
+    <string name="channel_egress_vpn_overseas_hint">VPN channels automatically use %1$s to avoid domestic direct-route rules</string>
+    <string name="ui_test_channels">Check all channels</string>
+    <string name="ui_testing_channels">Checking all channels...</string>
     <string name="ui_probing_prefix">Probing</string>
     <string name="ui_view_log">View runtime and diagnostic log</string>
     <string name="ui_copy_log">Copy log</string>
@@ -312,6 +317,7 @@
     <string name="topology_list_view">List</string>
     <string name="topology_graph_view">Topology</string>
     <string name="topology_reset_view">Fit topology to view</string>
+    <string name="topology_actual_size">Actual size</string>
     <string name="topology_sources">Traffic sources</string>
     <string name="topology_relays">Tunnels and proxies</string>
     <string name="topology_egresses">Physical egress</string>
@@ -343,7 +349,7 @@
     <string name="topology_offline">Offline</string>
     <string name="topology_default_badge">Default</string>
     <string name="topology_wifi_title">Wi-Fi</string>
-    <string name="topology_test_result">Speed test %1$s</string>
+    <string name="topology_test_result">Egress %1$s</string>
     <string name="topology_legend_solid">System or rule</string>
     <string name="topology_legend_dashed">Pending or offline</string>
     <string name="topology_legend_warning">Possible proxy bypass</string>
@@ -395,6 +401,8 @@
     <string name="preset_ipip_desc">Very fast from China; returns the public IPv4 with province, city and carrier</string>
     <string name="preset_cip_name">cip.cc (with location)</string>
     <string name="preset_cip_desc">Lightweight endpoint returning the public IP with carrier and location</string>
+    <string name="preset_ipsb_name">ip.sb (overseas, with location)</string>
+    <string name="preset_ipsb_desc">Fast over overseas/VPN links; returns public IP with country, city and ISP</string>
     <string name="preset_ipify_name">api.ipify.org (public IP only)</string>
     <string name="preset_ipify_desc">Global Anycast CDN; returns the public IPv4 as plain text</string>
     <string name="preset_ifconfig_name">ifconfig.me (public IP only)</string>

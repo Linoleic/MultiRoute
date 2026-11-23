@@ -31,8 +31,6 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +55,8 @@ import kotlinx.coroutines.flow.StateFlow
 fun ChannelsTab(
     uiState: MainUiState,
     viewModel: MainScreenViewModel,
+    showChannelTests: Boolean = false,
+    onShowChannelTestsChange: (Boolean) -> Unit = {},
     onOpenProxyGateway: () -> Unit
 ) {
     val dualWifiStatus by DualWifiManager.status.collectAsState()
@@ -68,7 +68,6 @@ fun ChannelsTab(
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var showTopology by rememberSaveable { mutableStateOf(false) }
     var showTopologyDetail by rememberSaveable { mutableStateOf(false) }
-    var showChannelTests by rememberSaveable { mutableStateOf(false) }
     var selectedTopologyNodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
     var showProxyPicker by rememberSaveable { mutableStateOf(false) }
@@ -179,156 +178,220 @@ fun ChannelsTab(
         }
 
         Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            val toggleColors = ToggleButtonDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RoutingDimensions.contentPadding, vertical = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Spacer(Modifier.width(48.dp))
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    SingleChoiceSegmentedButtonRow {
-                        SegmentedButton(
-                            selected = !showTopology,
-                            onClick = {
-                                showTopology = false
-                                showTopologyDetail = false
-                                selectedTopologyNodeId = null
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                        ) { Text(stringResource(R.string.topology_list_view)) }
-                        SegmentedButton(
-                            selected = showTopology,
-                            onClick = {
-                                showTopology = true
-                                viewModel.refreshTransparentProxyDiagnostics()
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                        ) { Text(stringResource(R.string.topology_graph_view)) }
-                    }
-                }
-                val testLabel = stringResource(if (uiState.isTesting) R.string.ui_testing_channels else R.string.channel_egress_tests)
-                IconButton(
-                    onClick = { showChannelTests = true },
-                    modifier = Modifier.semantics { contentDescription = testLabel }
+                ButtonGroup(
+                    overflowIndicator = { ButtonGroupDefaults.OverflowIndicator(it) },
+                    modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
                 ) {
-                    if (uiState.isTesting) {
-                        CircularWavyProgressIndicator(Modifier.size(20.dp))
-                    } else {
-                        Icon(
-                            painterResource(R.drawable.ic_symbol_speed),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-            if (showTopology) {
-                val vpnUpstreams = buildMap {
-                    uiState.channels.filter { it.isVpn }.forEach { vpn ->
-                        key(vpn.id, vpn.vpnOwnerUid) {
-                            put(vpn.id, rememberVpnUpstream(vpn, uiState.channels, uiState.scenario))
-                        }
-                    }
-                }
-                val hotspot = dualWifiStatus
-                val diagnostics = uiState.env.transparentProxyDiagnostics
-                val apps = uiState.routing.baseApps
-                val channels = uiState.channels
-                val compatibleVpn = uiState.supportedAndroidVpn
-                val effectiveTargets = remember(apps, channels, uiState.scenario) {
-                    resolveEffectiveAppTargets(apps, channels, uiState.scenario)
-                }
-                val upstreamSnapshots = vpnUpstreams.mapValues { (_, upstream) ->
-                    VpnUpstreamSnapshot(upstream.effectiveTarget, upstream.ownerName)
-                }
-                val topology = remember(channels, apps, effectiveTargets, upstreamSnapshots, hotspot, proxyState, diagnostics, compatibleVpn) {
-                    buildNetworkTopology(channels, apps, upstreamSnapshots, hotspot, proxyState, diagnostics, compatibleVpn, effectiveTargets)
-                }
-                val selectedNode = remember(topology, selectedTopologyNodeId, channels.isNotEmpty(), hotspot.isHotspotEnabled) {
-                    if (channels.isEmpty() && !hotspot.isHotspotEnabled) null
-                    else (topology.sources + topology.relays + topology.egresses).firstOrNull { it.id == selectedTopologyNodeId }
-                }
-                LaunchedEffect(selectedTopologyNodeId, selectedNode?.id) {
-                    if (selectedNode == null) selectedTopologyNodeId = null
-                }
-                val inspected = channels.firstOrNull { it.id == inspectedChannelId && !it.isVpn && !it.isHotspot }
-                    .takeIf { dualPane && showTopologyDetail }
-                fun inspectChannel(channel: NetworkChannel) {
-                    if (dockTopologyDetail && !channel.isVpn && !channel.isHotspot) {
-                        inspectedChannelId = channel.id
-                        showTopologyDetail = true
-                        viewModel.refreshTransparentProxyDiagnostics()
-                    } else viewModel.selectChannelForDetail(channel)
-                }
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    NetworkTopologyView(
-                        topology = topology,
-                        trafficFlow = viewModel.channelTraffic,
-                        testResults = uiState.testResults,
-                        selectedNodeId = selectedNode?.id,
-                        onClearSelection = { selectedTopologyNodeId = null },
-                        modifier = Modifier.weight(1f),
-                        onNodeClick = { node ->
-                            if (selectedTopologyNodeId == node.id) selectedTopologyNodeId = null
-                            else {
-                                selectedTopologyNodeId = node.id
-                                if (dockTopologyDetail && node is TopologyNode.Physical) inspectChannel(node.channel)
+                    customItem(
+                        buttonGroupContent = {
+                            ToggleButton(
+                                checked = !showTopology,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        showTopology = false
+                                        showTopologyDetail = false
+                                        selectedTopologyNodeId = null
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
+                                colors = toggleColors,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_symbol_view_agenda),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    stringResource(R.string.topology_list_view),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1
+                                )
                             }
+                        },
+                        menuContent = {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.topology_list_view)) },
+                                onClick = {
+                                    showTopology = false
+                                    showTopologyDetail = false
+                                    selectedTopologyNodeId = null
+                                }
+                            )
                         }
                     )
-                    if (inspected != null && dockTopologyDetail) {
-                        VerticalDivider(Modifier.fillMaxHeight())
-                        ChannelInspector(
-                            inspected, uiState, viewModel,
-                            onDismiss = { showTopologyDetail = false }, modifier = Modifier.width(340.dp).fillMaxHeight()
-                        )
-                    }
+                    customItem(
+                        buttonGroupContent = {
+                            ToggleButton(
+                                checked = showTopology,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        showTopology = true
+                                        viewModel.refreshTransparentProxyDiagnostics()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                                colors = toggleColors,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_symbol_account_tree),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    stringResource(R.string.topology_graph_view),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1
+                                )
+                            }
+                        },
+                        menuContent = {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.topology_graph_view)) },
+                                onClick = {
+                                    showTopology = true
+                                    viewModel.refreshTransparentProxyDiagnostics()
+                                }
+                            )
+                        }
+                    )
                 }
-                if (selectedNode != null) {
-                    val shortcuts = when (selectedNode) {
-                        is TopologyNode.Physical -> buildList {
-                            val channel = selectedNode.channel
-                            add(TopologyShortcut(R.string.topology_action_details) { inspectChannel(channel) })
-                            add(TopologyShortcut(R.string.topology_action_test, !uiState.isTesting && !uiState.isTestingSingleChannel) {
-                                viewModel.testSingleChannel(channel)
-                            })
-                            if (topology.sources.filterIsInstance<TopologyNode.RoutedApps>().any { it.target == channel.id }) {
-                                add(TopologyShortcut(R.string.topology_action_routed_apps) { viewModel.openTopologyApps(channel.id) })
+            }
+            AnimatedContent(
+                targetState = showTopology,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                transitionSpec = { AppMotion.content() },
+                label = "channelViewMode"
+            ) { topologyMode ->
+                if (topologyMode) {
+                    Column(Modifier.fillMaxSize()) {
+                        val vpnUpstreams = buildMap {
+                            uiState.channels.filter { it.isVpn }.forEach { vpn ->
+                                key(vpn.id, vpn.vpnOwnerUid) {
+                                    put(vpn.id, rememberVpnUpstream(vpn, uiState.channels, uiState.scenario))
+                                }
                             }
                         }
-                        is TopologyNode.Vpn -> listOf(
-                            TopologyShortcut(R.string.topology_action_vpn_upstream, vpnUpstreams[selectedNode.channel.id]?.canEdit == true) {
-                                vpnForPicker = selectedNode.channel
-                            },
-                            TopologyShortcut(R.string.topology_action_details) { inspectChannel(selectedNode.channel) }
-                        )
-                        is TopologyNode.ProxyGateway -> buildList {
-                            add(TopologyShortcut(R.string.topology_action_open_gateway, onClick = onOpenProxyGateway))
-                            if (selectedNode.draftAppCount > 0) {
-                                add(TopologyShortcut(R.string.topology_action_proxy_apps) { viewModel.openTopologyApps(FILTER_PROXY_EGRESS) })
+                        val hotspot = dualWifiStatus
+                        val diagnostics = uiState.env.transparentProxyDiagnostics
+                        val apps = uiState.routing.baseApps
+                        val channels = uiState.channels
+                        val compatibleVpn = uiState.supportedAndroidVpn
+                        val effectiveTargets = remember(apps, channels, uiState.scenario) {
+                            resolveEffectiveAppTargets(apps, channels, uiState.scenario)
+                        }
+                        val upstreamSnapshots = vpnUpstreams.mapValues { (_, upstream) ->
+                            VpnUpstreamSnapshot(upstream.effectiveTarget, upstream.ownerName)
+                        }
+                        val topology = remember(channels, apps, effectiveTargets, upstreamSnapshots, hotspot, proxyState, diagnostics, compatibleVpn) {
+                            buildNetworkTopology(channels, apps, upstreamSnapshots, hotspot, proxyState, diagnostics, compatibleVpn, effectiveTargets)
+                        }
+                        val selectedNode = remember(topology, selectedTopologyNodeId, channels.isNotEmpty(), hotspot.isHotspotEnabled) {
+                            if (channels.isEmpty() && !hotspot.isHotspotEnabled) null
+                            else (topology.sources + topology.relays + topology.egresses).firstOrNull { it.id == selectedTopologyNodeId }
+                        }
+                        LaunchedEffect(selectedTopologyNodeId, selectedNode?.id) {
+                            if (selectedNode == null) selectedTopologyNodeId = null
+                        }
+                        val inspected = channels.firstOrNull { it.id == inspectedChannelId && !it.isVpn && !it.isHotspot }
+                            .takeIf { dualPane && showTopologyDetail }
+                        fun inspectChannel(channel: NetworkChannel) {
+                            if (dockTopologyDetail && !channel.isVpn && !channel.isHotspot) {
+                                inspectedChannelId = channel.id
+                                showTopologyDetail = true
+                                viewModel.refreshTransparentProxyDiagnostics()
+                            } else viewModel.selectChannelForDetail(channel)
+                        }
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            NetworkTopologyView(
+                                topology = topology,
+                                trafficFlow = viewModel.channelTraffic,
+                                testResults = uiState.testResults,
+                                selectedNodeId = selectedNode?.id,
+                                onClearSelection = { selectedTopologyNodeId = null },
+                                modifier = Modifier.weight(1f),
+                                onNodeClick = { node ->
+                                    if (selectedTopologyNodeId == node.id) selectedTopologyNodeId = null
+                                    else {
+                                        selectedTopologyNodeId = node.id
+                                        if (dockTopologyDetail && node is TopologyNode.Physical) inspectChannel(node.channel)
+                                    }
+                                }
+                            )
+                            if (inspected != null && dockTopologyDetail) {
+                                VerticalDivider(Modifier.fillMaxHeight())
+                                ChannelInspector(
+                                    inspected, uiState, viewModel,
+                                    onDismiss = { showTopologyDetail = false }, modifier = Modifier.width(340.dp).fillMaxHeight()
+                                )
                             }
                         }
-                        is TopologyNode.Hotspot -> listOf(TopologyShortcut(R.string.topology_action_hotspot) {
-                            viewModel.openNetworkTool(NetworkTool.HOTSPOT)
-                        })
-                        is TopologyNode.DefaultApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
-                            viewModel.openTopologyApps(CHANNEL_DEFAULT)
-                        })
-                        is TopologyNode.RoutedApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
-                            viewModel.openTopologyApps(selectedNode.target)
-                        })
-                        is TopologyNode.ProxyApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
-                            viewModel.openTopologyApps(FILTER_PROXY_EGRESS)
-                        })
-                        is TopologyNode.Offline -> emptyList()
+                        if (selectedNode != null) {
+                            val shortcuts = when (selectedNode) {
+                                is TopologyNode.Physical -> buildList {
+                                    val channel = selectedNode.channel
+                                    add(TopologyShortcut(R.string.topology_action_details) { inspectChannel(channel) })
+                                    add(TopologyShortcut(R.string.topology_action_test, !uiState.isTesting && !uiState.isTestingSingleChannel) {
+                                        viewModel.testSingleChannel(channel)
+                                    })
+                                    if (topology.sources.filterIsInstance<TopologyNode.RoutedApps>().any { it.target == channel.id }) {
+                                        add(TopologyShortcut(R.string.topology_action_routed_apps) { viewModel.openTopologyApps(channel.id) })
+                                    }
+                                }
+                                is TopologyNode.Vpn -> listOf(
+                                    TopologyShortcut(R.string.topology_action_vpn_upstream, vpnUpstreams[selectedNode.channel.id]?.canEdit == true) {
+                                        vpnForPicker = selectedNode.channel
+                                    },
+                                    TopologyShortcut(R.string.topology_action_details) { inspectChannel(selectedNode.channel) }
+                                )
+                                is TopologyNode.ProxyGateway -> buildList {
+                                    add(TopologyShortcut(R.string.topology_action_open_gateway, onClick = onOpenProxyGateway))
+                                    if (selectedNode.draftAppCount > 0) {
+                                        add(TopologyShortcut(R.string.topology_action_proxy_apps) { viewModel.openTopologyApps(FILTER_PROXY_EGRESS) })
+                                    }
+                                }
+                                is TopologyNode.Hotspot -> listOf(TopologyShortcut(R.string.topology_action_hotspot) {
+                                    viewModel.openNetworkTool(NetworkTool.HOTSPOT)
+                                })
+                                is TopologyNode.DefaultApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
+                                    viewModel.openTopologyApps(CHANNEL_DEFAULT)
+                                })
+                                is TopologyNode.RoutedApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
+                                    viewModel.openTopologyApps(selectedNode.target)
+                                })
+                                is TopologyNode.ProxyApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
+                                    viewModel.openTopologyApps(FILTER_PROXY_EGRESS)
+                                })
+                                is TopologyNode.Offline -> emptyList()
+                            }
+                            TopologyActionBar(selectedNode, shortcuts, wide = dualPane, onDismiss = { selectedTopologyNodeId = null })
+                        }
                     }
-                    TopologyActionBar(selectedNode, shortcuts, wide = dualPane, onDismiss = { selectedTopologyNodeId = null })
+                } else {
+                    ChannelListLayout(
+                        Modifier.fillMaxSize(), dualPane, leftPaneWidth, activeDetail, uiState, viewModel,
+                        onSelectVpn = { vpnForPicker = it },
+                        list = listPane
+                    )
                 }
-            } else {
-                ChannelListLayout(
-                    Modifier.weight(1f).fillMaxWidth(), dualPane, leftPaneWidth, activeDetail, uiState, viewModel,
-                    onSelectVpn = { vpnForPicker = it },
-                    list = listPane
-                )
             }
         }
     }
@@ -337,11 +400,9 @@ fun ChannelsTab(
         ChannelsTestSheet(
             uiState = uiState,
             onChangeServer = viewModel::openTestServerDialog,
-            onRun = {
-                showChannelTests = false
-                viewModel.runChannelTests()
-            },
-            onDismiss = { showChannelTests = false }
+            onRun = viewModel::runChannelTests,
+            onTestSingle = viewModel::testSingleChannel,
+            onDismiss = { onShowChannelTestsChange(false) }
         )
     }
 
@@ -489,6 +550,7 @@ private fun ChannelInspector(
     val routedApps = remember(channel.id, channel.interfaceName, uiState.routing.baseApps) {
         uiState.routing.baseApps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
     }
+    val effectiveTestServer = uiState.testServerConfig.effectiveForChannel(channel.isVpn)
     Box(modifier, contentAlignment = Alignment.TopCenter) {
         ChannelDetailContent(
             channel = channel,
@@ -498,8 +560,8 @@ private fun ChannelInspector(
             testResult = uiState.testResults[channel.id],
             isTestingSingle = uiState.isTestingSingleChannel,
             trafficFlow = viewModel.channelTraffic,
-            testServerName = uiState.testServerConfig.displayName(LocalContext.current),
-            testServerUrl = uiState.testServerConfig.activeUrl,
+            testServerName = effectiveTestServer.displayName(LocalContext.current),
+            testServerUrl = effectiveTestServer.activeUrl,
             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
             showCloseButton = onDismiss != null,
             modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
@@ -584,8 +646,11 @@ private fun ChannelsTestSheet(
     uiState: MainUiState,
     onChangeServer: () -> Unit,
     onRun: () -> Unit,
+    onTestSingle: (NetworkChannel) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val busy = uiState.isTesting || uiState.isTestingSingleChannel
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberBottomSheetState(
@@ -599,12 +664,19 @@ private fun ChannelsTestSheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(stringResource(R.string.channel_egress_tests), style = MaterialTheme.typography.titleLarge)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.channel_egress_tests), style = MaterialTheme.typography.titleLarge)
+                Text(
+                    stringResource(R.string.channel_egress_sheet_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth()
                     .clip(MaterialTheme.shapes.medium)
                     .clickable(onClick = onChangeServer)
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -617,7 +689,7 @@ private fun ChannelsTestSheet(
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.settings_test_endpoint), style = MaterialTheme.typography.labelMedium)
                     Text(
-                        uiState.testServerConfig.displayName(LocalContext.current),
+                        uiState.testServerConfig.displayName(context),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -630,20 +702,171 @@ private fun ChannelsTestSheet(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+            if (uiState.channels.any { it.isVpn } && uiState.testServerConfig.usesDomesticPreset) {
+                Text(
+                    stringResource(
+                        R.string.channel_egress_vpn_overseas_hint,
+                        uiState.testServerConfig.effectiveForChannel(isVpn = true).displayName(context)
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (uiState.channels.isEmpty()) {
                 Text(
                     stringResource(R.string.ui_no_active_network),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            } else {
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        uiState.channels.forEachIndexed { index, channel ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                )
+                            }
+                            val rawResult = uiState.testResults[channel.id]
+                            val failed = NetworkUtils.isFailure(rawResult)
+                            val info = rawResult?.startsWith(NetworkUtils.INFO_PREFIX) == true
+                            val summary = rawResult?.let { NetworkUtils.splitEgressLatency(it) }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(getTransportIcon(channel.transportType)),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = NetworkUtils.channelLabel(context, channel),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (summary?.latencyMs != null && !uiState.isTesting) {
+                                            Surface(
+                                                shape = RoundedCornerShape(50),
+                                                color = MaterialTheme.colorScheme.secondaryContainer
+                                            ) {
+                                                Text(
+                                                    text = "${summary.latencyMs} ms",
+                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontFeatureSettings = "tnum"
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            }
+                                        }
+                                    }
+                                    when {
+                                        uiState.isTesting -> Text(
+                                            text = stringResource(R.string.channel_egress_probing),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        summary != null -> Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(
+                                                    when {
+                                                        failed -> R.drawable.ic_symbol_error
+                                                        info -> R.drawable.ic_symbol_info
+                                                        else -> R.drawable.ic_symbol_check_circle_filled
+                                                    }
+                                                ),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp),
+                                                tint = when {
+                                                    failed -> MaterialTheme.colorScheme.error
+                                                    info -> MaterialTheme.colorScheme.tertiary
+                                                    else -> MaterialTheme.colorScheme.primary
+                                                }
+                                            )
+                                            Text(
+                                                text = NetworkUtils.egressResultLabel(context, summary.detail),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = when {
+                                                    failed -> MaterialTheme.colorScheme.error
+                                                    info -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        else -> Text(
+                                            text = stringResource(R.string.channel_egress_not_tested),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+                                if (!channel.isHotspot) {
+                                    IconButton(
+                                        onClick = { onTestSingle(channel) },
+                                        enabled = !busy,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_symbol_refresh),
+                                            contentDescription = stringResource(
+                                                R.string.channel_egress_retest_cd,
+                                                channel.interfaceName
+                                            ),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Button(
                 onClick = onRun,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isTesting && !uiState.isTestingSingleChannel && uiState.channels.isNotEmpty(),
+                enabled = !busy && uiState.channels.isNotEmpty(),
                 shapes = ButtonDefaults.shapes()
             ) {
-                Text(stringResource(if (uiState.isTesting) R.string.ui_testing_channels else R.string.ui_test_channels))
+                if (uiState.isTesting) {
+                    CircularWavyProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.ui_testing_channels))
+                } else {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_symbol_travel_explore),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.ui_test_channels))
+                }
             }
         }
     }
