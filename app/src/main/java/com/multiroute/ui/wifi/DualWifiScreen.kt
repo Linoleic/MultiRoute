@@ -264,10 +264,12 @@ fun DualWifiScreen(
                 }
             }
         } else {
+            val allowDual5gHbs = status.capability.dual5gHbsSupported != false
             items(status.scanResults, key = { "${it.ssid}_${it.bssid}_${it.frequencyMhz}" }) { item ->
                 WifiScanRow(
                     item = item,
                     primaryFreq = status.primaryFreq,
+                    allowDual5gHbs = allowDual5gHbs,
                     isSecondaryConnected = status.secondaryConnected,
                     isConnecting = status.isConnecting && (status.connectingBssid == item.bssid || (status.connectingBssid == null && status.connectingSsid == item.ssid)),
                     isHotspotEnabled = status.isHotspotEnabled,
@@ -344,18 +346,22 @@ fun DualWifiScreen(
     uiState.pendingPasswordItem?.let { item ->
         val sameBandWarning24 = stringResource(R.string.wifi_i18n_same_band_warning_24)
         val sameBandWarning5 = stringResource(R.string.wifi_i18n_same_band_warning_5)
-        val conflictNotice = remember(item.frequencyMhz, status.primaryFreq) {
-            if (status.primaryFreq <= 0) null
-            else {
-                val primLow5G = status.primaryFreq in 5150..5350
-                val targetLow5G = item.frequencyMhz in 5150..5350
-                val primHigh5G = status.primaryFreq in 5470..5850
-                val targetHigh5G = item.frequencyMhz in 5470..5850
-                val prim24 = status.primaryFreq in 2400..2500
-                val target24 = item.frequencyMhz in 2400..2500
-                if ((primLow5G && targetLow5G) || (primHigh5G && targetHigh5G) || (prim24 && target24)) {
-                    if (prim24) sameBandWarning24 else sameBandWarning5
-                } else null
+        val dual5gUnsupportedWarning = stringResource(R.string.wifi_i18n_dual_5g_unsupported_warning)
+        val allowDual5gHbs = status.capability.dual5gHbsSupported != false
+        val conflictNotice = remember(item.frequencyMhz, status.primaryFreq, allowDual5gHbs) {
+            when {
+                status.primaryFreq <= 0 -> null
+                com.multiroute.wifi.DualWifiBandHelper.isDual5gUnsupportedConflict(
+                    item.frequencyMhz,
+                    status.primaryFreq,
+                    allowDual5gHbs
+                ) -> dual5gUnsupportedWarning
+                com.multiroute.wifi.DualWifiBandHelper.isBandConflicted(
+                    item.frequencyMhz,
+                    status.primaryFreq,
+                    allowDual5gHbs
+                ) -> if (status.primaryFreq in 2400..2500) sameBandWarning24 else sameBandWarning5
+                else -> null
             }
         }
 
@@ -543,6 +549,14 @@ private fun DualWifiSupportCard(
                             val chipsetLabel = if (capability.wifiChipsetRes != 0) stringResource(capability.wifiChipsetRes) else capability.wifiChipset
                             add(stringResource(R.string.wifi_i18n_chipset, chipsetLabel, if (capability.romInfo.socModel.isNotEmpty()) stringResource(R.string.wifi_i18n_soc_suffix, capability.romInfo.socModel) else ""))
                             add(stringResource(R.string.wifi_i18n_interfaces, capability.primaryIface ?: "wlan0", capability.secondaryIface ?: "wlan1"))
+                            if (capability.dual5gHbsSupported != null) {
+                                add(
+                                    stringResource(
+                                        if (capability.dual5gHbsSupported) R.string.wifi_i18n_dual_5g_hbs_supported
+                                        else R.string.wifi_i18n_dual_5g_hbs_unsupported
+                                    )
+                                )
+                            }
                             add(stringResource(if (capability.hardwareSupported) R.string.wifi_i18n_arch_supported else R.string.wifi_i18n_arch_unsupported))
                         }
                     )
@@ -1012,6 +1026,7 @@ private fun ActiveChannelsCard(
 private fun WifiScanRow(
     item: WifiScanItem,
     primaryFreq: Int = 0,
+    allowDual5gHbs: Boolean = true,
     isSecondaryConnected: Boolean = false,
     isConnecting: Boolean,
     isHotspotEnabled: Boolean = false,
@@ -1091,19 +1106,12 @@ private fun WifiScanRow(
                     )
 
                     // Conflict & Recommendation tags
-                    val isSameBandConflict = remember(item.frequencyMhz, primaryFreq) {
-                        if (primaryFreq <= 0 || item.isPrimary) false
-                        else {
-                            val primLow5G = primaryFreq in 5150..5350
-                            val targetLow5G = item.frequencyMhz in 5150..5350
-                            val primHigh5G = primaryFreq in 5470..5850
-                            val targetHigh5G = item.frequencyMhz in 5470..5850
-                            val prim24 = primaryFreq in 2400..2500
-                            val target24 = item.frequencyMhz in 2400..2500
-                            val prim6G = primaryFreq in 5925..7125
-                            val target6G = item.frequencyMhz in 5925..7125
-                            (primLow5G && targetLow5G) || (primHigh5G && targetHigh5G) || (prim24 && target24) || (prim6G && target6G)
-                        }
+                    val isSameBandConflict = remember(item.frequencyMhz, primaryFreq, allowDual5gHbs) {
+                        !item.isPrimary && com.multiroute.wifi.DualWifiBandHelper.isBandConflicted(
+                            item.frequencyMhz,
+                            primaryFreq,
+                            allowDual5gHbs
+                        )
                     }
 
                     if (isHotspotEnabled && !item.isPrimary && !item.isSecondary) {

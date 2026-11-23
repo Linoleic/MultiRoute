@@ -157,16 +157,62 @@ object DeviceCapabilityDetector {
         return result
     }
 
+    private val qcomIniSubdirPattern = Regex("[A-Za-z0-9_.-]+")
+    private val enableSbsPattern = Regex("""^enable_sbs\s*=\s*([01])\b""", RegexOption.IGNORE_CASE)
+
+    internal fun resolveQcomWifiIniSubdir(wlanChipProp: String): String? {
+        val candidate = wlanChipProp.trim().removePrefix("qca_cld3_")
+        return candidate.takeIf { it.isNotEmpty() && qcomIniSubdirPattern.matches(it) }
+    }
+
+    internal fun parseDual5gHbsSupport(
+        qcomIniLines: List<String>,
+        dumpsysWifiLines: List<String> = emptyList()
+    ): Boolean? {
+        var sbs: Boolean? = null
+        for (raw in qcomIniLines) {
+            val line = raw.trim()
+            if (line.isEmpty() || line.startsWith("#")) continue
+            val match = enableSbsPattern.find(line) ?: continue
+            sbs = match.groupValues[1] == "1"
+        }
+        if (sbs != null) return sbs
+        if (dumpsysWifiLines.any {
+                it.contains("config_wifiAllowMultiInternetConnectDual5GFrequency, value: true", ignoreCase = true)
+            }
+        ) {
+            return true
+        }
+        return null
+    }
+
     /**
      * Checks whether the device hardware and framework support Dual Wi-Fi (STA + STA Concurrency).
      */
     suspend fun checkCapability(context: Context): DualWifiCapability = withContext(Dispatchers.IO) {
         DualWifiManager.ensureHotspotReceiverRegistered(context)
         val lines = SuHelper.executeShellWithOutput(
-            "dumpsys wifi 2>/dev/null | grep -E 'STA \\+ STA Concurrency Supported|config_wifiMultiStaMultiInternetConcurrencyEnabled|mStaConcurrencyMultiInternetMode' ; " +
+            "dumpsys wifi 2>/dev/null | grep -E 'STA \\+ STA Concurrency Supported|config_wifiMultiStaMultiInternetConcurrencyEnabled|config_wifiAllowMultiInternetConnectDual5GFrequency|mStaConcurrencyMultiInternetMode' ; " +
             "ls -d /sys/class/net/wlan* 2>/dev/null",
             timeoutSeconds = 5
         )
+        val wlanChip = runCatching {
+            SuHelper.executeShellWithOutput("getprop ro.hardware.wlan.chip 2>/dev/null", timeoutSeconds = 2)
+                .firstOrNull().orEmpty()
+        }.getOrDefault("")
+        val iniSubdir = resolveQcomWifiIniSubdir(wlanChip)
+        val qcomIniLines = runCatching {
+            val iniCommand = if (iniSubdir != null) {
+                "if [ -f '/vendor/etc/wifi/$iniSubdir/WCNSS_qcom_cfg.ini' ]; then " +
+                    "grep -E '^[[:space:]]*enable_sbs[[:space:]]*=' '/vendor/etc/wifi/$iniSubdir/WCNSS_qcom_cfg.ini' 2>/dev/null; " +
+                    "elif [ -f /vendor/etc/wifi/WCNSS_qcom_cfg.ini ]; then " +
+                    "grep -E '^[[:space:]]*enable_sbs[[:space:]]*=' /vendor/etc/wifi/WCNSS_qcom_cfg.ini 2>/dev/null; fi"
+            } else {
+                "grep -E '^[[:space:]]*enable_sbs[[:space:]]*=' /vendor/etc/wifi/WCNSS_qcom_cfg.ini 2>/dev/null"
+            }
+            SuHelper.executeShellWithOutput(iniCommand, timeoutSeconds = 2)
+        }.getOrDefault(emptyList())
+        val dual5gHbsSupported = parseDual5gHbsSupport(qcomIniLines, lines)
 
         var hwSupported = false
         var configEnabled = false
@@ -230,6 +276,7 @@ object DeviceCapabilityDetector {
             overlayStatus = if (configEnabled) context.getString(R.string.wifi_i18n_overlay_enabled_detail) else context.getString(R.string.wifi_i18n_disabled),
             primaryDetails = primDet,
             secondaryDetails = secDet,
+            dual5gHbsSupported = dual5gHbsSupported,
             detail = when {
                 !hwSupported -> context.getString(R.string.wifi_i18n_capability_unsupported)
                 effectiveScheme == DualWifiScheme.XIAOMI_SLAVE -> context.getString(R.string.wifi_i18n_capability_xiaomi)

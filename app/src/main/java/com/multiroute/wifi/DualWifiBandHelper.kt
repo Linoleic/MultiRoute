@@ -86,28 +86,39 @@ object DualWifiBandHelper {
     }
 
     /**
-     * Checks whether two Wi-Fi frequencies share the same physical radio band (e.g. both 2.4GHz, both low 5GHz).
+     * Checks whether two Wi-Fi frequencies share the same physical radio band (e.g. both 2.4GHz, both low 5GHz),
+     * or both use 5GHz when the device does not support dual-5G HBS concurrency.
      */
-    fun isBandConflicted(itemFreq: Int, primaryFreq: Int): Boolean {
+    fun isBandConflicted(itemFreq: Int, primaryFreq: Int, allowDual5gHbs: Boolean = true): Boolean {
         if (primaryFreq <= 0 || itemFreq <= 0) return false
-        val primLow5G = primaryFreq in 5150..5350
-        val targetLow5G = itemFreq in 5150..5350
-        val primHigh5G = primaryFreq in 5470..5850
-        val targetHigh5G = itemFreq in 5470..5850
-        val prim24 = primaryFreq in 2400..2500
-        val target24 = itemFreq in 2400..2500
-        val prim6G = primaryFreq in 5925..7125
-        val target6G = itemFreq in 5925..7125
-        return (primLow5G && targetLow5G) || (primHigh5G && targetHigh5G) || (prim24 && target24) || (prim6G && target6G)
+        if (primaryFreq in 2400..2500 && itemFreq in 2400..2500) return true
+        if (primaryFreq in 4900..5900 && itemFreq in 4900..5900) {
+            if (!allowDual5gHbs) return true
+            val primLow5G = primaryFreq in 5150..5350
+            val targetLow5G = itemFreq in 5150..5350
+            val primHigh5G = primaryFreq in 5470..5850
+            val targetHigh5G = itemFreq in 5470..5850
+            return (primLow5G && targetLow5G) || (primHigh5G && targetHigh5G)
+        }
+        return primaryFreq in 5925..7125 && itemFreq in 5925..7125
     }
 
     /**
      * Checks if the target AP is an optimal complementary radio band for concurrent dual-Wi-Fi.
      */
-    fun isBandRecommended(itemFreq: Int, primaryFreq: Int): Boolean {
+    fun isBandRecommended(itemFreq: Int, primaryFreq: Int, allowDual5gHbs: Boolean = true): Boolean {
         if (primaryFreq <= 0 || itemFreq <= 0) return false
-        return !isBandConflicted(itemFreq, primaryFreq)
+        return !isBandConflicted(itemFreq, primaryFreq, allowDual5gHbs)
     }
+
+    /**
+     * Returns true specifically when low-5G + high-5G cannot run concurrently due to missing HBS support.
+     */
+    fun isDual5gUnsupportedConflict(itemFreq: Int, primaryFreq: Int, allowDual5gHbs: Boolean): Boolean =
+        !allowDual5gHbs &&
+            primaryFreq in 4900..5900 &&
+            itemFreq in 4900..5900 &&
+            !isBandConflicted(itemFreq, primaryFreq, allowDual5gHbs = true)
 
     /**
      * Resolves a frequency in MHz (or <= 0 when enabled without frequency) to a string resource id.

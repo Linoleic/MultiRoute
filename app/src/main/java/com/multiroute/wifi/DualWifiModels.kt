@@ -63,7 +63,8 @@ data class DualWifiCapability(
     val wifiChipset: String = "",
     val overlayStatus: String = "",
     val primaryDetails: String = "",
-    val secondaryDetails: String = ""
+    val secondaryDetails: String = "",
+    val dual5gHbsSupported: Boolean? = null
 ) {
     val isFullyReady: Boolean
         get() = hardwareSupported && (configEnabled || effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || effectiveScheme == DualWifiScheme.ROOT_DIRECT) && (modeActive || effectiveScheme == DualWifiScheme.XIAOMI_SLAVE || effectiveScheme == DualWifiScheme.ROOT_DIRECT)

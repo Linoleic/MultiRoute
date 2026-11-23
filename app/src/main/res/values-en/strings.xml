@@ -825,6 +825,9 @@
     <string name="wifi_i18n_band_enabled">Active</string>
     <string name="wifi_i18n_same_band_warning_24">Note: This hotspot and primary Wi-Fi are both on the 2.4 GHz band. Phone DBS radios usually require primary and secondary Wi-Fi to use separate bands (2.4 GHz and 5 GHz, or separate lower and upper 5 GHz bands); connecting on the same band may fail.</string>
     <string name="wifi_i18n_same_band_warning_5">Note: This hotspot and primary Wi-Fi are on the same 5 GHz sub-band/channel. Phone DBS radios usually require primary and secondary Wi-Fi to use separate bands (2.4 GHz and 5 GHz, or separate lower and upper 5 GHz bands); connecting on the same band may fail.</string>
+    <string name="wifi_i18n_dual_5g_unsupported_warning">This device does not support dual-5G concurrency. Choose a 2.4 GHz Wi-Fi for the secondary link.</string>
+    <string name="wifi_i18n_dual_5g_hbs_supported">Dual-5G concurrency (HBS): Supported</string>
+    <string name="wifi_i18n_dual_5g_hbs_unsupported">Dual-5G concurrency (HBS): Not supported (2.4 GHz + 5 GHz only)</string>
 
     <!-- Wireless debugging helper -->
     <string name="adb_helper_title">Wireless debugging</string>

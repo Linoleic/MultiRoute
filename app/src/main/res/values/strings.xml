@@ -821,6 +821,9 @@
     <string name="wifi_i18n_band_enabled">已开启</string>
     <string name="wifi_i18n_same_band_warning_24">提示：此热点与主 Wi-Fi 均处于 2.4GHz 硬件频段。手机 DBS 射频通常要求一主一副分别工作在 2.4G 与 5G（或高低 5G 分离），同时连接同频可能失败。</string>
     <string name="wifi_i18n_same_band_warning_5">提示：此热点与主 Wi-Fi 处于相同 5GHz 子频段/信道。手机 DBS 射频通常要求一主一副分别工作在 2.4G 与 5G（或高低 5G 分离），同时连接同频可能失败。</string>
+    <string name="wifi_i18n_dual_5g_unsupported_warning">当前设备不支持双 5G 并发，请选择 2.4G Wi-Fi 作为副通道。</string>
+    <string name="wifi_i18n_dual_5g_hbs_supported">双 5G 并发 (HBS)：支持</string>
+    <string name="wifi_i18n_dual_5g_hbs_unsupported">双 5G 并发 (HBS)：不支持（仅 2.4G + 5G）</string>
 
     <!-- Wireless debugging helper -->
     <string name="adb_helper_title">无线调试辅助</string>
