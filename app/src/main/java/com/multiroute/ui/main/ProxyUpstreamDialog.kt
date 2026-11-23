@@ -49,6 +49,9 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontFamily
@@ -342,6 +345,7 @@ private fun ProxyGatewayExportSection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProxyGatewayPreviewDialog(
     snapshot: GatewayPreview,
@@ -409,17 +413,6 @@ private fun ProxyGatewayPreviewDialog(
                         else stringResource(R.string.proxy_gateway_export_summary, fragment.uidCount, fragment.outboundCount),
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    if (fragment != null) {
-                        TextButton(onClick = {
-                            scope.launch {
-                                val label = context.getString(R.string.proxy_gateway_title)
-                                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, fragment.content)))
-                                copied = true
-                            }
-                        }) {
-                            Text(stringResource(if (copied) R.string.proxy_gateway_copied else R.string.proxy_gateway_copy))
-                        }
-                    }
                 }
                 if (preview.possibleBypassInterfaces.isNotEmpty()) {
                     item {
@@ -457,9 +450,23 @@ private fun ProxyGatewayPreviewDialog(
         },
         confirmButton = {
             preview.fragment?.let { fragment ->
-                TextButton(onClick = { onSave(fragment.content) }) {
-                    Text(stringResource(if (preview.possibleBypassInterfaces.isEmpty()) R.string.proxy_gateway_export
-                        else R.string.proxy_gateway_export_anyway))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
+                    TextButton(onClick = {
+                        scope.launch {
+                            val label = context.getString(R.string.proxy_gateway_title)
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, fragment.content)))
+                            copied = true
+                        }
+                    }) {
+                        Text(
+                            stringResource(if (copied) R.string.proxy_gateway_copied else R.string.proxy_gateway_copy),
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                        )
+                    }
+                    TextButton(onClick = { onSave(fragment.content) }) {
+                        Text(stringResource(if (preview.possibleBypassInterfaces.isEmpty()) R.string.proxy_gateway_export
+                            else R.string.proxy_gateway_export_anyway))
+                    }
                 }
             }
         },
