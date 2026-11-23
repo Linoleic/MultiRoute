@@ -15,6 +15,18 @@ class TransparentProxyDiagnosticsTest {
             TransparentProxyDiagnosticsParser.parseTc(listOf(platformRow, "${marker}OK"), marker, egress = true)
         )
         assertEquals(
+            TransparentProxyDiagnosticsParser.TcResult(true, false, false, platformBpfPresent = true),
+            TransparentProxyDiagnosticsParser.parseTc(
+                listOf(
+                    platformRow.replace("egress_accecn_eth", "egress_accecn_rawip"),
+                    platformRow.replace("egress_accecn_eth", "tether_upstream4_rawip"),
+                    "${marker}OK"
+                ),
+                marker,
+                egress = true
+            )
+        )
+        assertEquals(
             TransparentProxyDiagnosticsParser.TcResult(true, true, false),
             TransparentProxyDiagnosticsParser.parseTc(
                 listOf(platformRow.replace("eth:[", "eth_other:["), "${marker}OK"), marker, egress = true

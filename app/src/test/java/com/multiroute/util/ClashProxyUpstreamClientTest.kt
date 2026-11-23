@@ -67,6 +67,16 @@ class ClashProxyUpstreamClientTest {
     }
 
     @Test
+    fun rejectsSecretsWithControlCharactersOrLineBreaks() {
+        assertThrows(IllegalArgumentException::class.java) {
+            ClashProxyUpstreamClient(9090, "tok\r\nX-Injected: 1")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ClashProxyUpstreamClient(9090, "tok\n")
+        }
+    }
+
+    @Test
     fun onlySelectsAdvertisedInterfacesAndReadsBackTheResult() {
         var active = "wlan0"
         val writes = AtomicInteger()

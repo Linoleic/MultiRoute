@@ -123,7 +123,7 @@ internal class TransparentProxyDiagnosticsCollector(private val shell: RootShell
     private fun isSafeInterfaceName(name: String): Boolean = interfaceNamePattern.matches(name)
 
     companion object {
-        private const val MAX_INTERFACES = 4
+        private const val MAX_INTERFACES = 12
         private const val SING_BOX_RUNNING = "__MR_SB_RUNNING"
         private const val SING_BOX_CGROUP_PROGRAM = "__MR_SB_CGROUP_PROGRAM"
         private val interfaceNamePattern = Regex("[A-Za-z0-9_.-]{1,15}")
@@ -136,7 +136,18 @@ internal object TransparentProxyDiagnosticsParser {
     private val boundInterface = Regex("""%([A-Za-z0-9_.-]+)\]?:[0-9]+$""")
     private val singBoxProcess = Regex("""\("sing-box",pid=\d+[,)]""")
     private val bpfAction = Regex("""^action\s+(?:order\s+\d+:\s+)?bpf(?:\s|$)""")
-    private val platformTcPrograms = setOf("prog_netd_schedcls_egress_accecn_eth")
+    private val platformTcPrograms = setOf(
+        "prog_netd_schedcls_egress_accecn_eth",
+        "prog_netd_schedcls_egress_accecn_rawip",
+        "prog_netd_schedcls_tether_downstream6_ether",
+        "prog_netd_schedcls_tether_downstream6_rawip",
+        "prog_netd_schedcls_tether_upstream6_ether",
+        "prog_netd_schedcls_tether_upstream6_rawip",
+        "prog_netd_schedcls_tether_downstream4_ether",
+        "prog_netd_schedcls_tether_downstream4_rawip",
+        "prog_netd_schedcls_tether_upstream4_ether",
+        "prog_netd_schedcls_tether_upstream4_rawip"
+    )
     private val legacyCgroupHookNames = mapOf(
         "inet_ingress" to "ingress", "inet_egress" to "egress",
         "inet4_connect" to "connect4", "inet6_connect" to "connect6",

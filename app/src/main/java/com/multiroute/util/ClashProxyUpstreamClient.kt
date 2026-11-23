@@ -12,6 +12,7 @@ import java.net.URL
 internal class ClashProxyUpstreamClient(port: Int, private val secret: String) {
     init {
         require(port in 1..65535)
+        require(secret.all { it in ' '..'~' })
     }
 
     private val controller = URL("http://127.0.0.1:$port")
