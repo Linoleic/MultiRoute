@@ -310,6 +310,10 @@
     <string name="proxy_gateway_preview_open">Preview export</string>
     <string name="proxy_gateway_expand">Expand</string>
     <string name="proxy_gateway_app_collapsed_hint">Set a proxy egress for this app</string>
+    <string name="proxy_gateway_app_collapsed_unsupported_vpn">Not supported by regular VPNs; for Root transparent proxies or compatible clients</string>
+    <string name="proxy_gateway_app_collapsed_no_proxy">For Root transparent proxies (sing-box / Mihomo) or compatible VPN clients</string>
+    <string name="proxy_gateway_notice_unsupported_vpn">The active Android VPN does not support per-app physical egress inside the proxy. To change the VPN\'s egress, set its upstream in Network Channels; to send an app directly over a physical link, pick a physical channel above (auto-bypassed from VPN). Root transparent proxies can still be configured and exported below.</string>
+    <string name="proxy_gateway_notice_no_proxy">No transparent proxy or compatible VPN client was detected. These rules are only for exporting to Root transparent proxies (sing-box / Mihomo via eBPF / TPROXY / TUN) or compatible clients; for standard app routing, assign a physical channel directly.</string>
     <string name="proxy_gateway_collapse">Collapse</string>
     <string name="proxy_gateway_copy">Copy fragment</string>
     <string name="proxy_gateway_copied">Copied</string>

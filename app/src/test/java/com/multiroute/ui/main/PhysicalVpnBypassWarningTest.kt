@@ -1,9 +1,15 @@
 package com.multiroute.ui.main
 
 import com.multiroute.model.NetworkChannel
+import com.multiroute.util.CgroupHookEvidence
 import com.multiroute.util.DiagnosticInfo
+import com.multiroute.util.SocketEvidence
+import com.multiroute.util.TcInterfaceEvidence
+import com.multiroute.util.TransparentProxyDiagnostics
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhysicalVpnBypassWarningTest {
@@ -85,5 +91,65 @@ class PhysicalVpnBypassWarningTest {
             env = SystemEnvUiState(diagnosticInfo = null)
         )
         assertNull(noDiag.physicalVpnBypassWarning(wifi))
+    }
+
+    @Test
+    fun proxyGatewayNoticeReflectsVpnAndTransparentProxyEvidence() {
+        val noProxyDiag = TransparentProxyDiagnostics(
+            interfaces = listOf(
+                TcInterfaceEvidence(
+                    interfaceName = "wlan0",
+                    checked = true,
+                    unattributedBpfPresent = false,
+                    singBoxLocalTcPresent = false
+                )
+            ),
+            cgroupHooks = CgroupHookEvidence(status = CgroupHookEvidence.Status.AVAILABLE),
+            establishedSockets = SocketEvidence(SocketEvidence.Status.SKIPPED_NO_KNOWN_PROCESS, 0)
+        )
+        assertFalse(noProxyDiag.hasActiveEvidence)
+
+        val activeTcDiag = noProxyDiag.copy(
+            interfaces = listOf(
+                TcInterfaceEvidence(
+                    interfaceName = "wlan0",
+                    checked = true,
+                    unattributedBpfPresent = false,
+                    singBoxLocalTcPresent = true
+                )
+            )
+        )
+        assertTrue(activeTcDiag.hasActiveEvidence)
+
+        val unsupportedVpnState = MainUiState(
+            channelProbe = ChannelProbeUiState(channels = listOf(wifi, vpn), supportedAndroidVpn = null),
+            env = SystemEnvUiState(transparentProxyDiagnostics = noProxyDiag)
+        )
+        assertEquals(
+            ProxyGatewayAvailabilityNotice.UNSUPPORTED_ANDROID_VPN,
+            unsupportedVpnState.proxyGatewayAvailabilityNotice(hasSavedMappings = false)
+        )
+
+        val noProxyState = MainUiState(
+            channelProbe = ChannelProbeUiState(channels = listOf(wifi), supportedAndroidVpn = null),
+            env = SystemEnvUiState(transparentProxyDiagnostics = null)
+        )
+        assertEquals(
+            ProxyGatewayAvailabilityNotice.NO_PROXY_DETECTED,
+            noProxyState.proxyGatewayAvailabilityNotice(hasSavedMappings = false)
+        )
+
+        // Suppressed when compatible Android VPN, saved mappings, or transparent proxy evidence exist
+        assertNull(
+            unsupportedVpnState.copy(
+                channelProbe = unsupportedVpnState.channelProbe.copy(supportedAndroidVpn = vpn)
+            ).proxyGatewayAvailabilityNotice(hasSavedMappings = false)
+        )
+        assertNull(unsupportedVpnState.proxyGatewayAvailabilityNotice(hasSavedMappings = true))
+        assertNull(
+            unsupportedVpnState.copy(
+                env = unsupportedVpnState.env.copy(transparentProxyDiagnostics = activeTcDiag)
+            ).proxyGatewayAvailabilityNotice(hasSavedMappings = false)
+        )
     }
 }

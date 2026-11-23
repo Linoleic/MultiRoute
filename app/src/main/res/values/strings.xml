@@ -310,6 +310,10 @@
     <string name="proxy_gateway_preview_open">预览导出规则</string>
     <string name="proxy_gateway_expand">展开</string>
     <string name="proxy_gateway_app_collapsed_hint">为此应用配置代理出口</string>
+    <string name="proxy_gateway_app_collapsed_unsupported_vpn">常规 VPN 不支持，仅适用于 Root 透明代理或兼容客户端</string>
+    <string name="proxy_gateway_app_collapsed_no_proxy">仅适用于 Root 透明代理（sing-box / Mihomo）或兼容客户端</string>
+    <string name="proxy_gateway_notice_unsupported_vpn">当前活跃的是常规 Android VPN，暂不支持在代理内按应用切换物理出口。如需整条 VPN 换出口，请在网络通道更改 VPN 上游；如需此应用不走 VPN，直接选择上方物理通道即可（已自动绕过 VPN）。如使用 Root 透明代理，仍可继续配置并导出规则。</string>
+    <string name="proxy_gateway_notice_no_proxy">未检测到透明代理或兼容 VPN 客户端。此配置仅用于向 Root 透明代理（sing-box / Mihomo，含 eBPF / TPROXY / TUN）或兼容客户端导出规则；常规应用分流直接选择物理通道即可。</string>
     <string name="proxy_gateway_collapse">收起</string>
     <string name="proxy_gateway_copy">复制片段</string>
     <string name="proxy_gateway_copied">已复制</string>

@@ -1,8 +1,8 @@
 package com.multiroute.ui.main
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -19,13 +19,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.multiroute.R
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
+import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
 import com.multiroute.util.NetworkUtils
 
@@ -58,6 +58,7 @@ internal fun ChannelSelectBottomSheet(
     gatewayTarget: String? = null,
     gatewayBusy: Boolean = false,
     gatewayEnabled: Boolean = true,
+    gatewayNotice: ProxyGatewayAvailabilityNotice? = null,
     compatibleVpn: NetworkChannel? = null,
     onSelectGateway: (String?, String?, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
     onPreviewGateway: () -> Unit,
@@ -179,7 +180,7 @@ internal fun ChannelSelectBottomSheet(
             ChannelOption(entry = entry, index = index, count = entries.size)
         }
         if (gatewayEnabled || gatewayTarget != null) {
-            item(key = "gateway-header") {
+            item(key = "gateway-section") {
                 val summary = when {
                     gatewayTarget != null -> {
                         val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
@@ -187,63 +188,85 @@ internal fun ChannelSelectBottomSheet(
                             ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
                         stringResource(R.string.proxy_gateway_app_saved, label)
                     }
-                    else -> stringResource(R.string.proxy_gateway_app_collapsed_hint)
+                    else -> stringResource(when (gatewayNotice) {
+                        ProxyGatewayAvailabilityNotice.UNSUPPORTED_ANDROID_VPN ->
+                            R.string.proxy_gateway_app_collapsed_unsupported_vpn
+                        ProxyGatewayAvailabilityNotice.NO_PROXY_DETECTED ->
+                            R.string.proxy_gateway_app_collapsed_no_proxy
+                        null -> R.string.proxy_gateway_app_collapsed_hint
+                    })
                 }
-                Row(
+                ExpandableProxySectionHeader(
+                    title = stringResource(R.string.proxy_gateway_app_title),
+                    expanded = proxyRulesExpanded,
+                    collapsedSummary = summary,
+                    onToggle = { proxyExpansionOverride = !proxyRulesExpanded },
                     modifier = Modifier
-                        .fillMaxWidth()
                         .padding(top = 12.dp)
-                        .clickable(role = Role.Button) { proxyExpansionOverride = !proxyRulesExpanded }
                         .semantics { heading() }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                )
+                AnimatedVisibility(
+                    visible = proxyRulesExpanded,
+                    enter = AppMotion.expand(),
+                    exit = AppMotion.collapse()
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.proxy_gateway_app_title), style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary)
-                        if (!proxyRulesExpanded) Text(summary, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(
-                        painter = painterResource(if (proxyRulesExpanded) R.drawable.ic_symbol_expand_less else R.drawable.ic_symbol_expand_more),
-                        contentDescription = stringResource(if (proxyRulesExpanded) R.string.proxy_gateway_collapse else R.string.proxy_gateway_expand)
-                    )
-                }
-                if (proxyRulesExpanded) {
-                    Text(
-                        text = stringResource(when {
-                            app.targetChannelId == CHANNEL_DEFAULT -> R.string.proxy_gateway_app_hint
-                            compatibleVpn?.matchesTarget(app) == true -> R.string.proxy_gateway_app_vpn_hint
-                            else -> R.string.proxy_gateway_app_physical_draft_hint
-                        }),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (gatewayTarget != null) {
-                        val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
-                        val label = current?.let { NetworkUtils.channelLabel(context, it) }
-                            ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
-                        Text(stringResource(R.string.proxy_gateway_app_saved, label), style = MaterialTheme.typography.bodyMedium)
-                        val issue = when {
-                            current == null -> R.string.proxy_gateway_skip_offline
-                            gatewayMappings[gatewayTarget].isNullOrBlank() -> R.string.proxy_gateway_skip_mapping
-                            else -> null
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (gatewayNotice != null) {
+                            ProxyGatewayNoticeBanner(notice = gatewayNotice)
                         }
-                        if (issue != null) Text(stringResource(issue), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = onPreviewGateway, enabled = !gatewayBusy) {
-                            Text(stringResource(R.string.proxy_gateway_open_tool))
+                        Text(
+                            text = stringResource(when {
+                                app.targetChannelId == CHANNEL_DEFAULT -> R.string.proxy_gateway_app_hint
+                                compatibleVpn?.matchesTarget(app) == true -> R.string.proxy_gateway_app_vpn_hint
+                                else -> R.string.proxy_gateway_app_physical_draft_hint
+                            }),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (gatewayTarget != null) {
+                            val current = channels.firstOrNull { it.proxyUpstreamKey() == gatewayTarget }
+                            val label = current?.let { NetworkUtils.channelLabel(context, it) }
+                                ?: NetworkUtils.savedTargetLabel(context, gatewayTarget)
+                            Text(
+                                text = stringResource(R.string.proxy_gateway_app_saved, label),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            val issue = when {
+                                current == null -> R.string.proxy_gateway_skip_offline
+                                gatewayMappings[gatewayTarget].isNullOrBlank() -> R.string.proxy_gateway_skip_mapping
+                                else -> null
+                            }
+                            if (issue != null) {
+                                Text(
+                                    text = stringResource(issue),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            TextButton(onClick = onPreviewGateway, enabled = !gatewayBusy) {
+                                Text(stringResource(R.string.proxy_gateway_open_tool))
+                            }
+                        }
+                        if (gatewayEnabled && gatewayChannels.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.proxy_gateway_app_no_channels),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (gatewayEntries.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                                gatewayEntries.forEachIndexed { index, entry ->
+                                    ChannelOption(entry = entry, index = index, count = gatewayEntries.size)
+                                }
+                            }
                         }
                     }
-                    if (gatewayEnabled && gatewayChannels.isEmpty()) {
-                        Text(stringResource(R.string.proxy_gateway_app_no_channels), style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-            if (proxyRulesExpanded) {
-                itemsIndexed(gatewayEntries, key = { _, entry -> entry.key }) { index, entry ->
-                    ChannelOption(entry = entry, index = index, count = gatewayEntries.size)
                 }
             }
         }

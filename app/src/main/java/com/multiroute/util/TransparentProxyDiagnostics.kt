@@ -12,6 +12,12 @@ data class TransparentProxyDiagnostics(
             interfaces.any {
                 it.interfaceName == interfaceName && it.checked && !it.unattributedBpfPresent && !it.singBoxLocalTcPresent
             } && interfaces.any { it.singBoxLocalTcPresent }
+
+    val hasActiveEvidence: Boolean
+        get() = interfaces.any { it.singBoxLocalTcPresent } ||
+            cgroupHooks.singBoxHookCount > 0 ||
+            cgroupHooks.singBoxSocketProgramHeld ||
+            establishedSockets.status == SocketEvidence.Status.OBSERVED
 }
 
 data class TcInterfaceEvidence(

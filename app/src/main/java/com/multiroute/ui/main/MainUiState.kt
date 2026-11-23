@@ -16,6 +16,25 @@ internal enum class PhysicalVpnBypassWarning {
     VPN_LOCKDOWN
 }
 
+internal enum class ProxyGatewayAvailabilityNotice {
+    UNSUPPORTED_ANDROID_VPN,
+    NO_PROXY_DETECTED
+}
+
+internal fun resolveProxyGatewayAvailabilityNotice(
+    channels: List<NetworkChannel>,
+    compatibleVpn: NetworkChannel?,
+    hasTransparentProxyEvidence: Boolean,
+    hasSavedMappings: Boolean
+): ProxyGatewayAvailabilityNotice? {
+    if (compatibleVpn != null || hasSavedMappings || hasTransparentProxyEvidence) return null
+    return if (channels.any { it.isVpn }) {
+        ProxyGatewayAvailabilityNotice.UNSUPPORTED_ANDROID_VPN
+    } else {
+        ProxyGatewayAvailabilityNotice.NO_PROXY_DETECTED
+    }
+}
+
 data class CellularControlUiState(
     val mode: Int = 0,
     val subscriptions: List<CellularSubscription> = emptyList(),
@@ -216,6 +235,14 @@ data class MainUiState(
             else -> null
         }
     }
+
+    internal fun proxyGatewayAvailabilityNotice(hasSavedMappings: Boolean): ProxyGatewayAvailabilityNotice? =
+        resolveProxyGatewayAvailabilityNotice(
+            channels = channels,
+            compatibleVpn = supportedAndroidVpn,
+            hasTransparentProxyEvidence = env.transparentProxyDiagnostics?.hasActiveEvidence == true,
+            hasSavedMappings = hasSavedMappings
+        )
     val isEnvironmentRefreshing: Boolean get() = env.isEnvironmentRefreshing
     val environmentRefreshFailed: Boolean get() = env.environmentRefreshFailed
 }

@@ -6,6 +6,8 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,10 +16,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -25,12 +31,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -64,6 +73,7 @@ import com.multiroute.data.RuleTarget
 import com.multiroute.model.NetworkChannel
 import com.multiroute.util.ClashProxyUpstreamClient
 import com.multiroute.util.ClashProxyUpstreamClient.ControllerException
+import com.multiroute.theme.AppMotion
 import com.multiroute.util.ClashProxyUpstreamClient.Failure
 import com.multiroute.util.ClashProxyUpstreamClient.Selector
 import com.multiroute.util.NetworkUtils
@@ -76,23 +86,177 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
+internal fun ProxyGatewayNoticeBanner(
+    notice: ProxyGatewayAvailabilityNotice,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+    ) {
+        Text(
+            text = stringResource(when (notice) {
+                ProxyGatewayAvailabilityNotice.UNSUPPORTED_ANDROID_VPN -> R.string.proxy_gateway_notice_unsupported_vpn
+                ProxyGatewayAvailabilityNotice.NO_PROXY_DETECTED -> R.string.proxy_gateway_notice_no_proxy
+            }),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(12.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun ExpandableProxySectionHeader(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    collapsedSummary: String? = null
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (expanded) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "proxyHeaderContainer"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (expanded) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "proxyHeaderContent"
+    )
+    val titleColor by animateColorAsState(
+        targetValue = if (expanded) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.primary
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "proxyHeaderTitle"
+    )
+    val badgeColor by animateColorAsState(
+        targetValue = if (expanded) {
+            MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "proxyHeaderBadge"
+    )
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "proxyHeaderChevron"
+    )
+
+    Surface(
+        onClick = onToggle,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor,
+        contentColor = contentColor
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_symbol_dns),
+                contentDescription = null,
+                tint = titleColor
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = titleColor
+                )
+                if (collapsedSummary != null) {
+                    AnimatedVisibility(
+                        visible = !expanded,
+                        enter = AppMotion.expand(),
+                        exit = AppMotion.collapse()
+                    ) {
+                        Text(
+                            text = collapsedSummary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Surface(
+                modifier = Modifier.size(28.dp),
+                shape = CircleShape,
+                color = badgeColor,
+                contentColor = contentColor
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_symbol_expand_more),
+                        contentDescription = stringResource(
+                            if (expanded) R.string.proxy_gateway_collapse else R.string.proxy_gateway_expand
+                        ),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer { rotationZ = chevronRotation }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
 internal fun ProxyUpstreamToolPanel(
     channels: List<NetworkChannel>,
     controller: ProxyUpstreamController,
-    compatibleVpn: NetworkChannel? = null
+    compatibleVpn: NetworkChannel? = null,
+    hasTransparentProxyEvidence: Boolean = false
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
+    val gatewayNotice = resolveProxyGatewayAvailabilityNotice(
+        channels = channels,
+        compatibleVpn = compatibleVpn,
+        hasTransparentProxyEvidence = hasTransparentProxyEvidence,
+        hasSavedMappings = state.gatewayMappings.isNotEmpty()
+    )
     var showSetup by rememberSaveable { mutableStateOf(false) }
     var showLiveSwitching by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.proxy_gateway_title), style = MaterialTheme.typography.titleMedium)
-        ProxyGatewayExportSection(channels, state, controller, enabled = !state.gatewayBusy, compatibleVpn = compatibleVpn)
+        ProxyGatewayExportSection(
+            channels = channels,
+            state = state,
+            controller = controller,
+            enabled = !state.gatewayBusy,
+            compatibleVpn = compatibleVpn,
+            gatewayNotice = gatewayNotice
+        )
         HorizontalDivider()
-        TextButton(onClick = { showLiveSwitching = !showLiveSwitching }) {
-            Text(stringResource(R.string.proxy_upstream_live_title))
-            Icon(painterResource(if (showLiveSwitching) R.drawable.ic_symbol_expand_less else R.drawable.ic_symbol_expand_more), contentDescription = null)
-        }
-        AnimatedVisibility(showLiveSwitching) {
+        ExpandableProxySectionHeader(
+            title = stringResource(R.string.proxy_upstream_live_title),
+            expanded = showLiveSwitching,
+            onToggle = { showLiveSwitching = !showLiveSwitching }
+        )
+        AnimatedVisibility(
+            visible = showLiveSwitching,
+            enter = AppMotion.expand(),
+            exit = AppMotion.collapse()
+        ) {
             val profile = state.profile
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -184,7 +348,8 @@ private fun ProxyGatewayExportSection(
     state: ProxyUpstreamUiState,
     controller: ProxyUpstreamController,
     enabled: Boolean,
-    compatibleVpn: NetworkChannel?
+    compatibleVpn: NetworkChannel?,
+    gatewayNotice: ProxyGatewayAvailabilityNotice?
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -269,6 +434,9 @@ private fun ProxyGatewayExportSection(
         showMappingSetup = true
     }
 
+    if (gatewayNotice != null) {
+        ProxyGatewayNoticeBanner(notice = gatewayNotice)
+    }
     Text(
         stringResource(R.string.proxy_gateway_status_summary, state.gatewayMappings.size, state.gatewayAppTargets.size),
         style = MaterialTheme.typography.bodySmall,
