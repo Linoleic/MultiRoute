@@ -356,7 +356,7 @@ private fun TopologyNodeCard(
     }
     val border = when {
         selected -> MaterialTheme.colorScheme.primary
-        active -> MaterialTheme.colorScheme.tertiary
+        active -> MaterialTheme.colorScheme.secondary
         offline -> MaterialTheme.colorScheme.outlineVariant
         warning -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
         node is TopologyNode.Physical && node.channel.isDefault -> MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
