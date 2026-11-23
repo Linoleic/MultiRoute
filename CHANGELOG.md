@@ -11,8 +11,8 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### 变更
 
-- 网络通道新增可交互拓扑视图（支持列表/拓扑切换、链路聚焦、生效场景方案展示与实时流量高亮）。
-- 网络通道的列表与拓扑视图共用出口测试入口。
+- 网络通道新增可交互拓扑视图（支持无边框列表/拓扑平滑切换、默认全览与连续缩放平移、链路聚焦、生效场景方案展示与实时流量高亮）。
+- 网络通道的列表与拓扑视图共用顶栏出口检测入口，支持公网连通性、出口 IP/归属地与响应延迟汇总检测；新增 ip.sb 预设，并在选中国内预设时为 VPN 通道自动切换海外节点。
 - VPN 通道详情显示已配置上游和系统报告的上游，并在两者不同时提示重新连接。
 - 网络通道可直接更改 VPN 上游，分流规则标识 VPN 创建应用并提示回环限制。
 - 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览、复制和导出 sing-box 或 Mihomo 应用代理出口规则（记住导出格式、应用分流页新增「代理出口」筛选）。
@@ -32,8 +32,8 @@ bilingual, Chinese first: the release page is what most users read.
 
 ### Changed
 
-- Added an interactive topology view in Network Channels with list/topology switching, click-to-focus path tracing, active scenario display, and live traffic highlights.
-- The channel list and topology share the same egress testing panel.
+- Added an interactive topology view in Network Channels with smooth list/topology switching, auto-fit overview with continuous zoom/pan, click-to-focus path tracing, active scenario display, and live traffic highlights.
+- Shared the top-bar egress check sheet across list and topology views with live reachability, public IP/location, and response latency summaries; added the ip.sb preset and automatic overseas endpoints for VPN channels when a domestic preset is active.
 - VPN channel details show the configured and system-reported upstream networks and suggest reconnecting when they differ.
 - Change a VPN's upstream from Network Channels. Routing rules identify the VPN client and explain loop prevention.
 - Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, copy, and export for sing-box and Mihomo (remembering the export format and adding a Proxy egress filter in App Routing).
