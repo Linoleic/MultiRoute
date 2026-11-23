@@ -228,6 +228,24 @@ private fun AppRulesContent(
                         ) {
                             Text(stringResource(R.string.filter_all))
                         }
+                        val selectedTarget = uiState.filterChannelId
+                        if (selectedTarget != null && selectedTarget != FILTER_PROXY_EGRESS && selectedTarget != "configured" &&
+                            uiState.channels.none { !it.isHotspot && (it.id == selectedTarget || it.interfaceName == selectedTarget) }
+                        ) {
+                            val label = if (selectedTarget == CHANNEL_DEFAULT) stringResource(R.string.vm_system_default)
+                            else stringResource(R.string.ui_channel_offline_short, NetworkUtils.savedTargetLabel(LocalContext.current, selectedTarget))
+                            ToggleButton(
+                                checked = true,
+                                onCheckedChange = { viewModel.setFilterChannelId(null) },
+                                shapes = toggleShapes,
+                                colors = toggleColors,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Icon(painterResource(R.drawable.ic_symbol_check), contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(label)
+                            }
+                        }
                         ToggleButton(
                             checked = uiState.filterChannelId == "configured",
                             onCheckedChange = {

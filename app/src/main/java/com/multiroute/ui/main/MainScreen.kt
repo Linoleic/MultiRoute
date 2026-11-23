@@ -351,7 +351,10 @@ fun MainScreen(
                                 1 -> ChannelsTab(
                                     uiState = uiState,
                                     viewModel = viewModel,
-                                    onNavigate = onItemClick
+                                    onOpenProxyGateway = {
+                                        selectedToolName = PreferencePage.PROXY_UPSTREAM.name
+                                        viewModel.setSelectedTab(2)
+                                    }
                                 )
                                 2 -> ToolsTab(
                                     uiState = uiState,
@@ -455,8 +458,8 @@ fun MainScreen(
                         }
                     if (selectedChannel != null) {
                         val channel = selectedChannel
-                        val routedApps = remember(channel.id, channel.interfaceName, uiState.apps) {
-                            uiState.apps.filter { (it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName) }
+                        val routedApps = remember(channel.id, channel.interfaceName, uiState.routing.baseApps) {
+                            uiState.routing.baseApps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
                         }
                         ChannelDetailBottomSheet(
                             channel = channel,

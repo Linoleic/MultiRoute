@@ -340,6 +340,7 @@ object DualWifiManager {
     /**
      * Refreshes the currently connected primary and secondary Wi-Fi status.
      */
+    @Suppress("DEPRECATION") // This refresh snapshots both Wi-Fi links, including the non-default link.
     suspend fun refreshConnectionState(context: Context) = withContext(Dispatchers.IO) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val activeDefault = cm?.activeNetwork

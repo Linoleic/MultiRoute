@@ -37,6 +37,7 @@ data class AppRoutingUiState(
     /** True when one or more installed-app enumeration sources could not be read. */
     val isInstalledAppsIncomplete: Boolean = false,
     val apps: List<AppItem> = emptyList(),
+    val baseApps: List<AppItem> = emptyList(),
     val totalAppsCount: Int = 0,
     val configuredAppsCount: Int = 0,
     val proxyGatewayRuleCount: Int = 0,

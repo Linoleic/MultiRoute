@@ -529,6 +529,7 @@ internal class AppRoutingDelegate(
             state.copy(
                 routing = routing.copy(
                     apps = filtered,
+                    baseApps = if (state.scenarioEditId == null) allApps else routing.baseApps,
                     filterChannelId = filterChannel,
                     proxyGatewayRuleCount = proxyGatewayRuleKeys.size,
                     totalAppsCount = allApps.size,

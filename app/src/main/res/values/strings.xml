@@ -309,6 +309,38 @@
     <string name="proxy_gateway_show_source">查看规则原文</string>
     <string name="proxy_gateway_hide_source">收起规则原文</string>
     <string name="proxy_gateway_status_summary">已映射 %1$d 个通道 · 已保存 %2$d 个应用出口规则</string>
+    <string name="topology_list_view">列表</string>
+    <string name="topology_graph_view">拓扑</string>
+    <string name="topology_sources">流量来源</string>
+    <string name="topology_relays">隧道与代理</string>
+    <string name="topology_egresses">物理出口</string>
+    <plurals name="topology_default_apps_count">
+        <item quantity="other">跟随系统 · %1$d 个应用</item>
+    </plurals>
+    <plurals name="topology_routed_apps_count">
+        <item quantity="other">已分流 · %1$d 个应用</item>
+    </plurals>
+    <string name="topology_hotspot_downlink">热点下行</string>
+    <string name="topology_hotspot_channel_unavailable">下行接口待确认</string>
+    <string name="topology_proxy_gateway">透明代理与网关</string>
+    <string name="topology_proxy_detected">检测到透明代理接管</string>
+    <plurals name="topology_proxy_draft_count">
+        <item quantity="other">%1$d 条应用出口草稿需导出合入</item>
+    </plurals>
+    <string name="topology_proxy_unmapped_count">其中 %1$d 条待配置出站</string>
+    <string name="topology_vpn">VPN 隧道</string>
+    <string name="topology_vpn_reported">系统报告上游 %1$s</string>
+    <string name="topology_vpn_recheck">需重连复查</string>
+    <string name="topology_vpn_pending">已配置上游，待系统确认</string>
+    <string name="topology_vpn_coverage_unknown">VPN 对此组应用的接管范围待确认</string>
+    <string name="topology_vpn_gateway_supported">支持 VPN 网关导出</string>
+    <string name="topology_offline">离线</string>
+    <string name="topology_default_egress">系统默认</string>
+    <string name="topology_test_result">测速 %1$s</string>
+    <string name="topology_legend_solid">系统报告或分流规则</string>
+    <string name="topology_legend_dashed">待生效或离线</string>
+    <string name="topology_legend_warning">可能绕过代理</string>
+    <string name="topology_rules_scope">应用按基础分流规则分组</string>
     <string name="proxy_gateway_preview_loading">正在检查导出规则</string>
     <string name="proxy_gateway_preview_title">导出预览 · %1$s</string>
     <string name="proxy_gateway_preview_included">可导出</string>

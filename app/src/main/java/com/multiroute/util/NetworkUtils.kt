@@ -253,6 +253,7 @@ object NetworkUtils {
      * Dynamically discovers all active network channels present on the device
      * (WLAN0, WLAN1, Cellular 5G/4G, Ethernet, USB tethering, VPN, etc.).
      */
+    @Suppress("DEPRECATION") // Take a synchronous snapshot of all visible links, including non-default links.
     suspend fun getActiveChannels(context: Context): List<NetworkChannel> = withContext(Dispatchers.IO) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val activeDefault = cm.activeNetwork
@@ -532,6 +533,7 @@ object NetworkUtils {
     /**
      * Tests public internet connectivity on a single specific network channel.
      */
+    @Suppress("DEPRECATION") // Resolve the selected interface against a fresh network snapshot.
     suspend fun testSingleChannelPublicIp(
         context: Context,
         channel: NetworkChannel,
@@ -555,6 +557,7 @@ object NetworkUtils {
     /**
      * Concurrently tests public internet connectivity on all dynamically detected channels.
      */
+    @Suppress("DEPRECATION") // Resolve all selected interfaces from the same network snapshot.
     suspend fun testChannelsConcurrently(
         context: Context,
         channels: List<NetworkChannel>,

@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,10 +32,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation3.runtime.NavKey
 import com.multiroute.R
+import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
@@ -51,7 +53,7 @@ import kotlinx.coroutines.flow.StateFlow
 fun ChannelsTab(
     uiState: MainUiState,
     viewModel: MainScreenViewModel,
-    onNavigate: (NavKey) -> Unit = {}
+    onOpenProxyGateway: () -> Unit
 ) {
     val dualWifiStatus by DualWifiManager.status.collectAsState()
     val cellularState by viewModel.cellularControlState.collectAsState()
@@ -60,6 +62,8 @@ fun ChannelsTab(
     val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
     val listState = rememberLazyListState()
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showTopology by rememberSaveable { mutableStateOf(false) }
+    var showTopologyDetail by rememberSaveable { mutableStateOf(false) }
     var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
     var showProxyPicker by rememberSaveable { mutableStateOf(false) }
     var showProxySetup by rememberSaveable { mutableStateOf(false) }
@@ -72,6 +76,7 @@ fun ChannelsTab(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val dualPane = maxWidth >= RoutingDimensions.dualPaneMinWidth
+        val dockTopologyDetail = maxWidth >= RoutingDimensions.dualPaneMinWidth + 360.dp
         val compactLandscape = maxHeight < 500.dp && maxWidth >= 520.dp
         val leftPaneWidth = RoutingDimensions.dualPaneLeftWidth(
             availableWidth = maxWidth,
@@ -155,9 +160,7 @@ fun ChannelsTab(
                                     if (dualPane) {
                                         inspectedChannelId = channel.id
                                         viewModel.refreshTransparentProxyDiagnostics()
-                                    } else {
-                                        viewModel.selectChannelForDetail(channel)
-                                    }
+                                    } else viewModel.selectChannelForDetail(channel)
                                 }
                             )
                         }
@@ -176,56 +179,94 @@ fun ChannelsTab(
             }
         }
 
-        if (dualPane) {
-            Row(Modifier.fillMaxSize()) {
-                listPane(Modifier.width(leftPaneWidth).fillMaxHeight())
-                VerticalDivider(Modifier.fillMaxHeight())
-                AnimatedContent(
-                    targetState = activeDetail,
-                    contentKey = { it?.id },
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    transitionSpec = { AppMotion.content() },
-                    label = "channelDetailPane"
-                ) { channel ->
-                    if (channel == null) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = stringResource(R.string.ui_no_active_network),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        val routedApps = remember(channel.id, uiState.apps) {
-                            uiState.apps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
-                        }
-                        val changeVpnUpstream: (() -> Unit)? = if (channel.isVpn) {
-                            { vpnForPicker = channel }
-                        } else null
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                            ChannelDetailContent(
-                                channel = channel,
-                                channels = uiState.channels,
-                                scenario = uiState.scenario,
-                                routedApps = routedApps,
-                                testResult = uiState.testResults[channel.id],
-                                isTestingSingle = uiState.isTestingSingleChannel,
-                                trafficFlow = viewModel.channelTraffic,
-                                testServerName = uiState.testServerConfig.displayName(LocalContext.current),
-                                testServerUrl = uiState.testServerConfig.activeUrl,
-                                mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
-                                showCloseButton = false,
-                                modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
-                                onChangeVpnUpstream = changeVpnUpstream,
-                                onTestChannel = { viewModel.testSingleChannel(channel) }
-                            )
+        Column(Modifier.fillMaxSize()) {
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(horizontal = RoutingDimensions.contentPadding)
+            ) {
+                SegmentedButton(
+                    selected = !showTopology,
+                    onClick = { showTopology = false; showTopologyDetail = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text(stringResource(R.string.topology_list_view)) }
+                SegmentedButton(
+                    selected = showTopology,
+                    onClick = {
+                        showTopology = true
+                        viewModel.refreshTransparentProxyDiagnostics()
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text(stringResource(R.string.topology_graph_view)) }
+            }
+            if (showTopology) {
+                val vpnUpstreams = buildMap {
+                    uiState.channels.filter { it.isVpn }.forEach { vpn ->
+                        key(vpn.id, vpn.vpnOwnerUid) {
+                            val upstream = rememberVpnUpstream(vpn, uiState.channels, uiState.scenario)
+                            put(vpn.id, VpnUpstreamSnapshot(upstream.effectiveTarget, upstream.ownerName))
                         }
                     }
                 }
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                listPane(Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize())
+                val hotspot = dualWifiStatus
+                val diagnostics = uiState.env.transparentProxyDiagnostics
+                val apps = uiState.routing.baseApps
+                val channels = uiState.channels
+                val compatibleVpn = uiState.supportedAndroidVpn
+                val topology = remember(channels, apps, vpnUpstreams, hotspot, proxyState, diagnostics, compatibleVpn) {
+                    buildNetworkTopology(channels, apps, vpnUpstreams, hotspot, proxyState, diagnostics, compatibleVpn)
+                }
+                val inspected = channels.firstOrNull { it.id == inspectedChannelId && !it.isVpn && !it.isHotspot }
+                    .takeIf { dualPane && showTopologyDetail }
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    NetworkTopologyView(
+                        topology = topology,
+                        wide = dualPane,
+                        trafficFlow = viewModel.channelTraffic,
+                        testResults = uiState.testResults,
+                        modifier = Modifier.weight(1f),
+                        onNodeClick = { node ->
+                            when (node) {
+                                is TopologyNode.Physical -> {
+                                    if (dualPane) {
+                                        inspectedChannelId = node.channel.id
+                                        if (dockTopologyDetail) showTopologyDetail = true
+                                        else viewModel.selectChannelForDetail(node.channel)
+                                        viewModel.refreshTransparentProxyDiagnostics()
+                                    } else viewModel.selectChannelForDetail(node.channel)
+                                }
+                                is TopologyNode.Vpn -> vpnForPicker = node.channel
+                                is TopologyNode.Hotspot -> viewModel.openNetworkTool(NetworkTool.HOTSPOT)
+                                is TopologyNode.ProxyGateway -> onOpenProxyGateway()
+                                is TopologyNode.DefaultApps, is TopologyNode.RoutedApps -> {
+                                    val assignment = node as? TopologyNode.RoutedApps
+                                    val target = assignment?.target ?: CHANNEL_DEFAULT
+                                    val alias = assignment?.channel?.interfaceName
+                                    viewModel.clearSearchAndChannelFilter()
+                                    viewModel.setFilterChannelId(target)
+                                    if (!uiState.showSystemApps && apps.any { app ->
+                                            app.isSystemApp && (app.targetChannelId == target || app.targetChannelId == alias)
+                                        }
+                                    ) viewModel.toggleShowSystemApps()
+                                    viewModel.setSelectedTab(0)
+                                }
+                                is TopologyNode.Offline -> Unit
+                            }
+                        }
+                    )
+                    if (inspected != null && dockTopologyDetail) {
+                        VerticalDivider(Modifier.fillMaxHeight())
+                        ChannelInspector(
+                            inspected, uiState, viewModel,
+                            onDismiss = { showTopologyDetail = false }, modifier = Modifier.width(340.dp).fillMaxHeight()
+                        )
+                    }
+                }
+                ChannelsTestFooter(uiState, viewModel, compactRow = compactLandscape && !dualPane)
+            } else {
+                ChannelListLayout(
+                    Modifier.weight(1f).fillMaxWidth(), dualPane, leftPaneWidth, activeDetail, uiState, viewModel,
+                    onSelectVpn = { vpnForPicker = it },
+                    list = listPane
+                )
             }
         }
     }
@@ -249,7 +290,10 @@ fun ChannelsTab(
                     onDismiss = { vpnForPicker = null }
                 )
             } else {
-                LaunchedEffect(selected) { vpnForPicker = null }
+                LaunchedEffect(selected) {
+                    vpnForPicker = null
+                    if (showTopology) viewModel.selectChannelForDetail(vpn)
+                }
             }
         } else {
             LaunchedEffect(selected) { vpnForPicker = null }
@@ -265,6 +309,81 @@ fun ChannelsTab(
         )
     }
     if (showProxySetup) ProxyUpstreamDialog(uiState.channels, proxyController) { showProxySetup = false }
+}
+
+@Composable
+private fun ChannelListLayout(
+    modifier: Modifier,
+    dualPane: Boolean,
+    listWidth: Dp,
+    channel: NetworkChannel?,
+    uiState: MainUiState,
+    viewModel: MainScreenViewModel,
+    onSelectVpn: (NetworkChannel) -> Unit,
+    list: @Composable (Modifier) -> Unit
+) {
+    if (dualPane) {
+        Row(modifier) {
+            list(Modifier.width(listWidth).fillMaxHeight())
+            VerticalDivider(Modifier.fillMaxHeight())
+            AnimatedContent(
+                targetState = channel,
+                contentKey = { it?.id },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                transitionSpec = { AppMotion.content() },
+                label = "channelDetailPane"
+            ) { selected ->
+                if (selected == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.ui_no_active_network),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    ChannelInspector(selected, uiState, viewModel, onSelectVpn = onSelectVpn)
+                }
+            }
+        }
+    } else {
+        Box(modifier, contentAlignment = Alignment.TopCenter) {
+            list(Modifier.widthIn(max = RoutingDimensions.contentMaxWidth).fillMaxSize())
+        }
+    }
+}
+
+@Composable
+private fun ChannelInspector(
+    channel: NetworkChannel,
+    uiState: MainUiState,
+    viewModel: MainScreenViewModel,
+    modifier: Modifier = Modifier.fillMaxSize(),
+    onSelectVpn: ((NetworkChannel) -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null
+) {
+    val routedApps = remember(channel.id, channel.interfaceName, uiState.routing.baseApps) {
+        uiState.routing.baseApps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
+    }
+    Box(modifier, contentAlignment = Alignment.TopCenter) {
+        ChannelDetailContent(
+            channel = channel,
+            channels = uiState.channels,
+            scenario = uiState.scenario,
+            routedApps = routedApps,
+            testResult = uiState.testResults[channel.id],
+            isTestingSingle = uiState.isTestingSingleChannel,
+            trafficFlow = viewModel.channelTraffic,
+            testServerName = uiState.testServerConfig.displayName(LocalContext.current),
+            testServerUrl = uiState.testServerConfig.activeUrl,
+            mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
+            showCloseButton = onDismiss != null,
+            modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
+            onChangeVpnUpstream = if (channel.isVpn && onSelectVpn != null) ({ onSelectVpn(channel) }) else null,
+            onTestChannel = { viewModel.testSingleChannel(channel) },
+            onDismiss = onDismiss ?: {}
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
