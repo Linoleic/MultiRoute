@@ -320,6 +320,13 @@ private fun AppRulesContent(
                         }
                     }
 
+                    if (uiState.routing.filterByEffectiveChannel && uiState.scenario.activeScenarioIds.isNotEmpty() && uiState.scenarioEditId == null) {
+                        Text(
+                            stringResource(R.string.topology_effective_filter_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (!compactControls) {
                         batchAction()
                     }

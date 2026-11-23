@@ -322,14 +322,16 @@
         <item quantity="one">Routed · %1$d app</item>
         <item quantity="other">Routed · %1$d apps</item>
     </plurals>
+    <plurals name="topology_proxy_apps_count">
+        <item quantity="one">Proxy egress · %1$d app</item>
+        <item quantity="other">Proxy egress · %1$d apps</item>
+    </plurals>
+    <string name="topology_active_scenario">Active scenario: %1$s</string>
     <string name="topology_hotspot_downlink">Hotspot downlink</string>
     <string name="topology_hotspot_channel_unavailable">Downlink interface unknown</string>
     <string name="topology_proxy_gateway">Transparent proxy and gateway</string>
     <string name="topology_proxy_detected">Transparent proxy hooks detected</string>
-    <plurals name="topology_proxy_draft_count">
-        <item quantity="one">%1$d app draft to export and merge</item>
-        <item quantity="other">%1$d app drafts to export and merge</item>
-    </plurals>
+    <string name="topology_proxy_draft_pending">Draft to export and merge</string>
     <string name="topology_proxy_unmapped_count">Missing outbound mapping · %1$d</string>
     <string name="topology_vpn">VPN tunnel</string>
     <string name="topology_vpn_reported">System reports %1$s</string>
@@ -343,7 +345,17 @@
     <string name="topology_legend_solid">System or routing rule</string>
     <string name="topology_legend_dashed">Pending or offline</string>
     <string name="topology_legend_warning">Possible proxy bypass</string>
-    <string name="topology_rules_scope">Apps grouped by base routing rules</string>
+    <string name="topology_effective_filter_hint">Filtered by effective channel. Cards show base rules.</string>
+    <string name="topology_action_summary">%1$s · %2$s</string>
+    <string name="topology_action_details">View details</string>
+    <string name="topology_action_test">Test egress</string>
+    <string name="topology_action_routed_apps">View routed apps</string>
+    <string name="topology_action_vpn_upstream">Choose upstream</string>
+    <string name="topology_action_open_gateway">Open gateway and upstream</string>
+    <string name="topology_action_proxy_apps">View proxy egress apps</string>
+    <string name="topology_action_hotspot">Configure hotspot upstream</string>
+    <string name="topology_action_open_apps">View app list</string>
+    <string name="topology_action_clear_focus">Clear focus</string>
     <string name="proxy_gateway_preview_loading">Checking gateway rules</string>
     <string name="proxy_gateway_preview_title">Export preview · %1$s</string>
     <string name="proxy_gateway_preview_included">Ready to export</string>

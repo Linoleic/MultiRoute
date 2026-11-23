@@ -4,9 +4,12 @@ import com.multiroute.data.ProxyUpstreamProfile
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
+import com.multiroute.model.ScenarioProfile
+import com.multiroute.model.ScenarioTrigger
 import com.multiroute.util.CgroupHookEvidence
 import com.multiroute.util.ClashProxyUpstreamClient.Selector
 import com.multiroute.util.SocketEvidence
+import com.multiroute.util.ScenarioEngine
 import com.multiroute.util.TcInterfaceEvidence
 import com.multiroute.util.TransparentProxyDiagnostics
 import com.multiroute.wifi.DualWifiStatus
@@ -123,7 +126,100 @@ class NetworkTopologyTest {
         )
         val egress = TopologyNode.Physical(unrecognized)
         assertEquals(listOf(egress), graph.egresses)
-        assertEquals(TopologyEdge("proxy", egress.id, TopologyEdgeStyle.DASHED, TopologyEdgeReason.PROXY_DRAFT), graph.edges.single())
+        assertEquals(
+            setOf(
+                TopologyEdge("proxy-apps", "proxy", TopologyEdgeStyle.DASHED, TopologyEdgeReason.PROXY_DRAFT),
+                TopologyEdge("proxy", egress.id, TopologyEdgeStyle.DASHED, TopologyEdgeReason.PROXY_DRAFT)
+            ), graph.edges.toSet()
+        )
+    }
+
+    @Test
+    fun activeScenarioOverridesBaseAndUnresolvedSymbolicTargetFallsBack() {
+        val base = app(1, wifi.id).copy(uid = 10_001)
+        val app2 = app(2, wifi.id).copy(uid = 10_002)
+        val profiles = listOf(
+            ScenarioProfile(
+                id = "active", name = "Work", trigger = ScenarioTrigger.Always,
+                overrides = mapOf(base.ruleKey to cellular.id, app2.ruleKey to ScenarioEngine.symbolicSsid("Missing"))
+            )
+        )
+        val scenario = ScenarioUiState(scenarioProfiles = profiles)
+        val resolved = resolveEffectiveAppTargets(listOf(base, app2), listOf(wifi, cellular), scenario)
+        assertEquals(cellular.id, resolved.targetsByRuleKey[base.ruleKey])
+        assertEquals(wifi.id, resolved.targetsByRuleKey[app2.ruleKey])
+        assertEquals(listOf("Work"), resolved.activeScenarioNames)
+
+        val graph = topology(
+            channels = listOf(wifi, cellular), apps = listOf(base, app2), effectiveTargets = resolved
+        )
+        val groups = graph.sources.filterIsInstance<TopologyNode.RoutedApps>().associateBy { it.target }
+        assertEquals(1, groups.getValue(cellular.id).appCount)
+        assertEquals(1, groups.getValue(wifi.id).appCount)
+        assertEquals(listOf("Work"), graph.activeScenarioNames)
+    }
+
+    @Test
+    fun laterPlansOverrideSharedUidAndUnresolvedTargetsKeepAnEarlierPlan() {
+        val first = app(1).copy(uid = 10_001)
+        val shared = app(2).copy(uid = first.uid)
+        val work = wifi.copy(ssid = "Office")
+        val early = ScenarioProfile("first", "Earlier", priority = 2, trigger = ScenarioTrigger.Always,
+            overrides = mapOf(first.ruleKey to ScenarioEngine.symbolicSsid("Office")))
+        val later = ScenarioProfile("later", "Later", priority = 8, trigger = ScenarioTrigger.Always,
+            overrides = mapOf(shared.ruleKey to CHANNEL_DEFAULT))
+        val apps = listOf(first, shared)
+        val channels = listOf(work, cellular)
+        val state = ScenarioUiState(scenarioProfiles = listOf(later, early))
+        assertEquals(mapOf(first.ruleKey to CHANNEL_DEFAULT, shared.ruleKey to CHANNEL_DEFAULT),
+            resolveEffectiveAppTargets(apps, channels, state).targetsByRuleKey)
+
+        val unresolved = later.copy(overrides = mapOf(shared.ruleKey to ScenarioEngine.symbolicSsid("Missing")))
+        val observed = resolveEffectiveAppTargets(apps, channels, state.copy(scenarioProfiles = listOf(unresolved, early)))
+        assertEquals(mapOf(first.ruleKey to wifi.id, shared.ruleKey to wifi.id), observed.targetsByRuleKey)
+        assertEquals(listOf("Earlier", "Later"), observed.activeScenarioNames)
+    }
+
+    @Test
+    fun proxyAppsSourceConnectsToGatewayAsDraft() {
+        val graph = topology(
+            channels = listOf(wifi),
+            proxy = ProxyUpstreamUiState(
+                gatewayAppTargets = mapOf("app1" to wifi.id),
+                savedGatewayMappings = mapOf(wifi.id to "outbound")
+            )
+        )
+        val source = graph.sources.filterIsInstance<TopologyNode.ProxyApps>().single()
+        val relay = graph.relays.filterIsInstance<TopologyNode.ProxyGateway>().single()
+        assertEquals(1, source.appCount)
+        assertEquals(0, source.unmappedCount)
+        assertEquals(
+            TopologyEdge(source.id, relay.id, TopologyEdgeStyle.DASHED, TopologyEdgeReason.PROXY_DRAFT),
+            graph.edges.single { it.from == source.id }
+        )
+        val egress = TopologyNode.Physical(wifi)
+        val (nodes, edges) = traceConnectedGraph(graph, source.id)
+        assertEquals(setOf(source.id, relay.id, egress.id), nodes)
+        assertEquals(graph.edges.toSet(), edges)
+    }
+
+    @Test
+    fun traceConnectedGraphIncludesVpnAncestorsAndDescendantsButNotUnrelatedNodes() {
+        val unrelated = channel("wlan9")
+        val graph = topology(
+            channels = listOf(wifi, cellular, vpn, unrelated),
+            apps = listOf(app(1), app(2, vpn.id), app(3, unrelated.id)),
+            vpnUpstreams = mapOf(vpn.id to VpnUpstreamSnapshot(wifi.id, null))
+        )
+        val vpnNode = graph.relays.filterIsInstance<TopologyNode.Vpn>().single()
+        val (nodes, edges) = traceConnectedGraph(graph, vpnNode.id)
+        assertEquals(
+            setOf(vpnNode.id, TopologyNode.RoutedApps(vpn.id, 1, vpn).id, TopologyNode.Physical(wifi).id), nodes
+        )
+        assertEquals(2, edges.size)
+        assertTrue(edges.any { it.from == TopologyNode.RoutedApps(vpn.id, 1, vpn).id && it.to == vpnNode.id })
+        assertTrue(edges.any { it.from == vpnNode.id && it.to == TopologyNode.Physical(wifi).id })
+        assertFalse(nodes.contains(TopologyNode.Physical(unrelated).id))
     }
 
     private fun channel(iface: String) = NetworkChannel(iface, iface, "WLAN", iface, ipAddress = null)
@@ -139,8 +235,9 @@ class NetworkTopologyTest {
         hotspot: DualWifiStatus = DualWifiStatus(),
         proxy: ProxyUpstreamUiState = ProxyUpstreamUiState(),
         diagnostics: TransparentProxyDiagnostics? = null,
-        supportedAndroidVpn: NetworkChannel? = null
-    ) = buildNetworkTopology(channels, apps, vpnUpstreams, hotspot, proxy, diagnostics, supportedAndroidVpn)
+        supportedAndroidVpn: NetworkChannel? = null,
+        effectiveTargets: EffectiveAppTargets? = null
+    ) = buildNetworkTopology(channels, apps, vpnUpstreams, hotspot, proxy, diagnostics, supportedAndroidVpn, effectiveTargets)
 
     private fun NetworkTopology.edgeFrom(node: TopologyNode) = edges.single { it.from == node.id }
 }

@@ -211,7 +211,9 @@ internal class AppRoutingDelegate(
     }
 
     fun clearSearchAndChannelFilter() {
-        uiStateFlow.update { it.copy(routing = it.routing.copy(searchQuery = "", filterChannelId = null)) }
+        uiStateFlow.update {
+            it.copy(routing = it.routing.copy(searchQuery = "", filterChannelId = null, filterByEffectiveChannel = false))
+        }
         filterApps()
     }
 
@@ -221,7 +223,32 @@ internal class AppRoutingDelegate(
     }
 
     fun setFilterChannelId(channelId: String?) {
-        uiStateFlow.update { it.copy(routing = it.routing.copy(filterChannelId = channelId)) }
+        uiStateFlow.update {
+            it.copy(routing = it.routing.copy(filterChannelId = channelId, filterByEffectiveChannel = false))
+        }
+        filterApps()
+    }
+
+    fun setTopologyAppFilter(channelId: String) {
+        uiStateFlow.update { state ->
+            val routing = state.routing
+            val useEffectiveChannel = channelId != FILTER_PROXY_EGRESS
+            val includeSystemApps = if (routing.showSystemApps || !useEffectiveChannel || channelId == CHANNEL_DEFAULT) {
+                routing.showSystemApps
+            } else {
+                val effective = resolveEffectiveAppTargets(routing.baseApps, state.channels, state.scenario).targetsByRuleKey
+                val alias = state.channels.firstOrNull { it.id == channelId }?.interfaceName
+                val matched = routing.baseApps.filter { app ->
+                    val target = effective[app.ruleKey] ?: app.targetChannelId
+                    target == channelId || target == alias
+                }
+                shouldShowSystemAppsForTopology(channelId, matched)
+            }
+            state.copy(routing = routing.copy(
+                searchQuery = "", filterChannelId = channelId, filterByEffectiveChannel = useEffectiveChannel,
+                showSystemApps = includeSystemApps
+            ))
+        }
         filterApps()
     }
 
@@ -506,6 +533,10 @@ internal class AppRoutingDelegate(
             val showSys = routing.showSystemApps
             val filterChannel = resolveProxyEgressFilter(routing.filterChannelId, proxyGatewayRuleKeys)
             val channels = state.channelProbe.channels
+            val effectiveTargets = if (routing.filterByEffectiveChannel && state.scenarioEditId == null) {
+                resolveEffectiveAppTargets(allApps, channels, state.scenario).targetsByRuleKey
+            } else emptyMap()
+            val filterInterface = channels.firstOrNull { it.id == filterChannel }?.interfaceName
 
             val filtered = allApps.filter { app ->
                 val matchesQuery = query.isEmpty() ||
@@ -517,8 +548,9 @@ internal class AppRoutingDelegate(
                     null -> true
                     "configured" -> app.targetChannelId != CHANNEL_DEFAULT
                     FILTER_PROXY_EGRESS -> matchesProxyGatewayRule(app.ruleKey, proxyGatewayRuleKeys)
-                    else -> app.targetChannelId == filterChannel || channels.any {
-                        it.id == filterChannel && it.interfaceName == app.targetChannelId
+                    else -> {
+                        val target = effectiveTargets[app.ruleKey] ?: app.targetChannelId
+                        target == filterChannel || target == filterInterface
                     }
                 }
                 matchesQuery && matchesSys && matchesChannel
@@ -547,3 +579,6 @@ internal fun resolveProxyEgressFilter(filter: String?, configuredRuleKeys: Set<S
 
 internal fun matchesProxyGatewayRule(ruleKey: String, configuredRuleKeys: Set<String>): Boolean =
     ruleKey in configuredRuleKeys
+
+internal fun shouldShowSystemAppsForTopology(target: String, apps: List<AppItem>): Boolean =
+    target != CHANNEL_DEFAULT && target != FILTER_PROXY_EGRESS && apps.isNotEmpty() && apps.all { it.isSystemApp }

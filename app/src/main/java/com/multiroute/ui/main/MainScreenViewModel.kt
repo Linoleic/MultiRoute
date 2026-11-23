@@ -107,6 +107,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             proxyUpstream.state.map { it.gatewayAppTargets.keys }.distinctUntilChanged()
                 .collect(appRoutingDelegate::setProxyGatewayRuleKeys)
         }
+        viewModelScope.launch {
+            uiState.map { if (it.routing.filterByEffectiveChannel) it.channels to it.scenario else null }
+                .distinctUntilChanged().collect { if (it != null) appRoutingDelegate.filterApps() }
+        }
         envDelegate.loadTestServerConfig()
         envDelegate.refreshEnvironment()
         envDelegate.registerNetworkCallbacks()
@@ -227,6 +231,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun setSearchQuery(query: String) = appRoutingDelegate.setSearchQuery(query)
     fun toggleShowSystemApps() = appRoutingDelegate.toggleShowSystemApps()
     fun setFilterChannelId(channelId: String?) = appRoutingDelegate.setFilterChannelId(channelId)
+    internal fun openTopologyApps(channelId: String) {
+        appRoutingDelegate.setTopologyAppFilter(channelId)
+        setSelectedTab(0)
+    }
     fun updateRouteChannel(app: AppItem, channelId: String) = appRoutingDelegate.updateRouteChannel(app, channelId)
     internal fun updateVpnUpstream(vpn: NetworkChannel, owner: RuleTarget, channelId: String) =
         appRoutingDelegate.updateVpnUpstream(vpn, owner, channelId)

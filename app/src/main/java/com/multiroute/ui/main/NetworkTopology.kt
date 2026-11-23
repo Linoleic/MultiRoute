@@ -1,8 +1,11 @@
 package com.multiroute.ui.main
 
+import com.multiroute.cellular.CellularTargets
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
+import com.multiroute.model.ScenarioObservation
+import com.multiroute.util.ScenarioEngine
 import com.multiroute.util.TransparentProxyDiagnostics
 import com.multiroute.wifi.DualWifiStatus
 
@@ -10,8 +13,50 @@ internal data class NetworkTopology(
     val sources: List<TopologyNode>,
     val relays: List<TopologyNode>,
     val egresses: List<TopologyNode>,
-    val edges: List<TopologyEdge>
+    val edges: List<TopologyEdge>,
+    val activeScenarioNames: List<String> = emptyList()
 )
+
+/** Effective per-app destinations for the current link observation, plus the selected plans. */
+internal data class EffectiveAppTargets(
+    val targetsByRuleKey: Map<String, String>,
+    val activeScenarioNames: List<String>
+)
+
+/** Resolves scenario overlays using the same priority, UID identity and missing-target fallback as route sync. */
+internal fun resolveEffectiveAppTargets(
+    apps: List<AppItem>,
+    channels: List<NetworkChannel>,
+    scenario: ScenarioUiState
+): EffectiveAppTargets {
+    val observation = ScenarioObservation.fromChannels(channels)
+    val selected = ScenarioEngine.selectProfiles(
+        scenario.scenarioProfiles,
+        observation,
+        if (scenario.scenarioManualMode) ScenarioEngine.SelectionMode.MANUAL
+        else ScenarioEngine.SelectionMode.AUTOMATIC,
+        scenario.manualScenarioIds
+    )
+    val knownChannels = channels.flatMap { listOf(it.id, it.interfaceName) }.toSet()
+    val appsByRuleKey = apps.associateBy { it.ruleKey }
+    val overridesByUid = mutableMapOf<Int, String>()
+    for (profile in selected) {
+        // Route sync collapses package keys sharing a UID before resolving that plan's destinations.
+        val planByUid = profile.overrides.mapNotNull { (key, rawTarget) ->
+            appsByRuleKey[key]?.uid?.takeIf { it > 0 }?.let { it to rawTarget }
+        }.toMap()
+        for ((uid, rawTarget) in planByUid) {
+            val target = ScenarioEngine.resolveOverrideChannel(rawTarget, observation) ?: continue
+            if (target == CHANNEL_DEFAULT || CellularTargets.isSim(target) || knownChannels.isEmpty() || target in knownChannels) {
+                overridesByUid[uid] = target
+            }
+        }
+    }
+    return EffectiveAppTargets(
+        apps.associate { it.ruleKey to (overridesByUid[it.uid] ?: it.targetChannelId) },
+        selected.map { it.name }
+    )
+}
 
 internal sealed interface TopologyNode {
     val id: String
@@ -22,6 +67,10 @@ internal sealed interface TopologyNode {
 
     data class RoutedApps(val target: String, val appCount: Int, val channel: NetworkChannel?) : TopologyNode {
         override val id = "apps:$target"
+    }
+
+    data class ProxyApps(val appCount: Int, val unmappedCount: Int) : TopologyNode {
+        override val id = "proxy-apps"
     }
 
     data class Hotspot(val iface: String?) : TopologyNode {
@@ -68,7 +117,8 @@ internal fun buildNetworkTopology(
     hotspotStatus: DualWifiStatus,
     proxyState: ProxyUpstreamUiState,
     transparentProxy: TransparentProxyDiagnostics?,
-    supportedAndroidVpn: NetworkChannel?
+    supportedAndroidVpn: NetworkChannel?,
+    effectiveAppTargets: EffectiveAppTargets? = null
 ): NetworkTopology {
     val physical = channels.filterNot { it.isVpn || it.isHotspot }.map { TopologyNode.Physical(it) }
     val vpns = channels.filter { it.isVpn && !it.isHotspot }.map { channel ->
@@ -101,8 +151,9 @@ internal fun buildNetworkTopology(
         edges += TopologyEdge(from.id, to.id, style, reason)
     }
 
+    val appTargets = effectiveAppTargets?.targetsByRuleKey
     val appCounts = apps.groupingBy { app ->
-        val target = app.targetChannelId
+        val target = appTargets?.get(app.ruleKey) ?: app.targetChannelId
         physicalTargets[target]?.channel?.id ?: vpnTargets[target]?.channel?.id ?: target
     }.eachCount()
     appCounts[CHANNEL_DEFAULT]?.let { count ->
@@ -165,6 +216,11 @@ internal fun buildNetworkTopology(
         )
     } else null
     if (proxy != null) {
+        if (proxy.draftAppCount > 0) {
+            val source = TopologyNode.ProxyApps(proxy.draftAppCount, proxy.unmappedAppCount)
+            sources += source
+            connect(source, proxy, TopologyEdgeReason.PROXY_DRAFT)
+        }
         val member = proxyState.selector?.current
         val selectedTargets = proxyState.profile?.mappings.orEmpty().filterValues { it == member }.keys
         val selected = physical.singleOrNull { it.channel.proxyUpstreamKey() in selectedTargets }
@@ -175,5 +231,41 @@ internal fun buildNetworkTopology(
         }
     }
 
-    return NetworkTopology(sources.toList(), vpns + listOfNotNull(proxy), physical + offline.values, edges.toList())
+    return NetworkTopology(
+        sources.toList(), vpns + listOfNotNull(proxy), physical + offline.values, edges.toList(),
+        effectiveAppTargets?.activeScenarioNames.orEmpty()
+    )
+}
+
+/** Returns the selected node and all nodes/edges reachable in either direction from it. */
+internal fun traceConnectedGraph(
+    topology: NetworkTopology,
+    selectedNodeId: String
+): Pair<Set<String>, Set<TopologyEdge>> {
+    val allIds = (topology.sources + topology.relays + topology.egresses).mapTo(mutableSetOf()) { it.id }
+    if (selectedNodeId !in allIds) return emptySet<String>() to emptySet()
+
+    val connectedNodes = linkedSetOf(selectedNodeId)
+    val connectedEdges = linkedSetOf<TopologyEdge>()
+
+    fun traverse(adjacency: Map<String, List<TopologyEdge>>, nextNode: (TopologyEdge) -> String) {
+        val queue = ArrayDeque<String>()
+        queue += selectedNodeId
+        val visited = mutableSetOf(selectedNodeId)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            adjacency[current].orEmpty().forEach { edge ->
+                val to = nextNode(edge)
+                if (to in allIds) {
+                    connectedEdges += edge
+                    connectedNodes += to
+                    if (visited.add(to)) queue += to
+                }
+            }
+        }
+    }
+
+    traverse(topology.edges.groupBy { it.to }) { it.from }
+    traverse(topology.edges.groupBy { it.from }) { it.to }
+    return connectedNodes to connectedEdges
 }

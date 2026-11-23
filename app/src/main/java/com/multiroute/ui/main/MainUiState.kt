@@ -44,6 +44,7 @@ data class AppRoutingUiState(
     val searchQuery: String = "",
     val showSystemApps: Boolean = false,
     val filterChannelId: String? = null,
+    val filterByEffectiveChannel: Boolean = false,
     val isSelectionMode: Boolean = false,
     val selectedRuleKeys: Set<String> = emptySet(),
     val showBatchAssignSheet: Boolean = false,

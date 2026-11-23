@@ -320,13 +320,15 @@
     <plurals name="topology_routed_apps_count">
         <item quantity="other">已分流 · %1$d 个应用</item>
     </plurals>
+    <plurals name="topology_proxy_apps_count">
+        <item quantity="other">代理出口 · %1$d 个应用</item>
+    </plurals>
+    <string name="topology_active_scenario">已生效场景：%1$s</string>
     <string name="topology_hotspot_downlink">热点下行</string>
     <string name="topology_hotspot_channel_unavailable">下行接口待确认</string>
     <string name="topology_proxy_gateway">透明代理与网关</string>
     <string name="topology_proxy_detected">检测到透明代理接管</string>
-    <plurals name="topology_proxy_draft_count">
-        <item quantity="other">%1$d 条应用出口草稿需导出合入</item>
-    </plurals>
+    <string name="topology_proxy_draft_pending">草稿待导出合入</string>
     <string name="topology_proxy_unmapped_count">其中 %1$d 条待配置出站</string>
     <string name="topology_vpn">VPN 隧道</string>
     <string name="topology_vpn_reported">系统报告上游 %1$s</string>
@@ -340,7 +342,17 @@
     <string name="topology_legend_solid">系统报告或分流规则</string>
     <string name="topology_legend_dashed">待生效或离线</string>
     <string name="topology_legend_warning">可能绕过代理</string>
-    <string name="topology_rules_scope">应用按基础分流规则分组</string>
+    <string name="topology_effective_filter_hint">按生效通道筛选，卡片显示基础规则</string>
+    <string name="topology_action_summary">%1$s · %2$s</string>
+    <string name="topology_action_details">查看详情</string>
+    <string name="topology_action_test">测试出口</string>
+    <string name="topology_action_routed_apps">查看分流应用</string>
+    <string name="topology_action_vpn_upstream">选择上游</string>
+    <string name="topology_action_open_gateway">打开网关与上游</string>
+    <string name="topology_action_proxy_apps">查看代理出口应用</string>
+    <string name="topology_action_hotspot">配置热点上游</string>
+    <string name="topology_action_open_apps">前往应用列表</string>
+    <string name="topology_action_clear_focus">取消聚焦</string>
     <string name="proxy_gateway_preview_loading">正在检查导出规则</string>
     <string name="proxy_gateway_preview_title">导出预览 · %1$s</string>
     <string name="proxy_gateway_preview_included">可导出</string>

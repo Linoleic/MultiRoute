@@ -1,8 +1,10 @@
 package com.multiroute.ui.main
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +18,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +44,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -48,6 +54,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -55,16 +63,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.multiroute.R
 import com.multiroute.model.NetworkChannel
 import com.multiroute.theme.RoutingDimensions
 import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.util.NetworkUtils
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun NetworkTopologyView(
     topology: NetworkTopology,
@@ -72,6 +84,8 @@ internal fun NetworkTopologyView(
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
     testResults: Map<String, String>,
     onNodeClick: (TopologyNode) -> Unit,
+    selectedNodeId: String?,
+    onClearSelection: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (!topologyHasActiveNetwork(topology)) {
@@ -85,35 +99,75 @@ internal fun NetworkTopologyView(
         R.string.topology_sources to topology.sources,
         R.string.topology_relays to topology.relays,
         R.string.topology_egresses to topology.egresses
-    )
-    val bounds = remember { mutableStateMapOf<String, Rect>() }
+    ).filter { it.second.isNotEmpty() }
+    val sourceIds = remember(topology.sources) { topology.sources.mapTo(mutableSetOf()) { it.id } }
+    val egressIds = remember(topology.egresses) { topology.egresses.mapTo(mutableSetOf()) { it.id } }
+    val acrossRelays = remember(topology.edges, topology.relays, sourceIds, egressIds) {
+        if (topology.relays.isEmpty()) emptySet()
+        else topology.edges.filter { it.from in sourceIds && it.to in egressIds }.toSet()
+    }
+    val egressInterfaces = remember(topology.egresses) {
+        topology.egresses.filterIsInstance<TopologyNode.Physical>().associate { it.id to it.channel.interfaceName }
+    }
+    val bounds = remember(wide) { mutableStateMapOf<String, Rect>() }
     var canvasOrigin by remember { mutableStateOf(Offset.Zero) }
-    val sourceIds = topology.sources.map { it.id }.toSet()
-    val relayIds = topology.relays.map { it.id }.toSet()
-    val egressIds = topology.egresses.map { it.id }.toSet()
+    val trace = remember(topology, selectedNodeId) { selectedNodeId?.let { traceConnectedGraph(topology, it) } }
     val outgoing = remember(topology.edges) { topology.edges.groupBy { it.from } }
     val incoming = remember(topology.edges) { topology.edges.groupBy { it.to } }
-    val colors = MaterialTheme.colorScheme
-    val layer: @Composable (Int, List<TopologyNode>, Modifier) -> Unit = { title, nodes, layerModifier ->
-        TopologyLayer(title, nodes, outgoing, trafficFlow, testResults, wide, onNodeClick,
-            onBounds = { id, coordinates -> bounds[id] = coordinates.toRectInRoot() },
-            onRemove = { bounds.remove(it) }, modifier = layerModifier
-        )
-    }
-
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TopologyLegend(Modifier.padding(horizontal = RoutingDimensions.contentPadding, vertical = 8.dp))
-        if (topology.sources.any { it is TopologyNode.DefaultApps || it is TopologyNode.RoutedApps }) {
-            Text(
-                stringResource(R.string.topology_rules_scope),
-                modifier = Modifier.padding(horizontal = RoutingDimensions.contentPadding),
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant
-            )
+    val edgeAlpha = buildMap {
+        for (edge in topology.edges) {
+            key(edge) {
+                put(edge, animateFloatAsState(
+                    targetValue = if (trace == null || edge in trace.second) 1f else 0.24f,
+                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                    label = "topologyEdgeAlpha"
+                ))
+            }
         }
-        Box(Modifier.fillMaxWidth()) {
+    }
+    val colors = MaterialTheme.colorScheme
+    // Read traffic in the draw phase, so samples do not rebuild or remeasure the graph.
+    val rates = trafficFlow.collectAsStateWithLifecycle()
+    val clearSelection = rememberUpdatedState(onClearSelection)
+    val blankTap = if (selectedNodeId == null) Modifier else Modifier.pointerInput(Unit) {
+        detectTapGestures(onTap = { clearSelection.value() })
+    }
+    val onBounds: (String, LayoutCoordinates) -> Unit = { id, coordinates -> bounds[id] = coordinates.toRectInRoot() }
+    val onRemove: (String) -> Unit = { bounds.remove(it) }
+
+    Column(modifier.fillMaxSize().then(blankTap).verticalScroll(rememberScrollState())) {
+        if (topology.activeScenarioNames.isNotEmpty()) {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = RoutingDimensions.contentPadding, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                for (name in topology.activeScenarioNames) {
+                    Surface(shape = RoundedCornerShape(50), color = colors.secondaryContainer) {
+                        Text(
+                            stringResource(R.string.topology_active_scenario, name),
+                            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+        TopologyLegend(Modifier.padding(horizontal = RoutingDimensions.contentPadding, vertical = 8.dp))
+        if (wide) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = RoutingDimensions.contentPadding),
+                horizontalArrangement = Arrangement.spacedBy(26.dp)
+            ) {
+                for ((title, _) in layers) {
+                    TopologyHeading(title, Modifier.weight(1f))
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().padding(horizontal = RoutingDimensions.contentPadding, vertical = 8.dp)) {
             Canvas(Modifier.matchParentSize().onGloballyPositioned { canvasOrigin = it.positionInRoot() }) {
-                val topLane = (bounds.values.minOfOrNull { it.top } ?: return@Canvas) - canvasOrigin.y - 10.dp.toPx()
                 for ((index, edge) in topology.edges.withIndex()) {
                     val from = bounds[edge.from]?.translate(-canvasOrigin) ?: continue
                     val to = bounds[edge.to]?.translate(-canvasOrigin) ?: continue
@@ -121,79 +175,90 @@ internal fun NetworkTopologyView(
                         TopologyEdgeStyle.SOLID -> colors.primary
                         TopologyEdgeStyle.DASHED -> colors.outline
                         TopologyEdgeStyle.WARNING -> colors.tertiary
-                    }
+                    }.copy(alpha = edgeAlpha.getValue(edge).value)
                     val fromFraction = portFraction(edge, outgoing.getValue(edge.from))
                     val toFraction = portFraction(edge, incoming.getValue(edge.to))
-                    val fromY = from.top + from.height * fromFraction
-                    val toY = to.top + to.height * toFraction
                     val path = Path()
-                    val start: Offset
                     val end: Offset
                     val lastControl: Offset
-
                     if (wide) {
-                        start = Offset(from.right, fromY)
-                        end = Offset(to.left, toY)
-                        val direct = relayIds.isNotEmpty() && edge.from in sourceIds && edge.to in egressIds
-                        val gap = (end.x - start.x) / 2f
+                        val start = Offset(from.right, from.top + from.height * fromFraction)
+                        end = Offset(to.left, to.top + to.height * toFraction)
                         path.moveTo(start.x, start.y)
-                        if (direct) {
-                            // Keep direct paths out of the relay cards and use the space below the headings.
+                        if (edge in acrossRelays) {
                             val turn = 11.dp.toPx()
-                            val laneY = topLane - (index % 3 * 3).dp.toPx()
+                            val laneY = (7 + index % 4 * 4).dp.toPx()
                             path.cubicTo(start.x + turn, start.y, start.x + turn, laneY, start.x + 2 * turn, laneY)
                             path.lineTo(end.x - 2 * turn, laneY)
                             lastControl = Offset(end.x - turn, end.y)
                             path.cubicTo(end.x - turn, laneY, lastControl.x, lastControl.y, end.x, end.y)
                         } else {
-                            lastControl = Offset(end.x - gap, end.y)
-                            path.cubicTo(start.x + gap, start.y, lastControl.x, lastControl.y, end.x, end.y)
+                            val bend = ((end.x - start.x) / 2f).coerceAtLeast(0f)
+                            lastControl = Offset(end.x - bend, end.y)
+                            path.cubicTo(start.x + bend, start.y, lastControl.x, lastControl.y, end.x, end.y)
                         }
                     } else {
-                        // Full-width cards leave a margin on both sides for links that skip over other cards.
-                        val left = edge.to in relayIds
-                        val laneInset = (5 + index % 3 * 3).dp.toPx()
-                        val laneX = if (left) laneInset else size.width - laneInset
-                        start = Offset(if (left) from.left else from.right, fromY)
-                        end = Offset(if (left) to.left else to.right, toY)
-                        val bend = 12.dp.toPx().coerceAtMost((end.y - start.y) / 3f)
-                        lastControl = Offset(laneX, end.y)
+                        val start = Offset(from.left + from.width * fromFraction, from.bottom)
+                        end = Offset(to.left + to.width * toFraction, to.top)
+                        val bend = (end.y - start.y).coerceAtLeast(0f) / 2f
                         path.moveTo(start.x, start.y)
-                        path.cubicTo(laneX, start.y, laneX, start.y, laneX, start.y + bend)
-                        path.lineTo(laneX, end.y - bend)
-                        path.cubicTo(laneX, end.y, lastControl.x, lastControl.y, end.x, end.y)
+                        if (edge in acrossRelays) {
+                            val laneInset = (7 + index % 3 * 4).dp.toPx()
+                            val laneX = if (start.x <= size.width / 2f) laneInset else size.width - laneInset
+                            // Enter the dedicated side gutter before the next row of cards.
+                            val turn = minOf(6.dp.toPx(), bend / 2f)
+                            path.cubicTo(start.x, start.y + turn, laneX, start.y + turn, laneX, start.y + 2 * turn)
+                            path.lineTo(laneX, end.y - 2 * turn)
+                            lastControl = Offset(end.x, end.y - turn)
+                            path.cubicTo(laneX, end.y - turn, lastControl.x, lastControl.y, end.x, end.y)
+                        } else {
+                            lastControl = Offset(end.x, end.y - bend)
+                            path.cubicTo(start.x, start.y + bend, lastControl.x, lastControl.y, end.x, end.y)
+                        }
                     }
-
+                    val iface = egressInterfaces[edge.to]
+                    val active = edge.style == TopologyEdgeStyle.SOLID && rates.value[iface].hasTraffic()
+                    val lineWidth = when {
+                        active || trace != null && edge in trace.second -> 2.5.dp
+                        edge.style == TopologyEdgeStyle.WARNING -> 2.25.dp
+                        else -> 1.75.dp
+                    }
                     drawPath(
                         path, color,
                         style = Stroke(
-                            width = (if (edge.style == TopologyEdgeStyle.WARNING) 2.5.dp else 1.75.dp).toPx(),
-                            cap = StrokeCap.Round,
+                            width = lineWidth.toPx(), cap = StrokeCap.Round,
                             pathEffect = if (edge.style == TopologyEdgeStyle.DASHED) {
                                 PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))
                             } else null
                         )
                     )
-                    drawArrowHead(end, lastControl, color, 7.dp.toPx())
+                    drawArrowHead(end, lastControl, color, if (lineWidth == 2.5.dp) 8.dp.toPx() else 7.dp.toPx())
                 }
             }
             if (wide) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = RoutingDimensions.contentPadding, vertical = 8.dp),
+                    Modifier.fillMaxWidth().padding(top = if (acrossRelays.isEmpty()) 4.dp else 26.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(26.dp)
                 ) {
-                    for ((title, nodes) in layers) {
-                        if (nodes.isEmpty()) Spacer(Modifier.weight(1f))
-                        else layer(title, nodes, Modifier.weight(1f))
+                    for ((_, nodes) in layers) {
+                        TopologyGrid(
+                            nodes, outgoing, trafficFlow, testResults, selectedNodeId, trace?.first,
+                            onNodeClick, onBounds, onRemove, Modifier.weight(1f), wide = true
+                        )
                     }
                 }
             } else {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = RoutingDimensions.contentPadding, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(36.dp)) {
+                    val gutter = if (acrossRelays.isEmpty()) 0.dp else 22.dp
                     for ((title, nodes) in layers) {
-                        if (nodes.isNotEmpty()) layer(title, nodes, Modifier.fillMaxWidth())
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TopologyHeading(title, Modifier.padding(horizontal = gutter))
+                            TopologyGrid(
+                                nodes, outgoing, trafficFlow, testResults, selectedNodeId, trace?.first,
+                                onNodeClick, onBounds, onRemove,
+                                Modifier.fillMaxWidth().padding(horizontal = gutter), wide = false
+                            )
+                        }
                     }
                 }
             }
@@ -202,36 +267,64 @@ internal fun NetworkTopologyView(
 }
 
 @Composable
-private fun TopologyLayer(
-    title: Int,
+private fun TopologyHeading(title: Int, modifier: Modifier = Modifier) {
+    Text(stringResource(title), modifier, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun TopologyGrid(
     nodes: List<TopologyNode>,
     outgoing: Map<String, List<TopologyEdge>>,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
     testResults: Map<String, String>,
-    wide: Boolean,
+    selectedNodeId: String?,
+    focusedIds: Set<String>?,
     onNodeClick: (TopologyNode) -> Unit,
     onBounds: (String, LayoutCoordinates) -> Unit,
     onRemove: (String) -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    wide: Boolean
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(text = stringResource(title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        if (wide && nodes.isNotEmpty()) Spacer(Modifier.height(12.dp))
-        for (node in nodes) {
-            key(node.id) {
-                DisposableEffect(node.id) { onDispose { onRemove(node.id) } }
-                TopologyNodeCard(
-                    node = node,
-                    reasons = outgoing[node.id].orEmpty().map { it.reason },
-                    trafficFlow = trafficFlow,
-                    testResult = (node as? TopologyNode.Physical)?.channel?.let { testResults[it.id] },
-                    onClick = { onNodeClick(node) },
-                    modifier = Modifier.fillMaxWidth().onGloballyPositioned { onBounds(node.id, it) }
-                )
+    val card: @Composable (TopologyNode, Modifier) -> Unit = { node, cardModifier ->
+        key(node.id) {
+            DisposableEffect(node.id) { onDispose { onRemove(node.id) } }
+            val alpha by animateFloatAsState(
+                targetValue = if (focusedIds == null || node.id in focusedIds) 1f else 0.24f,
+                animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                label = "topologyNodeAlpha"
+            )
+            TopologyNodeCard(
+                node = node,
+                reasons = outgoing[node.id].orEmpty().map { it.reason },
+                trafficFlow = trafficFlow,
+                testResult = (node as? TopologyNode.Physical)?.channel?.let { testResults[it.id] },
+                selected = node.id == selectedNodeId,
+                onClick = { onNodeClick(node) },
+                modifier = cardModifier.alpha(alpha).onGloballyPositioned { onBounds(node.id, it) }
+            )
+        }
+    }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (wide) {
+            for (node in nodes) card(node, Modifier.fillMaxWidth())
+        } else if (nodes.size == 1) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                card(nodes.single(), Modifier.widthIn(max = 280.dp).fillMaxWidth())
+            }
+        } else {
+            for (row in nodes.chunked(2)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (node in row) card(node, Modifier.weight(1f))
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
 }
+
+private fun ChannelTrafficStats?.hasTraffic(): Boolean =
+    this != null && hasSpeedSample && (rxBytesPerSec > 0L || txBytesPerSec > 0L)
 
 private fun portFraction(edge: TopologyEdge, neighbors: List<TopologyEdge>): Float =
     0.2f + 0.6f * (neighbors.indexOf(edge) + 0.5f) / neighbors.size
@@ -242,10 +335,18 @@ private fun TopologyNodeCard(
     reasons: List<TopologyEdgeReason>,
     trafficFlow: StateFlow<Map<String, ChannelTrafficStats>>,
     testResult: String?,
+    selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val offline = node is TopologyNode.Offline
+    val iface = (node as? TopologyNode.Physical)?.channel?.interfaceName
+    val active = if (iface == null) false else {
+        val activeFlow = remember(iface, trafficFlow) {
+            trafficFlow.map { it[iface].hasTraffic() }.distinctUntilChanged()
+        }
+        activeFlow.collectAsStateWithLifecycle(initialValue = trafficFlow.value[iface].hasTraffic()).value
+    }
     val warning = TopologyEdgeReason.VPN_RECHECK in reasons || TopologyEdgeReason.POSSIBLE_BYPASS in reasons
     val container = when {
         offline -> MaterialTheme.colorScheme.surfaceContainerLow
@@ -254,6 +355,8 @@ private fun TopologyNodeCard(
         else -> MaterialTheme.colorScheme.surfaceContainerLow
     }
     val border = when {
+        selected -> MaterialTheme.colorScheme.primary
+        active -> MaterialTheme.colorScheme.tertiary
         offline -> MaterialTheme.colorScheme.outlineVariant
         warning -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
         node is TopologyNode.Physical && node.channel.isDefault -> MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
@@ -263,16 +366,18 @@ private fun TopologyNodeCard(
         modifier = modifier
             .alpha(if (offline) 0.68f else 1f)
             .clip(MaterialTheme.shapes.large)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { this.selected = selected }
             .then(if (offline) Modifier.drawWithContent {
                 drawContent()
                 drawRoundRect(
                     color = border, cornerRadius = CornerRadius(16.dp.toPx()),
                     style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())))
                 )
-            } else Modifier.clickable(role = Role.Button, onClick = onClick)),
+            } else Modifier),
         shape = MaterialTheme.shapes.large,
         color = container,
-        border = if (offline) null else androidx.compose.foundation.BorderStroke(1.dp, border),
+        border = if (offline) null else androidx.compose.foundation.BorderStroke(if (selected || active) 2.dp else 1.dp, border),
         tonalElevation = 0.dp
     ) {
         Row(
@@ -292,7 +397,7 @@ private fun TopologyNodeCard(
             )
             Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                 Text(
-                    text = nodeTitle(node),
+                    text = topologyNodeTitle(node),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
@@ -314,11 +419,8 @@ private fun TopologyNodeCard(
                 if (node is TopologyNode.Vpn && TopologyEdgeReason.VPN_CONFIGURED in reasons) {
                     Text(stringResource(R.string.topology_vpn_pending), style = MaterialTheme.typography.bodySmall)
                 }
-                if (node is TopologyNode.ProxyGateway && node.draftAppCount > 0) {
-                    Text(pluralStringResource(R.plurals.topology_proxy_draft_count, node.draftAppCount, node.draftAppCount), style = MaterialTheme.typography.bodySmall)
-                    if (node.unmappedAppCount > 0) {
-                        Text(stringResource(R.string.topology_proxy_unmapped_count, node.unmappedAppCount), style = MaterialTheme.typography.labelSmall)
-                    }
+                if (node is TopologyNode.ProxyApps && node.unmappedCount > 0) {
+                    Text(stringResource(R.string.topology_proxy_unmapped_count, node.unmappedCount), style = MaterialTheme.typography.labelSmall)
                 }
                 if (node is TopologyNode.Physical) {
                     PhysicalMetrics(node.channel, trafficFlow, testResult)
@@ -353,12 +455,13 @@ private fun PhysicalMetrics(channel: NetworkChannel, trafficFlow: StateFlow<Map<
 }
 
 @Composable
-private fun nodeTitle(node: TopologyNode): String = when (node) {
+internal fun topologyNodeTitle(node: TopologyNode): String = when (node) {
     is TopologyNode.DefaultApps -> pluralStringResource(R.plurals.topology_default_apps_count, node.appCount, node.appCount)
     is TopologyNode.RoutedApps -> pluralStringResource(R.plurals.topology_routed_apps_count, node.appCount, node.appCount)
     is TopologyNode.Hotspot -> stringResource(R.string.topology_hotspot_downlink)
     is TopologyNode.Vpn -> stringResource(R.string.topology_vpn)
     is TopologyNode.ProxyGateway -> stringResource(R.string.topology_proxy_gateway)
+    is TopologyNode.ProxyApps -> pluralStringResource(R.plurals.topology_proxy_apps_count, node.appCount, node.appCount)
     is TopologyNode.Physical -> NetworkUtils.channelLabel(LocalContext.current, node.channel)
     is TopologyNode.Offline -> NetworkUtils.savedTargetLabel(LocalContext.current, node.target)
 }
@@ -377,6 +480,7 @@ private fun nodeSubtitle(node: TopologyNode): String? = when (node) {
         if (node.supportsGateway) append("\n").append(stringResource(R.string.topology_vpn_gateway_supported))
     }
     is TopologyNode.ProxyGateway -> if (node.detected) stringResource(R.string.topology_proxy_detected) else null
+    is TopologyNode.ProxyApps -> stringResource(R.string.topology_proxy_draft_pending)
     is TopologyNode.Physical -> buildString {
         append(node.channel.interfaceName)
         if (node.channel.isDefault) append(" · ").append(stringResource(R.string.topology_default_egress))
@@ -418,7 +522,7 @@ private fun LegendEntry(color: androidx.compose.ui.graphics.Color, label: Int, d
 }
 
 private fun nodeIcon(node: TopologyNode): Int = when (node) {
-    is TopologyNode.DefaultApps, is TopologyNode.RoutedApps -> R.drawable.ic_symbol_route
+    is TopologyNode.DefaultApps, is TopologyNode.RoutedApps, is TopologyNode.ProxyApps -> R.drawable.ic_symbol_route
     is TopologyNode.Hotspot -> R.drawable.ic_symbol_wifi_tethering
     is TopologyNode.Vpn -> R.drawable.ic_symbol_vpn_key
     is TopologyNode.ProxyGateway -> R.drawable.ic_symbol_dns

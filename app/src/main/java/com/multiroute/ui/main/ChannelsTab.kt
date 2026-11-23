@@ -64,6 +64,7 @@ fun ChannelsTab(
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var showTopology by rememberSaveable { mutableStateOf(false) }
     var showTopologyDetail by rememberSaveable { mutableStateOf(false) }
+    var selectedTopologyNodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
     var showProxyPicker by rememberSaveable { mutableStateOf(false) }
     var showProxySetup by rememberSaveable { mutableStateOf(false) }
@@ -185,7 +186,11 @@ fun ChannelsTab(
             ) {
                 SegmentedButton(
                     selected = !showTopology,
-                    onClick = { showTopology = false; showTopologyDetail = false },
+                    onClick = {
+                        showTopology = false
+                        showTopologyDetail = false
+                        selectedTopologyNodeId = null
+                    },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                 ) { Text(stringResource(R.string.topology_list_view)) }
                 SegmentedButton(
@@ -201,8 +206,7 @@ fun ChannelsTab(
                 val vpnUpstreams = buildMap {
                     uiState.channels.filter { it.isVpn }.forEach { vpn ->
                         key(vpn.id, vpn.vpnOwnerUid) {
-                            val upstream = rememberVpnUpstream(vpn, uiState.channels, uiState.scenario)
-                            put(vpn.id, VpnUpstreamSnapshot(upstream.effectiveTarget, upstream.ownerName))
+                            put(vpn.id, rememberVpnUpstream(vpn, uiState.channels, uiState.scenario))
                         }
                     }
                 }
@@ -211,44 +215,45 @@ fun ChannelsTab(
                 val apps = uiState.routing.baseApps
                 val channels = uiState.channels
                 val compatibleVpn = uiState.supportedAndroidVpn
-                val topology = remember(channels, apps, vpnUpstreams, hotspot, proxyState, diagnostics, compatibleVpn) {
-                    buildNetworkTopology(channels, apps, vpnUpstreams, hotspot, proxyState, diagnostics, compatibleVpn)
+                val effectiveTargets = remember(apps, channels, uiState.scenario) {
+                    resolveEffectiveAppTargets(apps, channels, uiState.scenario)
+                }
+                val upstreamSnapshots = vpnUpstreams.mapValues { (_, upstream) ->
+                    VpnUpstreamSnapshot(upstream.effectiveTarget, upstream.ownerName)
+                }
+                val topology = remember(channels, apps, effectiveTargets, upstreamSnapshots, hotspot, proxyState, diagnostics, compatibleVpn) {
+                    buildNetworkTopology(channels, apps, upstreamSnapshots, hotspot, proxyState, diagnostics, compatibleVpn, effectiveTargets)
+                }
+                val selectedNode = remember(topology, selectedTopologyNodeId, channels.isNotEmpty(), hotspot.isHotspotEnabled) {
+                    if (channels.isEmpty() && !hotspot.isHotspotEnabled) null
+                    else (topology.sources + topology.relays + topology.egresses).firstOrNull { it.id == selectedTopologyNodeId }
+                }
+                LaunchedEffect(selectedTopologyNodeId, selectedNode?.id) {
+                    if (selectedNode == null) selectedTopologyNodeId = null
                 }
                 val inspected = channels.firstOrNull { it.id == inspectedChannelId && !it.isVpn && !it.isHotspot }
                     .takeIf { dualPane && showTopologyDetail }
+                fun inspectChannel(channel: NetworkChannel) {
+                    if (dockTopologyDetail && !channel.isVpn && !channel.isHotspot) {
+                        inspectedChannelId = channel.id
+                        showTopologyDetail = true
+                        viewModel.refreshTransparentProxyDiagnostics()
+                    } else viewModel.selectChannelForDetail(channel)
+                }
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     NetworkTopologyView(
                         topology = topology,
                         wide = dualPane,
                         trafficFlow = viewModel.channelTraffic,
                         testResults = uiState.testResults,
+                        selectedNodeId = selectedNode?.id,
+                        onClearSelection = { selectedTopologyNodeId = null },
                         modifier = Modifier.weight(1f),
                         onNodeClick = { node ->
-                            when (node) {
-                                is TopologyNode.Physical -> {
-                                    if (dualPane) {
-                                        inspectedChannelId = node.channel.id
-                                        if (dockTopologyDetail) showTopologyDetail = true
-                                        else viewModel.selectChannelForDetail(node.channel)
-                                        viewModel.refreshTransparentProxyDiagnostics()
-                                    } else viewModel.selectChannelForDetail(node.channel)
-                                }
-                                is TopologyNode.Vpn -> vpnForPicker = node.channel
-                                is TopologyNode.Hotspot -> viewModel.openNetworkTool(NetworkTool.HOTSPOT)
-                                is TopologyNode.ProxyGateway -> onOpenProxyGateway()
-                                is TopologyNode.DefaultApps, is TopologyNode.RoutedApps -> {
-                                    val assignment = node as? TopologyNode.RoutedApps
-                                    val target = assignment?.target ?: CHANNEL_DEFAULT
-                                    val alias = assignment?.channel?.interfaceName
-                                    viewModel.clearSearchAndChannelFilter()
-                                    viewModel.setFilterChannelId(target)
-                                    if (!uiState.showSystemApps && apps.any { app ->
-                                            app.isSystemApp && (app.targetChannelId == target || app.targetChannelId == alias)
-                                        }
-                                    ) viewModel.toggleShowSystemApps()
-                                    viewModel.setSelectedTab(0)
-                                }
-                                is TopologyNode.Offline -> Unit
+                            if (selectedTopologyNodeId == node.id) selectedTopologyNodeId = null
+                            else {
+                                selectedTopologyNodeId = node.id
+                                if (dockTopologyDetail && node is TopologyNode.Physical) inspectChannel(node.channel)
                             }
                         }
                     )
@@ -259,6 +264,46 @@ fun ChannelsTab(
                             onDismiss = { showTopologyDetail = false }, modifier = Modifier.width(340.dp).fillMaxHeight()
                         )
                     }
+                }
+                if (selectedNode != null) {
+                    val shortcuts = when (selectedNode) {
+                        is TopologyNode.Physical -> buildList {
+                            val channel = selectedNode.channel
+                            add(TopologyShortcut(R.string.topology_action_details) { inspectChannel(channel) })
+                            add(TopologyShortcut(R.string.topology_action_test, !uiState.isTesting && !uiState.isTestingSingleChannel) {
+                                viewModel.testSingleChannel(channel)
+                            })
+                            if (topology.sources.filterIsInstance<TopologyNode.RoutedApps>().any { it.target == channel.id }) {
+                                add(TopologyShortcut(R.string.topology_action_routed_apps) { viewModel.openTopologyApps(channel.id) })
+                            }
+                        }
+                        is TopologyNode.Vpn -> listOf(
+                            TopologyShortcut(R.string.topology_action_vpn_upstream, vpnUpstreams[selectedNode.channel.id]?.canEdit == true) {
+                                vpnForPicker = selectedNode.channel
+                            },
+                            TopologyShortcut(R.string.topology_action_details) { inspectChannel(selectedNode.channel) }
+                        )
+                        is TopologyNode.ProxyGateway -> buildList {
+                            add(TopologyShortcut(R.string.topology_action_open_gateway, onClick = onOpenProxyGateway))
+                            if (selectedNode.draftAppCount > 0) {
+                                add(TopologyShortcut(R.string.topology_action_proxy_apps) { viewModel.openTopologyApps(FILTER_PROXY_EGRESS) })
+                            }
+                        }
+                        is TopologyNode.Hotspot -> listOf(TopologyShortcut(R.string.topology_action_hotspot) {
+                            viewModel.openNetworkTool(NetworkTool.HOTSPOT)
+                        })
+                        is TopologyNode.DefaultApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
+                            viewModel.openTopologyApps(CHANNEL_DEFAULT)
+                        })
+                        is TopologyNode.RoutedApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
+                            viewModel.openTopologyApps(selectedNode.target)
+                        })
+                        is TopologyNode.ProxyApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
+                            viewModel.openTopologyApps(FILTER_PROXY_EGRESS)
+                        })
+                        is TopologyNode.Offline -> emptyList()
+                    }
+                    TopologyActionBar(selectedNode, shortcuts, wide = dualPane, onDismiss = { selectedTopologyNodeId = null })
                 }
                 ChannelsTestFooter(uiState, viewModel, compactRow = compactLandscape && !dualPane)
             } else {
@@ -309,6 +354,56 @@ fun ChannelsTab(
         )
     }
     if (showProxySetup) ProxyUpstreamDialog(uiState.channels, proxyController) { showProxySetup = false }
+}
+
+private data class TopologyShortcut(val label: Int, val enabled: Boolean = true, val onClick: () -> Unit)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TopologyActionBar(
+    node: TopologyNode,
+    shortcuts: List<TopologyShortcut>,
+    wide: Boolean,
+    onDismiss: () -> Unit
+) {
+    val title = topologyNodeTitle(node)
+    val target = (node as? TopologyNode.RoutedApps)?.channel?.shortName ?: (node as? TopologyNode.Vpn)?.channel?.interfaceName
+    val summary = if (target == null) title else stringResource(R.string.topology_action_summary, title, target)
+    val actions: @Composable () -> Unit = {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
+            for (shortcut in shortcuts) {
+                TextButton(onClick = shortcut.onClick, enabled = shortcut.enabled) {
+                    Text(stringResource(shortcut.label))
+                }
+            }
+        }
+    }
+    val close: @Composable () -> Unit = {
+        IconButton(onClick = onDismiss) {
+            Icon(painterResource(R.drawable.ic_symbol_close), stringResource(R.string.topology_action_clear_focus))
+        }
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = RoutingDimensions.contentPadding, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        if (wide || shortcuts.size <= 1) {
+            Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                actions()
+                close()
+            }
+        } else {
+            Column(Modifier.padding(horizontal = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(summary, Modifier.weight(1f).padding(start = 4.dp), style = MaterialTheme.typography.titleSmall)
+                    close()
+                }
+                actions()
+            }
+        }
+    }
 }
 
 @Composable
