@@ -180,7 +180,7 @@ MultiRoute 没有统计、埋点、崩溃上报或广告后端，也不需要账
 ### 技术局限
 
 - **Android 7 – 10 (`< API 30`)**：不支持；所 Hook 的框架接口在 Android 11 以下不存在。
-- **DNS 与 VPN**：仅改写 IPv4 UDP/TCP 53 端口；DoT（853）、DoH 与 IPv6 DNS 不改写。存在活跃 VPN（`tun0`）时，路径受 VPN 模式与策略影响；选择器限制 VPN 所属 UID 与常见 VPN 客户端选入 VPN 通道以减少回环，但不保证所有导入配置均不发生回环。
+- **DNS 与 VPN**：仅改写 IPv4 UDP/TCP 53 端口；DoT（853）、DoH 与 IPv6 DNS 不改写。存在活跃 VPN（`tun0`）时，启用 LSPosed 模块后 `VpnUidRoutingHook` 会自动将已显式指派物理通道的应用从非锁定、非系统托管 `VpnService` 的 UID 范围中排除（锁定 VPN 与平台 VPN 保持原生策略不变）；选择器同时限制 VPN 所属 UID 与常见 VPN 客户端选入 VPN 通道以减少回环，但不保证所有导入配置均不发生回环。
 - **应用分身枚举**：通过 Root 读取包列表，界面显示数字空间号（如 `(999)`），仅覆盖以真实 Android 多用户实现分身的 ROM。
 - **副卡通道控制**：要求两张已激活 SIM，仅控制非默认数据卡且不改变默认数据卡，开机不自动启用；双卡并发依赖硬件与运营商，按 SIM 分流依赖 ROM 对 `mobile_data_preferred_uids` 的支持。
 - **副 Wi-Fi 息屏保持**：除受支持的小米专项 Hook 外，其他平台由前台服务监控并尝试重连，不能保证硬件或固件在 Doze 期间维持连接。

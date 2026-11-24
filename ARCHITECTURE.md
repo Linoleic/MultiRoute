@@ -180,7 +180,7 @@ MultiRoute has no telemetry, analytics, crash-reporting, or advertising backend 
 ### Technical Limitations
 
 - **Android 7 – 10 (`< API 30`)**: Unsupported; required framework interfaces do not exist below Android 11.
-- **DNS & VPN**: Only IPv4 UDP/TCP port 53 is redirected; DoT (`853`), DoH, and IPv6 DNS are not rewritten. With a VPN active (`tun0`), DNS and app paths depend on the VPN's policy; app pickers restrict VPN owner UIDs and recognized VPN clients to reduce loops, though imported configs are still subject to VPN rules.
+- **DNS & VPN**: Only IPv4 UDP/TCP port 53 is redirected; DoT (`853`), DoH, and IPv6 DNS are not rewritten. With a VPN active (`tun0`), when the LSPosed module is active, `VpnUidRoutingHook` automatically excludes apps explicitly assigned to physical channels from non-lockdown, non-platform `VpnService` UID ranges (leaving lockdown and platform-managed VPNs untouched). App pickers also restrict VPN owner UIDs and recognized VPN clients to reduce loops, though imported configs are still subject to VPN rules.
 - **Cloned-app enumeration**: Requires root package queries to list secondary Android users, displays numeric IDs (`(999)`), and applies to ROMs implementing clones as real Android users.
 - **Secondary cellular controls**: Requires two active SIMs, manages only the non-default data SIM without changing the system default SIM or auto-starting at boot, and relies on device/carrier dual-data support plus ROM handling of `mobile_data_preferred_uids`.
 - **Dual Wi-Fi screen-off retention**: Outside supported Xiaomi hooks, an optional foreground service monitors link status and attempts recovery, which cannot override firmware or hardware Doze behavior.
