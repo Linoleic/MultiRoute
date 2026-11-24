@@ -253,7 +253,7 @@
     <string name="transparent_proxy_channel_bypass">透明代理的接口接管标记出现在其他通道。指派到此通道的应用可能仍能联网，但会绕过代理直连。</string>
     <string name="vpn_physical_manual_bypass_hint">当前未启用系统级自动绕过。若同时开启 VPN 且应用无法联网，请在 VPN 分流中排除此应用或重启激活模块。</string>
     <string name="vpn_lockdown_physical_hint">系统已开启“屏蔽未经 VPN 的连接”，此物理通道规则不会绕过锁定的 VPN。</string>
-    <string name="proxy_upstream_title">透明代理上游</string>
+    <string name="proxy_upstream_title">透明代理上游（实验性）</string>
     <string name="proxy_upstream_live_title">实时切换代理上游</string>
     <string name="proxy_upstream_setup">在代理中启用本机 Clash 兼容控制器。选择由代理使用的策略组，再将物理通道对应到代理已配置的出站。</string>
     <string name="proxy_upstream_configure">配置代理上游</string>

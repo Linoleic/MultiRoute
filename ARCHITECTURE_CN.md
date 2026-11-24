@@ -69,7 +69,7 @@ APK 内包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`（入�
 MultiRoute 在 IPv4 `nat` 表中创建 `MULTIROUTE_DNS` 链（挂接于 `OUTPUT`），将被指派 UID 的 **IPv4 UDP/TCP 53 端口**请求重定向至所选通道的 DNS 解析器。
 
 - IPv6 DNS、**Private DNS（DoT，853 端口）** 与 **DoH** 不作改写；
-- VPN 启用时，DNS 与应用流量的实际路径取决于 VPN 自身的路由策略。
+- VPN 启用时，LSPosed 模块会自动将显式指定到物理通道的应用从非锁定 VPN 的接管 UID 范围中排除；若模块未激活或系统开启了 VPN 锁定模式，实际路径仍取决于 VPN 自身的路由策略。
 
 ### 3. 持久化 Root 终端池与接口统计
 
@@ -109,6 +109,7 @@ su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat 
 - `ConnectivityService.getDefaultNetworkForUid`
 - `ConnectivityService.getActiveNetworkForUidInternal`
 - `ConnectivityService.getMobileDataPreferredUids`（在遵循该接口的 ROM 上支持按 SIM 蜂窝分流）
+- `Vpn.agentConnect`（`VpnUidRoutingHook`）：自动将显式路由到物理通道的应用从非锁定 VPN 的 UID 接管范围中排除
 - 链路变更、解锁与 Wi-Fi SSID 切换唤醒（`BootRestoreWatchdog`）：在网络切换或开机解锁时触发场景方案重算与无线调试自动触发，无需后台轮询或常驻服务。
 
 ### 2. 个人热点上游调度（`NetworkStack / Tethering APEX`）
@@ -128,8 +129,8 @@ MultiRoute Hook NetworkStack / Tethering APEX 中的 `UpstreamNetworkMonitor.get
                  ┌────────────────┼────────────────┐
                  │                │                │
           ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-          │  系统默认网络 │  │   蜂窝网络   │  │   副 Wi-Fi   │
-          │   (Default)  │  │  (Cellular) │  │  (Secondary)│
+          │  系统默认网络 │  │ 在线物理通道  │  │ 预设 / 副 Wi-Fi│
+          │   (Default)  │  │(WLAN/SIM等) │  │ (Dynamic/Sec)│
           └─────────────┘  └─────────────┘  └─────────────┘
 ```
 

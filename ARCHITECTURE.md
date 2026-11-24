@@ -69,7 +69,7 @@ Each network interface has its own routing table maintained by Android's `netd`.
 MultiRoute installs a `MULTIROUTE_DNS` chain in the IPv4 `nat` table (linked from `OUTPUT`) to redirect assigned UIDs' **IPv4 UDP/TCP port 53** packets to the selected channel's resolver.
 
 - IPv6 DNS, **Private DNS (DoT, port 853)**, and **DNS-over-HTTPS (DoH)** are not rewritten.
-- When a VPN is active, DNS and application traffic paths depend on the VPN's mode and routing policy.
+- When a VPN is active, the LSPosed module automatically excludes apps explicitly routed to physical channels from non-lockdown VPN UID ranges; if the module is inactive or VPN lockdown is enabled, paths depend on the VPN's mode and routing policy.
 
 ### 3. Pooled Root Execution & Interface Metrics
 
@@ -109,6 +109,7 @@ Kernel `ip rule` steers socket packets, while apps also query `ConnectivityManag
 - `ConnectivityService.getDefaultNetworkForUid`
 - `ConnectivityService.getActiveNetworkForUidInternal`
 - `ConnectivityService.getMobileDataPreferredUids` (used for SIM-based cellular routing on ROMs that honor it)
+- `Vpn.agentConnect` (`VpnUidRoutingHook`) to automatically exclude apps explicitly routed to physical channels from non-lockdown VPN UID ranges
 - Link-change, unlock, and Wi-Fi SSID transition triggers (`BootRestoreWatchdog`) so Scenario Plans re-evaluate and Wireless ADB automation executes on boot/unlock/trusted Wi-Fi without polling.
 
 ### 2. Personal Hotspot Upstream Steering (`NetworkStack / Tethering APEX`)
@@ -128,8 +129,8 @@ MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` inside the
                  ┌────────────────┼────────────────┐
                  │                │                │
           ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-          │   Default   │  │  Cellular   │  │  Secondary  │
-          │   Network   │  │   (Mobile)  │  │    Wi-Fi    │
+          │   Default   │  │  Active     │  │ Preset /    │
+          │   Network   │  │  Physical   │  │ Secondary   │
           └─────────────┘  └─────────────┘  └─────────────┘
 ```
 

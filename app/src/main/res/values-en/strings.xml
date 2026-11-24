@@ -253,7 +253,7 @@
     <string name="transparent_proxy_channel_bypass">Proxy interception was detected on another channel. Apps assigned here may still connect to the internet while bypassing the proxy.</string>
     <string name="vpn_physical_manual_bypass_hint">System auto-bypass is inactive. If an active VPN blocks this app on a physical channel, exclude it in your VPN app or reboot to activate the module.</string>
     <string name="vpn_lockdown_physical_hint">Always-on VPN lockdown is enabled. Assigning a physical channel will not bypass a locked-down VPN.</string>
-    <string name="proxy_upstream_title">Transparent proxy upstream</string>
+    <string name="proxy_upstream_title">Transparent proxy upstream (Experimental)</string>
     <string name="proxy_upstream_live_title">Switch proxy upstream</string>
     <string name="proxy_upstream_setup">Enable a local Clash-compatible controller in the proxy. Choose a policy group the proxy uses and map physical channels to its configured outbounds.</string>
     <string name="proxy_upstream_configure">Configure proxy upstreams</string>

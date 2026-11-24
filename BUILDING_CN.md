@@ -7,7 +7,7 @@
 ## 环境要求
 
 - **JDK**：JDK 17
-- **Android SDK**：Platform 36（`compileSdk = 36`、`targetSdk = 36`、`minSdk = 30`）
+- **Android SDK**：Platform 37（`compileSdk = 37`、`targetSdk = 36`、`minSdk = 30`）
 - **Python 3**：可选，用于本地运行 Changelog 提取脚本校验
 
 ---

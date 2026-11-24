@@ -24,7 +24,7 @@ MultiRoute is an Android LSPosed module for per-app network routing (including s
 - **Cloned apps & scenario plans**: Cloned spaces (e.g., Xiaomi XSpace `(999)`) and work profiles are listed as separate targets. Save named **Scenario Plans** with conditions (*Wi-Fi SSID*, *Dual Wi-Fi active*, *Cellular only*, *Always*, or *Manual*). Matching plans stack in priority order and re-evaluate on network changes even when the app UI is closed.
 - **Dual Wi-Fi management (`STA + STA`)**: Connect and switch a secondary Wi-Fi network alongside primary Wi-Fi, distinguish access points sharing an SSID by BSSID and band, and show band compatibility indicators.
 - **Personal hotspot upstream selection**: Choose the personal hotspot upstream directly in Channels (**System Default**, active physical links such as **Primary/Secondary Wi-Fi**, **Ethernet**, or specific **SIM Cellular**, plus **Default mobile data** on demand—for example, sharing cellular data over hotspot while staying connected to an intranet Wi-Fi).
-- **Channel monitoring & egress probes**: Inspect per-interface download/upload rates, 30-second traffic history graphs, cumulative usage since boot, Wi-Fi link rates, and per-channel public-IP probes.
+- **Channel monitoring, topology & egress probes**: Switch between list and interactive topology views to inspect per-interface rates, 30-second traffic graphs, cumulative usage, and Wi-Fi link rates; switch VPN/Hotspot upstreams directly and run multi-channel public egress checks.
 - **Wireless debugging helper**: Manage Android 11+ Native TLS wireless debugging and Legacy TCP mode (configurable port `1024..65535`), inspect active ADB connections and peer IPs, copy `adb connect` commands, and configure boot/unlock recovery, automatic switching on trusted Wi-Fi networks, or system auto-start takeover.
 
 ---
@@ -101,7 +101,7 @@ MultiRoute provides four main destinations (**App routing**, **Channels**, **Too
 - **Dual Wi-Fi Manager**:
   - Choose a connection scheme (**Auto** is the default; Xiaomi/HyperOS devices use `SlaveWifiService` coordination and keepalive hooks, while Android 13+ AOSP/other ROMs provide Overlay and Root options).
   - System Multi-Internet schemes only connect to networks already saved in Android Wi-Fi settings; MultiRoute does not store or send Wi-Fi passwords in those requests. Access points with the same SSID are listed separately by BSSID and band, and dual-5G (HBS) capability is probed to flag 5 GHz + 5 GHz conflicts on devices that require 2.4 GHz + 5 GHz.
-- **Transparent proxy upstream**: Configure a local Clash-compatible controller for live upstream switching, or set up, validate, and export sing-box / Mihomo per-app gateway rules and binding snippets (see FAQ below).
+- **Transparent proxy upstream (Experimental)**: Configure a local Clash-compatible controller for live upstream switching, or set up, validate, and export sing-box / Mihomo per-app gateway rules and binding snippets (see FAQ below).
 - **Wireless Debugging Helper**: Switch between **Native TLS** (Android 11+ dynamic port and pairing) and **Legacy TCP** (`1024..65535`, default `5555`), inspect active connections and peer IPs, copy the `adb connect` command, and configure a trusted Wi-Fi list for boot/unlock recovery, automatic enablement/switching on Wi-Fi connect (via `system_server` callbacks), or system auto-start takeover.
 - **Runtime logs & module status**: Open the toolbar status icon to verify hook readiness and build parity, or open **Tools → Runtime logs** to check per-UID rule status, boot logs, wireless ADB automation logs, and exportable diagnostic snapshots.
 
@@ -126,7 +126,7 @@ MultiRoute provides four main destinations (**App routing**, **Channels**, **Too
 
 1. Open **Tools → Runtime logs** and check the **Rule effectiveness** section to see whether the UID shows **in effect** or was skipped (for example, if the target interface currently lacks a default route).
 2. When routing apps over Cellular while Wi-Fi is connected, enable **Mobile data always on** in Developer Options.
-3. If a **VPN** is active, check the DNS & VPN notes below; VPN routing policy can override or capture traffic depending on its configuration.
+3. If a **VPN** is active, the LSPosed module automatically excludes apps explicitly routed to physical channels from non-lockdown VPN ranges when active; if the module is inactive or VPN lockdown is enabled, VPN routing policy can still override or capture traffic (see the DNS & VPN notes below).
 
 </details>
 
