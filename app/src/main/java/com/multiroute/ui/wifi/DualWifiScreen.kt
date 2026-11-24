@@ -73,16 +73,6 @@ fun DualWifiScreen(
             )
         }
 
-        // 3. 个人热点频段占用感知与冲突避让提示卡片
-        if (status.isHotspotEnabled) {
-            item {
-                HotspotUpstreamCard(
-                    status = status,
-                    onSetUpstream = { viewModel.setHotspotUpstream(it) }
-                )
-            }
-        }
-
         // 4. 当前双 Wi-Fi 通道状态卡片
         item {
             ActiveChannelsCard(

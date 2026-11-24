@@ -13,9 +13,10 @@ bilingual, Chinese first: the release page is what most users read.
 
 - 网络通道新增可交互拓扑视图（支持无边框列表/拓扑平滑切换、默认全览与连续缩放平移、链路聚焦、生效场景方案展示与实时流量高亮）。
 - 网络通道支持直接更改 VPN 上游，VPN 通道详情显示已配置上游与系统报告上游并在不一致时提示重新连接；分流规则标识 VPN 创建应用并提示回环限制。
-- 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览、复制和导出 sing-box 或 Mihomo 应用代理出口规则（记住导出格式、应用分流页新增「代理出口」筛选）。
+- 增加透明代理诊断、Clash 兼容上游切换，并支持配置、预览、复制和导出 sing-box 或 Mihomo 应用代理出口规则（记住导出格式、应用分流页新增「代理出口」筛选、关联控制器时校验出站名称并提供绑定参考片段与分级可用性提示）。
 - 应用通道选择器显示已保存的代理出口，可直接预览导出结果和跳过原因。
 - 为兼容的 Android VPN 客户端导出逐应用 Wi-Fi 出口规则，预览会核对 VPN 的应用接管范围。README 列出客户端要求与验证范围。
+- 个人热点上游管理整合进网络通道（卡片快捷入口、通道详情、拓扑操作、未激活预设及全部在线物理通道动态选择），并将 Tethering 上行 Hook 状态移入模块运行状态诊断，移除工具页与双 Wi-Fi 页重复界面。
 - 双 Wi-Fi 助手增加双 5G (HBS) 并发能力检测，在不支持双 5G 的机型上对同 5G 频段候选给出冲突提示。
 
 ### 变更
@@ -37,9 +38,10 @@ bilingual, Chinese first: the release page is what most users read.
 
 - Added an interactive topology view in Network Channels with smooth list/topology switching, auto-fit overview with continuous zoom/pan, click-to-focus path tracing, active scenario display, and live traffic highlights.
 - Added direct VPN upstream selection from Network Channels, showing configured vs. system-reported upstreams in VPN channel details (with a reconnect prompt on mismatch) while identifying VPN client apps and loop prevention in App Routing.
-- Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, copy, and export for sing-box and Mihomo (remembering the export format and adding a Proxy egress filter in App Routing).
+- Added transparent proxy diagnostics, Clash-compatible upstream switching, and per-app gateway rule setup, preview, copy, and export for sing-box and Mihomo (remembering the export format, adding a Proxy egress filter in App Routing, validating controller outbounds, and providing binding reference snippets and tiered availability notices).
 - Show saved proxy egress targets in the app channel picker with direct access to export previews and skip reasons.
 - Added per-app Wi-Fi egress rule export for compatible Android VPN clients with VPN app-coverage checks in the preview (client requirements and verified scope documented in the README).
+- Consolidated Hotspot upstream management into Network Channels (card shortcut, channel details, topology actions, inactive preset picker, and dynamic physical channel options) and moved Tethering hook status into Module Diagnostics, removing redundant Tools and Dual Wi-Fi panels.
 - Added dual-5G (HBS) concurrency detection in Dual Wi-Fi Manager to flag 5 GHz + 5 GHz band conflicts on devices without HBS support.
 
 ### Changed

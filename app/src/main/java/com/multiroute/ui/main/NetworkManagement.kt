@@ -147,14 +147,3 @@ internal fun networkToolSummary(tool: NetworkTool, viewModel: MainScreenViewMode
         NetworkTool.HOTSPOT -> stringResource(if (wifi.isHotspotEnabled) R.string.tools_enabled else R.string.tools_not_enabled)
     }
 }
-
-@Composable
-internal fun HotspotManagementPanel(viewModel: MainScreenViewModel) {
-    val wifi by DualWifiManager.status.collectAsState()
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        com.multiroute.ui.wifi.HotspotUpstreamCard(wifi, onSetUpstream = viewModel::setHotspotUpstream)
-        OutlinedButton(onClick = viewModel::openHotspotSettings, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.dual_wifi_hotspot_btn))
-        }
-    }
-}

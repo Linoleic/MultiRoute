@@ -23,8 +23,12 @@ import androidx.compose.ui.unit.dp
 import com.multiroute.R
 import com.multiroute.model.AppItem
 import com.multiroute.model.NetworkChannel
+import com.multiroute.ui.wifi.hotspotBandLabel
 import com.multiroute.util.ChannelTrafficStats
+import com.multiroute.util.HotspotHookState
+import com.multiroute.util.HotspotUpstreamPolicy
 import com.multiroute.util.NetworkUtils
+import com.multiroute.wifi.DualWifiStatus
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -44,6 +48,9 @@ internal fun ChannelDetailBottomSheet(
     testServerUrl: String = "",
     mayBypassTransparentProxy: Boolean = false,
     physicalVpnBypassWarning: PhysicalVpnBypassWarning? = null,
+    hotspotStatus: DualWifiStatus? = null,
+    onChangeHotspotUpstream: (() -> Unit)? = null,
+    onOpenHotspotSettings: (() -> Unit)? = null,
     onChangeVpnUpstream: (() -> Unit)? = null,
     onTestChannel: () -> Unit,
     onDismiss: () -> Unit
@@ -68,6 +75,9 @@ internal fun ChannelDetailBottomSheet(
             testServerUrl = testServerUrl,
             mayBypassTransparentProxy = mayBypassTransparentProxy,
             physicalVpnBypassWarning = physicalVpnBypassWarning,
+            hotspotStatus = hotspotStatus,
+            onChangeHotspotUpstream = onChangeHotspotUpstream,
+            onOpenHotspotSettings = onOpenHotspotSettings,
             showCloseButton = true,
             onChangeVpnUpstream = onChangeVpnUpstream,
             onTestChannel = onTestChannel,
@@ -92,6 +102,9 @@ internal fun ChannelDetailContent(
     testServerUrl: String = "",
     mayBypassTransparentProxy: Boolean = false,
     physicalVpnBypassWarning: PhysicalVpnBypassWarning? = null,
+    hotspotStatus: DualWifiStatus? = null,
+    onChangeHotspotUpstream: (() -> Unit)? = null,
+    onOpenHotspotSettings: (() -> Unit)? = null,
     showCloseButton: Boolean = true,
     modifier: Modifier = Modifier,
     onChangeVpnUpstream: (() -> Unit)? = null,
@@ -249,6 +262,9 @@ internal fun ChannelDetailContent(
                     DetailPropertyRow(label = stringResource(com.multiroute.R.string.ui_kernel_iface), value = channel.interfaceName)
                     if (channel.isVpn) {
                         VpnUpstreamDetails(channel, channels, scenario, onChangeVpnUpstream)
+                    }
+                    if (channel.isHotspot && hotspotStatus != null) {
+                        HotspotUpstreamDetails(hotspotStatus, channels, onChangeHotspotUpstream)
                     }
                     if (channel.ssid != null) {
                         DetailPropertyRow(label = "Wi-Fi SSID", value = channel.ssid)
@@ -418,6 +434,15 @@ internal fun ChannelDetailContent(
                         )
                     }
                 }
+                if (onOpenHotspotSettings != null) {
+                    OutlinedButton(
+                        onClick = onOpenHotspotSettings,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(stringResource(R.string.dual_wifi_hotspot_btn))
+                    }
+                }
             } else {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -568,6 +593,61 @@ private fun VpnUpstreamDetails(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun HotspotUpstreamDetails(
+    status: DualWifiStatus,
+    channels: List<NetworkChannel>,
+    onChangeUpstream: (() -> Unit)?
+) {
+    if (status.isHotspotEnabled) {
+        val band = hotspotBandLabel(status.hotspotFreq, status.hotspotBand, status.hotspotBandRes)
+        if (band != null) {
+            DetailPropertyRow(
+                label = stringResource(R.string.ui_wifi_band),
+                value = band
+            )
+        }
+    }
+    val configured = hotspotUpstreamLabel(status.hotspotUpstreamTarget, channels)
+    DetailPropertyRow(
+        label = stringResource(R.string.ui_hotspot_configured_upstream),
+        value = configured,
+        onChange = onChangeUpstream
+    )
+    DetailPropertyRow(
+        label = stringResource(R.string.ui_hotspot_reported_upstream),
+        value = if (status.hotspotUpstreamActive != "none") {
+            hotspotUpstreamLabel(status.hotspotUpstreamActive, channels)
+        } else stringResource(R.string.ui_vpn_upstream_unavailable)
+    )
+    if (status.isHotspotEnabled && status.hotspotHookState != HotspotHookState.LOADED) {
+        Text(
+            text = stringResource(when (status.hotspotHookState) {
+                HotspotHookState.VERSION_MISMATCH -> R.string.dual_wifi_hotspot_upstream_hook_old
+                HotspotHookState.NOT_LOADED -> R.string.dual_wifi_hotspot_upstream_hook_warning
+                else -> R.string.dual_wifi_hotspot_upstream_hook_unknown
+            }),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+    } else if (status.isHotspotEnabled && status.hotspotHookState == HotspotHookState.LOADED) {
+        val target = HotspotUpstreamPolicy.normalize(status.hotspotUpstreamTarget)
+        val mismatch = target != "default" && (
+            status.hotspotUpstreamActive == "none" || (
+                if (target == "cellular") !HotspotUpstreamPolicy.needsCellular(status.hotspotUpstreamActive)
+                else !target.equals(status.hotspotUpstreamActive, true)
+                )
+            )
+        if (mismatch) {
+            Text(
+                text = stringResource(R.string.dual_wifi_hotspot_upstream_waiting),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

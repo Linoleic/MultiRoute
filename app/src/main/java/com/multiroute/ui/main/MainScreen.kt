@@ -96,6 +96,7 @@ fun MainScreen(
     var selectedToolName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var programmaticTarget by remember { mutableStateOf<Int?>(null) }
     var vpnForUpstreamPicker by remember { mutableStateOf<NetworkChannel?>(null) }
+    var showHotspotUpstreamPicker by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val latestSelectedTab by rememberUpdatedState(uiState.selectedTab)
     val tabScrollSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
 
@@ -498,6 +499,7 @@ fun MainScreen(
                         }
                     if (selectedChannel != null) {
                         val channel = selectedChannel
+                        val hotspotStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
                         val routedApps = remember(channel.id, channel.interfaceName, uiState.routing.baseApps) {
                             uiState.routing.baseApps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
                         }
@@ -514,6 +516,19 @@ fun MainScreen(
                             testServerUrl = effectiveTestServer.activeUrl,
                             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
                             physicalVpnBypassWarning = uiState.physicalVpnBypassWarning(channel),
+                            hotspotStatus = hotspotStatus,
+                            onChangeHotspotUpstream = if (channel.isHotspot) {
+                                {
+                                    viewModel.closeChannelDetail()
+                                    showHotspotUpstreamPicker = true
+                                }
+                            } else null,
+                            onOpenHotspotSettings = if (channel.isHotspot) {
+                                {
+                                    viewModel.closeChannelDetail()
+                                    viewModel.openHotspotSettings()
+                                }
+                            } else null,
                             onChangeVpnUpstream = if (channel.isVpn) {
                                 {
                                     viewModel.closeChannelDetail()
@@ -549,6 +564,24 @@ fun MainScreen(
                         } else {
                             LaunchedEffect(selected) { vpnForUpstreamPicker = null }
                         }
+                    }
+
+                    if (showHotspotUpstreamPicker) {
+                        val hotspotStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
+                        HotspotUpstreamPicker(
+                            status = hotspotStatus,
+                            channels = uiState.channels,
+                            supportsCellularData = uiState.supportsCellularData,
+                            onSelectTarget = { target ->
+                                showHotspotUpstreamPicker = false
+                                viewModel.setHotspotUpstream(target)
+                            },
+                            onOpenHotspotSettings = {
+                                showHotspotUpstreamPicker = false
+                                viewModel.openHotspotSettings()
+                            },
+                            onDismiss = { showHotspotUpstreamPicker = false }
+                        )
                     }
 
                     if (showDiagnostics) ModuleDiagnosticsOverlay(

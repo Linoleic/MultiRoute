@@ -72,6 +72,7 @@ fun ChannelsTab(
     var vpnForPicker by remember { mutableStateOf<NetworkChannel?>(null) }
     var showProxyPicker by rememberSaveable { mutableStateOf(false) }
     var showProxySetup by rememberSaveable { mutableStateOf(false) }
+    var showHotspotPicker by rememberSaveable { mutableStateOf(false) }
     val proxyController = viewModel.proxyUpstream
     val proxyState by proxyController.state.collectAsStateWithLifecycle()
     val proxyProfile = proxyState.profile
@@ -148,13 +149,23 @@ fun ChannelsTab(
                                 trafficFlow = viewModel.channelTraffic,
                                 selected = dualPane && activeDetail?.id == channel.id,
                                 compact = dualPane,
-                                vpnUpstreamAction = if (channel.isVpn && !dualPane) {
-                                    {
-                                        VpnUpstreamShortcut(channel, uiState.channels, uiState.scenario) {
-                                            vpnForPicker = channel
+                                vpnUpstreamAction = when {
+                                    channel.isVpn && !dualPane -> {
+                                        {
+                                            VpnUpstreamShortcut(channel, uiState.channels, uiState.scenario) {
+                                                vpnForPicker = channel
+                                            }
                                         }
                                     }
-                                } else null,
+                                    channel.isHotspot && !dualPane -> {
+                                        {
+                                            HotspotUpstreamShortcut(dualWifiStatus, uiState.channels) {
+                                                showHotspotPicker = true
+                                            }
+                                        }
+                                    }
+                                    else -> null
+                                },
                                 modifier = Modifier.animateItem(
                                     fadeInSpec = AppMotion.itemFade(),
                                     fadeOutSpec = AppMotion.itemFade(),
@@ -171,7 +182,8 @@ fun ChannelsTab(
                     }
 
                     activationCandidateItems(candidates) { target ->
-                        viewModel.openNetworkTool(target)
+                        if (target == NetworkTool.HOTSPOT) showHotspotPicker = true
+                        else viewModel.openNetworkTool(target)
                     }
                 }
             }
@@ -368,9 +380,13 @@ fun ChannelsTab(
                                         add(TopologyShortcut(R.string.topology_action_proxy_apps) { viewModel.openTopologyApps(FILTER_PROXY_EGRESS) })
                                     }
                                 }
-                                is TopologyNode.Hotspot -> listOf(TopologyShortcut(R.string.topology_action_hotspot) {
-                                    viewModel.openNetworkTool(NetworkTool.HOTSPOT)
-                                })
+                                is TopologyNode.Hotspot -> buildList {
+                                    add(TopologyShortcut(R.string.topology_action_hotspot_upstream) { showHotspotPicker = true })
+                                    uiState.channels.firstOrNull { it.isHotspot }?.let { hotspotChannel ->
+                                        add(TopologyShortcut(R.string.topology_action_details) { inspectChannel(hotspotChannel) })
+                                    }
+                                    add(TopologyShortcut(R.string.dual_wifi_hotspot_btn) { viewModel.openHotspotSettings() })
+                                }
                                 is TopologyNode.DefaultApps -> listOf(TopologyShortcut(R.string.topology_action_open_apps) {
                                     viewModel.openTopologyApps(CHANNEL_DEFAULT)
                                 })
@@ -389,6 +405,7 @@ fun ChannelsTab(
                     ChannelListLayout(
                         Modifier.fillMaxSize(), dualPane, leftPaneWidth, activeDetail, uiState, viewModel,
                         onSelectVpn = { vpnForPicker = it },
+                        onSelectHotspot = { showHotspotPicker = true },
                         list = listPane
                     )
                 }
@@ -444,6 +461,22 @@ fun ChannelsTab(
         )
     }
     if (showProxySetup) ProxyUpstreamDialog(uiState.channels, proxyController) { showProxySetup = false }
+    if (showHotspotPicker) {
+        HotspotUpstreamPicker(
+            status = dualWifiStatus,
+            channels = uiState.channels,
+            supportsCellularData = uiState.supportsCellularData,
+            onSelectTarget = { target ->
+                showHotspotPicker = false
+                viewModel.setHotspotUpstream(target)
+            },
+            onOpenHotspotSettings = {
+                showHotspotPicker = false
+                viewModel.openHotspotSettings()
+            },
+            onDismiss = { showHotspotPicker = false }
+        )
+    }
 }
 
 private data class TopologyShortcut(val label: Int, val enabled: Boolean = true, val onClick: () -> Unit)
@@ -505,6 +538,7 @@ private fun ChannelListLayout(
     uiState: MainUiState,
     viewModel: MainScreenViewModel,
     onSelectVpn: (NetworkChannel) -> Unit,
+    onSelectHotspot: () -> Unit,
     list: @Composable (Modifier) -> Unit
 ) {
     if (dualPane) {
@@ -527,7 +561,7 @@ private fun ChannelListLayout(
                         )
                     }
                 } else {
-                    ChannelInspector(selected, uiState, viewModel, onSelectVpn = onSelectVpn)
+                    ChannelInspector(selected, uiState, viewModel, onSelectVpn = onSelectVpn, onSelectHotspot = onSelectHotspot)
                 }
             }
         }
@@ -545,8 +579,10 @@ private fun ChannelInspector(
     viewModel: MainScreenViewModel,
     modifier: Modifier = Modifier.fillMaxSize(),
     onSelectVpn: ((NetworkChannel) -> Unit)? = null,
+    onSelectHotspot: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null
 ) {
+    val hotspotStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
     val routedApps = remember(channel.id, channel.interfaceName, uiState.routing.baseApps) {
         uiState.routing.baseApps.filter { it.targetChannelId == channel.id || it.targetChannelId == channel.interfaceName }
     }
@@ -564,6 +600,9 @@ private fun ChannelInspector(
             testServerUrl = effectiveTestServer.activeUrl,
             mayBypassTransparentProxy = uiState.mayBypassTransparentProxy(channel),
             physicalVpnBypassWarning = uiState.physicalVpnBypassWarning(channel),
+            hotspotStatus = hotspotStatus,
+            onChangeHotspotUpstream = if (channel.isHotspot && onSelectHotspot != null) onSelectHotspot else null,
+            onOpenHotspotSettings = if (channel.isHotspot) ({ viewModel.openHotspotSettings() }) else null,
             showCloseButton = onDismiss != null,
             modifier = Modifier.widthIn(max = RoutingDimensions.contentMaxWidth),
             onChangeVpnUpstream = if (channel.isVpn && onSelectVpn != null) ({ onSelectVpn(channel) }) else null,
@@ -638,6 +677,65 @@ private fun VpnUpstreamShortcut(
                 tint = MaterialTheme.colorScheme.primary
             )
         }
+    }
+}
+
+@Composable
+private fun HotspotUpstreamShortcut(
+    status: com.multiroute.wifi.DualWifiStatus,
+    channels: List<NetworkChannel>,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .heightIn(min = 32.dp)
+            .padding(start = 8.dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                stringResource(R.string.ui_vpn_upstream_shortcut, hotspotUpstreamLabel(status.hotspotUpstreamTarget, channels)),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            val hookError = status.isHotspotEnabled && status.hotspotHookState != com.multiroute.util.HotspotHookState.LOADED
+            val target = com.multiroute.util.HotspotUpstreamPolicy.normalize(status.hotspotUpstreamTarget)
+            val waitingMismatch = status.isHotspotEnabled &&
+                status.hotspotHookState == com.multiroute.util.HotspotHookState.LOADED &&
+                target != "default" &&
+                (status.hotspotUpstreamActive == "none" || (
+                    if (target == "cellular") !com.multiroute.util.HotspotUpstreamPolicy.needsCellular(status.hotspotUpstreamActive)
+                    else !target.equals(status.hotspotUpstreamActive, true)
+                    ))
+            val note = when {
+                hookError -> stringResource(when (status.hotspotHookState) {
+                    com.multiroute.util.HotspotHookState.VERSION_MISMATCH -> R.string.dual_wifi_hotspot_upstream_hook_old
+                    com.multiroute.util.HotspotHookState.NOT_LOADED -> R.string.dual_wifi_hotspot_upstream_hook_warning
+                    else -> R.string.dual_wifi_hotspot_upstream_hook_unknown
+                })
+                status.isHotspotSwitching -> stringResource(R.string.dual_wifi_hotspot_upstream_switching)
+                waitingMismatch -> stringResource(R.string.dual_wifi_hotspot_upstream_waiting)
+                else -> null
+            }
+            if (note != null) {
+                Text(
+                    note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (hookError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Icon(
+            painterResource(R.drawable.ic_symbol_chevron_right),
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
     }
 }
 

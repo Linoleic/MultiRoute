@@ -127,6 +127,17 @@ internal fun ModuleDiagnosticsPanel(uiState: MainUiState, onProxyUpstream: () ->
                 label = stringResource(com.multiroute.R.string.settings_cellular_uids_2),
                 value = diag?.mobileDataPreferredUids?.ifEmpty { stringResource(com.multiroute.R.string.diag_not_set) } ?: stringResource(com.multiroute.R.string.diag_not_set)
             )
+            // 5. 热点上行 Hook 状态
+            val hotspotStatus by com.multiroute.wifi.DualWifiManager.status.collectAsState()
+            DiagnosticItem(
+                label = stringResource(com.multiroute.R.string.settings_hotspot_hook_status),
+                value = stringResource(when (hotspotStatus.hotspotHookState) {
+                    com.multiroute.util.HotspotHookState.LOADED -> com.multiroute.R.string.dual_wifi_hotspot_upstream_hook_loaded
+                    com.multiroute.util.HotspotHookState.VERSION_MISMATCH -> com.multiroute.R.string.diag_hotspot_hook_old
+                    com.multiroute.util.HotspotHookState.NOT_LOADED -> com.multiroute.R.string.diag_hotspot_hook_not_loaded
+                    com.multiroute.util.HotspotHookState.UNKNOWN -> com.multiroute.R.string.ui_unknown
+                })
+            )
             TransparentProxyDiagnosticItems(uiState.env.transparentProxyDiagnostics)
             TextButton(onClick = onProxyUpstream) {
                 Text(stringResource(R.string.proxy_upstream_title))

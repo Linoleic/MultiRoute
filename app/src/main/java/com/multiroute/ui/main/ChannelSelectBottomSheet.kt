@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,7 +28,10 @@ import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
+import com.multiroute.ui.wifi.hotspotBandLabel
+import com.multiroute.util.HotspotHookState
 import com.multiroute.util.NetworkUtils
+import com.multiroute.wifi.DualWifiStatus
 
 private data class ChannelPickerEntry(
     val key: String,
@@ -360,6 +364,126 @@ internal fun VpnUpstreamPicker(
         }
         itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
             ChannelOption(entry = entry, index = index, count = entries.size)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@Composable
+internal fun HotspotUpstreamPicker(
+    status: DualWifiStatus,
+    channels: List<NetworkChannel>,
+    supportsCellularData: Boolean = true,
+    onSelectTarget: (String) -> Unit,
+    onOpenHotspotSettings: (() -> Unit)? = null,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val options = buildHotspotUpstreamOptions(
+        channels = channels,
+        currentTarget = status.hotspotUpstreamTarget,
+        supportsCellularData = supportsCellularData,
+        secondaryConnected = status.secondaryConnected
+    )
+    val hasSpecificCellular = options.count { it.channel?.transportType.equals("cellular", ignoreCase = true) } > 1
+    val entries = options.map { option ->
+        val selected = isHotspotTargetSelected(option.target, status.hotspotUpstreamTarget, hasSpecificCellular)
+        when {
+            option.isDefault -> ChannelPickerEntry(
+                key = "hotspot:default",
+                title = stringResource(R.string.dual_wifi_hotspot_upstream_default),
+                subtitle = stringResource(R.string.ui_hotspot_upstream_follow_system),
+                icon = R.drawable.ic_symbol_language,
+                selected = selected,
+                onClick = { onSelectTarget("default") }
+            )
+            option.isStandbyCellular -> ChannelPickerEntry(
+                key = "hotspot:cellular",
+                title = stringResource(R.string.ui_hotspot_upstream_standby_cellular),
+                subtitle = stringResource(R.string.ui_hotspot_upstream_cellular_desc),
+                icon = getTransportIcon("cellular"),
+                selected = selected,
+                onClick = { onSelectTarget("cellular") }
+            )
+            option.channel != null -> ChannelPickerEntry(
+                key = "hotspot:${option.channel.interfaceName}",
+                title = NetworkUtils.channelLabel(context, option.channel),
+                subtitle = channelOptionSubtitle(option.channel),
+                icon = getTransportIcon(option.channel.transportType),
+                selected = selected,
+                onClick = { onSelectTarget(option.target) }
+            )
+            else -> ChannelPickerEntry(
+                key = "hotspot:${option.target}",
+                title = hotspotUpstreamLabel(option.target, channels),
+                subtitle = if (option.isOfflineSaved) {
+                    stringResource(R.string.ui_hotspot_upstream_offline_desc)
+                } else option.target,
+                icon = if (option.isOfflineSaved) R.drawable.ic_symbol_cloud_off else getTransportIcon("WLAN"),
+                selected = selected,
+                onClick = { onSelectTarget(option.target) }
+            )
+        }
+    }
+
+    val headerSubtitle = when {
+        !status.isHotspotEnabled -> stringResource(R.string.settings_hotspot_card_desc_inactive)
+        status.hotspotUpstreamActive != "none" -> stringResource(
+            R.string.dual_wifi_hotspot_upstream_active,
+            hotspotUpstreamLabel(status.hotspotUpstreamActive, channels)
+        )
+        else -> stringResource(R.string.settings_hotspot_card_desc)
+    }
+
+    ChannelPickerSheet(singleChoice = true, onDismiss = onDismiss) {
+        item(key = "header") {
+            ChannelPickerHeader(
+                title = stringResource(R.string.ui_hotspot_upstream_picker),
+                subtitle = headerSubtitle
+            )
+            if (status.isHotspotEnabled) {
+                val band = hotspotBandLabel(status.hotspotFreq, status.hotspotBand, status.hotspotBandRes)
+                if (band != null) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    ) {
+                        Text(
+                            text = band,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+            if (status.isHotspotEnabled && status.hotspotHookState != HotspotHookState.LOADED) {
+                Text(
+                    text = stringResource(when (status.hotspotHookState) {
+                        HotspotHookState.VERSION_MISMATCH -> R.string.dual_wifi_hotspot_upstream_hook_old
+                        HotspotHookState.NOT_LOADED -> R.string.dual_wifi_hotspot_upstream_hook_warning
+                        else -> R.string.dual_wifi_hotspot_upstream_hook_unknown
+                    }),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+        itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
+            ChannelOption(entry = entry, index = index, count = entries.size)
+        }
+        if (onOpenHotspotSettings != null) {
+            item(key = "hotspot-settings") {
+                OutlinedButton(
+                    onClick = onOpenHotspotSettings,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text(stringResource(R.string.dual_wifi_hotspot_btn))
+                }
+            }
         }
     }
 }
