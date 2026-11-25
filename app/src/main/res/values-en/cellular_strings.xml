@@ -18,6 +18,7 @@
     <string name="cellular_waiting">Activation request is running; Android has not validated the secondary network.</string>
     <string name="cellular_control_note">This feature requests and holds the non-default SIM network without changing the default data SIM. Whether both SIMs can provide data at the same time depends on the device, system and carrier. Data sent over the secondary network consumes the data allowance for that SIM. Stopping this feature releases the request made by this module; app-routing rules may keep the network active.</string>
     <string name="cellular_two_required">Two active SIMs must be identified. Activation is unavailable if discovery fails or is unsupported.</string>
+    <string name="cellular_inventory_error">Read details: %1$s</string>
     <string name="cellular_enable">Enable</string>
     <string name="cellular_disable">Stop</string>
     <string name="cellular_advanced">Activation method</string>

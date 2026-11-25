@@ -18,6 +18,7 @@
     <string name="cellular_waiting">激活请求仍在运行，尚未检测到通过系统验证的副卡网络。</string>
     <string name="cellular_control_note">本功能会申请并保持非默认数据卡的网络，不会更改默认数据卡。两张 SIM 能否同时联网取决于设备、系统和运营商。通过副卡传输数据会消耗该卡流量。停用本功能只释放模块的网络请求；应用分流规则仍可能使该网络保持活动。</string>
     <string name="cellular_two_required">需要识别到两张活动 SIM；读取失败或不支持时无法启用。</string>
+    <string name="cellular_inventory_error">读取详情：%1$s</string>
     <string name="cellular_enable">启用</string>
     <string name="cellular_disable">停用</string>
     <string name="cellular_advanced">激活方式</string>

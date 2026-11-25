@@ -19,16 +19,6 @@ import java.util.List;
 
 /** Root app_process entry point. A live callback holds the requested secondary network. */
 public final class DualSimDaemon {
-    /** app_process does not inherit the telephony initialization performed in Zygote. */
-    private static void initializeTelephony() throws Exception {
-        Class<?> initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer");
-        if (initializer.getMethod("getTelephonyServiceManager").invoke(null) == null) {
-            Class<?> manager = Class.forName("android.os.TelephonyServiceManager");
-            initializer.getMethod("setTelephonyServiceManager", manager)
-                    .invoke(null, manager.getConstructor().newInstance());
-        }
-    }
-
     // TelephonyIntents hidden framework broadcast; verified against this device's framework DEX.
     private static final String DEFAULT_DATA_CHANGED =
             "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED";
@@ -139,9 +129,9 @@ public final class DualSimDaemon {
             if (closed) return;
             try {
                 int nextPrimary = SubscriptionManager.getDefaultDataSubscriptionId();
-                List<SubscriptionInfo> subs = subscriptions.getActiveSubscriptionInfoList();
+                List<SubscriptionInfo> subs = CellularInventory.activeSubscriptions(subscriptions);
                 java.util.ArrayList<Integer> ids = new java.util.ArrayList<>();
-                if (subs != null) for (SubscriptionInfo sub : subs) ids.add(sub.getSubscriptionId());
+                for (SubscriptionInfo sub : subs) ids.add(sub.getSubscriptionId());
                 int nextSecondary = SubscriptionSelection.INSTANCE.secondary(nextPrimary, ids);
                 if (primary == nextPrimary && secondary == nextSecondary) return;
                 releaseRequests();
@@ -190,7 +180,7 @@ public final class DualSimDaemon {
             throw new IllegalArgumentException("Expected mode 1 or 2");
         }
         Looper.prepareMainLooper();
-        initializeTelephony();
+        CellularInventory.initializeTelephony();
         Class<?> activityThread = Class.forName("android.app.ActivityThread");
         Object thread = activityThread.getMethod("systemMain").invoke(null);
         Context context = (Context) activityThread.getMethod("getSystemContext").invoke(thread);

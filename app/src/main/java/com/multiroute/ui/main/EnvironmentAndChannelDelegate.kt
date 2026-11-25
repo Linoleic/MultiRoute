@@ -499,14 +499,18 @@ internal class EnvironmentAndChannelDelegate(
                 mode = mode,
                 subscriptions = subscriptions,
                 preferredMode = if (mode != 0) mode else current.preferredMode,
-                isLoaded = true
+                isLoaded = true,
+                inventoryError = CellularSubscriptions.lastError
             )
             if (subscriptions != current.subscriptions) refreshEnvironment()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             val current = cellularControlStateFlow.value
-            if (!current.isLoaded) cellularControlStateFlow.value = current.copy(isLoaded = true)
+            cellularControlStateFlow.value = current.copy(
+                isLoaded = true,
+                inventoryError = CellularSubscriptions.lastError
+            )
         }
     }
 

@@ -42,7 +42,8 @@ data class CellularControlUiState(
     val hasFailed: Boolean = false,
     val detailsExpanded: Boolean = false,
     val preferredMode: Int = 2,
-    val isLoaded: Boolean = false
+    val isLoaded: Boolean = false,
+    val inventoryError: String? = null
 )
 
 data class NavigationUiState(

@@ -30,26 +30,112 @@ public final class CellularInventory {
             return value;
         }
     }
+    static void initializeTelephony() {
+        try {
+            Class<?> initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer");
+            if (initializer.getMethod("getTelephonyServiceManager").invoke(null) == null) {
+                Class<?> manager = Class.forName("android.os.TelephonyServiceManager");
+                initializer.getMethod("setTelephonyServiceManager", manager)
+                    .invoke(null, manager.getConstructor().newInstance());
+            }
+        } catch (Throwable t) {
+            System.err.println("TelephonyFrameworkInitializer skipped: " + t);
+        }
+    }
+    static boolean isActiveTerrestrialSubscription(int subId, int simSlotIndex, boolean onlyNonTerrestrial) {
+        return subId >= 0 && simSlotIndex >= 0 && !onlyNonTerrestrial;
+    }
+    private static boolean isUsableActiveSubscription(SubscriptionInfo sub) {
+        if (sub == null) return false;
+        boolean onlyNonTerrestrial = false;
+        try {
+            Object value = SubscriptionInfo.class.getMethod("isOnlyNonTerrestrialNetwork").invoke(sub);
+            if (value instanceof Boolean) onlyNonTerrestrial = (Boolean) value;
+        } catch (Throwable ignored) { }
+        return isActiveTerrestrialSubscription(sub.getSubscriptionId(), sub.getSimSlotIndex(), onlyNonTerrestrial);
+    }
+    private static SubscriptionManager forAllProfiles(SubscriptionManager sm) {
+        try {
+            Object all = SubscriptionManager.class.getMethod("createForAllUserProfiles").invoke(sm);
+            if (all instanceof SubscriptionManager) return (SubscriptionManager) all;
+        } catch (Throwable ignored) { }
+        return sm;
+    }
+    private static void addUsableSubscriptions(
+            java.util.List<SubscriptionInfo> source,
+            java.util.Map<Integer, SubscriptionInfo> target) {
+        if (source == null) return;
+        for (SubscriptionInfo sub : source) {
+            if (isUsableActiveSubscription(sub)) {
+                target.putIfAbsent(sub.getSubscriptionId(), sub);
+            }
+        }
+    }
+    @SuppressWarnings("unchecked")
+    private static java.util.List<SubscriptionInfo> completeActiveList(SubscriptionManager sm) {
+        try {
+            Object complete = SubscriptionManager.class
+                .getMethod("getCompleteActiveSubscriptionInfoList")
+                .invoke(sm);
+            if (complete instanceof java.util.List<?>) {
+                return (java.util.List<SubscriptionInfo>) complete;
+            }
+        } catch (Throwable ignored) { }
+        return null;
+    }
+    static java.util.List<SubscriptionInfo> activeSubscriptions(SubscriptionManager sm) {
+        SubscriptionManager allProfiles = forAllProfiles(sm);
+        java.util.Map<Integer, SubscriptionInfo> bySubId = new java.util.LinkedHashMap<>();
+
+        java.util.List<SubscriptionInfo> complete = completeActiveList(allProfiles);
+        if (complete == null && allProfiles != sm) {
+            complete = completeActiveList(sm);
+        }
+        addUsableSubscriptions(complete, bySubId);
+
+        if (bySubId.isEmpty()) {
+            addUsableSubscriptions(allProfiles.getActiveSubscriptionInfoList(), bySubId);
+            if (bySubId.isEmpty() && allProfiles != sm) {
+                addUsableSubscriptions(sm.getActiveSubscriptionInfoList(), bySubId);
+            }
+        }
+
+        for (int slot = 0; slot < 4; slot++) {
+            try {
+                SubscriptionInfo slotSub = allProfiles.getActiveSubscriptionInfoForSimSlotIndex(slot);
+                if (isUsableActiveSubscription(slotSub)) {
+                    bySubId.putIfAbsent(slotSub.getSubscriptionId(), slotSub);
+                }
+            } catch (Throwable ignored) { }
+        }
+
+        java.util.List<SubscriptionInfo> result = new java.util.ArrayList<>(bySubId.values());
+        result.sort((a, b) -> {
+            int slotCmp = Integer.compare(a.getSimSlotIndex(), b.getSimSlotIndex());
+            return slotCmp != 0 ? slotCmp : Integer.compare(a.getSubscriptionId(), b.getSubscriptionId());
+        });
+        return result;
+    }
     public static void main(String[] args) throws Exception {
         android.os.Looper.prepareMainLooper();
-        Class<?> initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer");
-        if (initializer.getMethod("getTelephonyServiceManager").invoke(null) == null) {
-            Class<?> manager = Class.forName("android.os.TelephonyServiceManager");
-            initializer.getMethod("setTelephonyServiceManager", manager).invoke(null, manager.getConstructor().newInstance());
-        }
+        initializeTelephony();
         Class<?> activityThread = Class.forName("android.app.ActivityThread");
         Object thread = activityThread.getMethod("systemMain").invoke(null);
         Context context = (Context) activityThread.getMethod("getSystemContext").invoke(thread);
         String device = deviceSalt();
         JSONArray result = new JSONArray();
         SubscriptionManager sm = context.getSystemService(SubscriptionManager.class);
-        java.util.List<SubscriptionInfo> subscriptions = sm.getActiveSubscriptionInfoList();
-        if (subscriptions != null) for (SubscriptionInfo sub : subscriptions) {
+        java.util.List<SubscriptionInfo> subscriptions = activeSubscriptions(sm);
+        for (SubscriptionInfo sub : subscriptions) {
             JSONObject item = new JSONObject();
             item.put("subId", sub.getSubscriptionId());
             item.put("slot", sub.getSimSlotIndex() + 1);
             item.put("carrier", String.valueOf(sub.getCarrierName()));
             item.put("default", sub.getSubscriptionId() == SubscriptionManager.getDefaultDataSubscriptionId());
+            try {
+                item.put("embedded", sub.isEmbedded());
+                item.put("opportunistic", sub.isOpportunistic());
+            } catch (Throwable ignored) { }
             JSONArray networks = new JSONArray();
             android.net.ConnectivityManager cm = context.getSystemService(android.net.ConnectivityManager.class);
             for (android.net.Network network : cm.getAllNetworks()) {
@@ -70,7 +156,7 @@ public final class CellularInventory {
                 try {
                     iccid = normalizedIccid(context.getSystemService(android.telephony.TelephonyManager.class)
                         .createForSubscriptionId(sub.getSubscriptionId()).getSimSerialNumber());
-                } catch (SecurityException ignored) { }
+                } catch (Exception ignored) { }
             }
             if (iccid != null) {
                 byte[] digest = MessageDigest.getInstance("SHA-256").digest((device + ":" + iccid).getBytes(StandardCharsets.UTF_8));

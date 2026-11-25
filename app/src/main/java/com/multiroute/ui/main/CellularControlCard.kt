@@ -206,6 +206,13 @@ fun CellularControlCard(uiState: MainUiState, viewModel: MainScreenViewModel, ob
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
+                        controlState.inventoryError?.let { error ->
+                            Text(
+                                text = stringResource(R.string.cellular_inventory_error, error),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     Text(
                         text = stringResource(R.string.cellular_advanced),

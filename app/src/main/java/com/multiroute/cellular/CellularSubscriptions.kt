@@ -39,6 +39,29 @@ object CellularSubscriptions {
     private val mutex = Mutex()
     private val cache = CellularSubscriptionCache(SystemClock::elapsedRealtime)
 
+    @Volatile
+    var lastError: String? = null
+        private set
+
+    internal fun summarizeInventoryError(output: List<String>, error: Throwable): String {
+        val raw = output
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .let { lines ->
+                lines.firstOrNull { line ->
+                    listOf("Exception", "Error", "SecurityException", "Caused by", "failed")
+                        .any { marker -> line.contains(marker, ignoreCase = true) }
+                } ?: lines.firstOrNull()
+            }
+            ?: "${error.javaClass.simpleName}: ${error.message ?: "no output"}"
+        val redacted = raw
+            .replace(Regex("89[0-9A-Fa-f]{12,}"), "<redacted>")
+            .replace(Regex("\\b\\d{10,}\\b"), "<redacted>")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return if (redacted.length > 180) redacted.take(177) + "..." else redacted
+    }
+
     suspend fun invalidate() = mutex.withLock { cache.invalidate() }
 
     /** Only callers matching live network IDs and interfaces should opt in to the fallback. */
@@ -58,7 +81,7 @@ object CellularSubscriptions {
         return runCatching {
             val line = output.first { it.startsWith("MULTIROUTE_SIM=") }.removePrefix("MULTIROUTE_SIM=")
             val array = JSONArray(line)
-            (0 until array.length()).map { index ->
+            val list = (0 until array.length()).map { index ->
                 val item = array.getJSONObject(index)
                 val networks = item.getJSONArray("networks")
                 CellularSubscription(
@@ -73,8 +96,12 @@ object CellularSubscriptions {
                     }
                 )
             }
+            lastError = null
+            list
         }.onFailure {
-            Log.w("MultiRoute-Cellular", "SIM inventory unavailable; retaining last confirmed network identities")
+            val detail = summarizeInventoryError(output, it)
+            lastError = detail
+            Log.w("MultiRoute-Cellular", "SIM inventory unavailable ($detail); retaining last confirmed network identities", it)
         }.getOrNull()
     }
 }

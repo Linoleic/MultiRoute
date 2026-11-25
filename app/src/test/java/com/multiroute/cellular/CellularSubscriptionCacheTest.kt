@@ -1,7 +1,9 @@
 package com.multiroute.cellular
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CellularSubscriptionCacheTest {
@@ -50,5 +52,33 @@ class CellularSubscriptionCacheTest {
         val refreshed = cache.read(useLastConfirmed = true) { listOf(reconnected) }
         assertNull(refreshed.subscriptionForNetwork("102", "rmnet_data3"))
         assertEquals(reconnected, refreshed.subscriptionForNetwork("103", "rmnet_data4"))
+    }
+
+    @Test fun summarizeInventoryErrorPicksExceptionRedactsAndFallsBack() {
+        val fromOutput = CellularSubscriptions.summarizeInventoryError(
+            listOf(
+                "some debug line",
+                "java.lang.SecurityException: Package android does not belong to 0 iccid 89860012345678901234 sub 123456789012"
+            ),
+            NoSuchElementException("Collection is empty.")
+        )
+        assertEquals(
+            "java.lang.SecurityException: Package android does not belong to 0 iccid <redacted> sub <redacted>",
+            fromOutput
+        )
+
+        val fallback = CellularSubscriptions.summarizeInventoryError(
+            emptyList(),
+            IllegalStateException("no root")
+        )
+        assertEquals("IllegalStateException: no root", fallback)
+    }
+
+    @Test fun activeTerrestrialFilterKeepsSimAndEsimAndDropsSatelliteOrUnmounted() {
+        assertTrue(CellularInventory.isActiveTerrestrialSubscription(1, 0, false))
+        assertTrue(CellularInventory.isActiveTerrestrialSubscription(3, 1, false))
+        assertFalse(CellularInventory.isActiveTerrestrialSubscription(-1, 0, false))
+        assertFalse(CellularInventory.isActiveTerrestrialSubscription(2, -1, false))
+        assertFalse(CellularInventory.isActiveTerrestrialSubscription(2, 1, true))
     }
 }
