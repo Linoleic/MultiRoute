@@ -177,6 +177,16 @@ object ScenarioEngine {
         val overriddenBy = mutableMapOf<Int, String>()
         val lastPlanForUid = mutableMapOf<Int, String>()
         selected.forEach { profile ->
+            if (profile.bypassBaseRules) {
+                effective.keys.forEach { uid ->
+                    lastPlanForUid[uid]?.takeIf { it != profile.name }?.let { previous ->
+                        overriddenBy[uid] = previous
+                    }
+                    lastPlanForUid[uid] = profile.name
+                }
+                forcedDefault += effective.size
+                effective = emptyMap()
+            }
             val resolved = overridesByUid(profile).mapNotNull { (uid, raw) ->
                 val channel = resolveOverrideChannel(raw, observation)
                 when {
@@ -191,7 +201,9 @@ object ScenarioEngine {
             // An app an earlier active plan already set: the later plan wins, and the loser is recorded so
             // the UI can say which plan was overridden instead of dropping it silently.
             resolved.keys.forEach { uid ->
-                lastPlanForUid[uid]?.let { previous -> overriddenBy[uid] = previous }
+                lastPlanForUid[uid]?.takeIf { it != profile.name }?.let { previous ->
+                    overriddenBy[uid] = previous
+                }
                 lastPlanForUid[uid] = profile.name
             }
             val (next, forced) = applyOverrides(effective, resolved)

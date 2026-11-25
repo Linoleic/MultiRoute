@@ -133,13 +133,23 @@ fun ScenarioBottomSheet(
                                     }
                                 }.distinct()
                                 Text(
-                                    text = if (targets.isEmpty()) stringResource(com.multiroute.R.string.scenario_no_targets)
-                                    else pluralStringResource(
-                                        com.multiroute.R.plurals.scenario_summary,
-                                        profile.overrides.size,
-                                        profile.overrides.size,
-                                        targets.joinToString(" / ")
-                                    ),
+                                    text = when {
+                                        profile.bypassBaseRules && targets.isEmpty() ->
+                                            stringResource(com.multiroute.R.string.scenario_bypass_summary)
+                                        profile.bypassBaseRules -> pluralStringResource(
+                                            com.multiroute.R.plurals.scenario_bypass_summary_with_overrides,
+                                            profile.overrides.size,
+                                            profile.overrides.size,
+                                            targets.joinToString(" / ")
+                                        )
+                                        targets.isEmpty() -> stringResource(com.multiroute.R.string.scenario_no_targets)
+                                        else -> pluralStringResource(
+                                            com.multiroute.R.plurals.scenario_summary,
+                                            profile.overrides.size,
+                                            profile.overrides.size,
+                                            targets.joinToString(" / ")
+                                        )
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -270,16 +280,19 @@ fun scenarioTriggerLabel(trigger: ScenarioTrigger): String = when (trigger) {
 /**
  * 把当前指派保存为方案：名称 + 触发条件（Wi-Fi 名称 / 双 Wi-Fi / 仅蜂窝 / 始终 / 仅手动）。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScenarioSaveDialog(
     currentSsids: List<String>,
-    onSave: (String, ScenarioTrigger) -> Unit,
+    onSave: (String, ScenarioTrigger, Boolean) -> Unit,
     onDismiss: () -> Unit,
     titleRes: Int = com.multiroute.R.string.scenario_save_title,
     initialName: String = "",
-    initialTrigger: ScenarioTrigger? = null
+    initialTrigger: ScenarioTrigger? = null,
+    initialBypassBaseRules: Boolean = false
 ) {
     val name = remember { mutableStateOf(initialName) }
+    val bypassBaseRules = remember { mutableStateOf(initialBypassBaseRules) }
     val kind = remember {
         mutableStateOf(
             when (initialTrigger) {
@@ -304,7 +317,10 @@ fun ScenarioSaveDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(titleRes)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 OutlinedTextField(
                     value = name.value,
                     onValueChange = { name.value = it },
@@ -316,7 +332,10 @@ fun ScenarioSaveDialog(
                     text = stringResource(com.multiroute.R.string.scenario_trigger),
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     listOf(
                         "ssid" to com.multiroute.R.string.scenario_trigger_ssid,
                         "links2" to com.multiroute.R.string.scenario_trigger_links2,
@@ -339,7 +358,10 @@ fun ScenarioSaveDialog(
                             color = MaterialTheme.colorScheme.outline
                         )
                     } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             ssidOptions.forEach { ssid ->
                                 FilterChip(
                                     selected = picked.value.contains(ssid),
@@ -356,6 +378,27 @@ fun ScenarioSaveDialog(
                         }
                     }
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(com.multiroute.R.string.scenario_bypass_base_title),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                        )
+                        Text(
+                            text = stringResource(com.multiroute.R.string.scenario_bypass_base_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    Switch(
+                        checked = bypassBaseRules.value,
+                        onCheckedChange = { bypassBaseRules.value = it }
+                    )
+                }
             }
         },
         confirmButton = {
@@ -367,7 +410,7 @@ fun ScenarioSaveDialog(
                     "manual" -> ScenarioTrigger.Manual
                     else -> ScenarioTrigger.SsidMatch(picked.value.toList())
                 }
-                onSave(name.value, trigger)
+                onSave(name.value, trigger, bypassBaseRules.value)
             }) {
                 Text(stringResource(com.multiroute.R.string.ui_save_apply))
             }

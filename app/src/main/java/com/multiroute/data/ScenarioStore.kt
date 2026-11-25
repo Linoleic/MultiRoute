@@ -155,6 +155,7 @@ object ScenarioStore {
             put("enabled", profile.enabled)
             put("priority", profile.priority)
             put("trigger", trigger)
+            if (profile.bypassBaseRules) put("bypassBaseRules", true)
             put("overrides", overrides)
         }
     }
@@ -186,6 +187,7 @@ object ScenarioStore {
             enabled = json.optBoolean("enabled", true),
             priority = json.optInt("priority", 100),
             trigger = trigger,
+            bypassBaseRules = json.optBoolean("bypassBaseRules", false),
             overrides = overrides
         )
     }

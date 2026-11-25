@@ -53,7 +53,12 @@ internal fun resolveEffectiveAppTargets(
     val knownChannels = channels.flatMap { listOf(it.id, it.interfaceName) }.toSet()
     val appsByRuleKey = apps.associateBy { it.ruleKey }
     val overridesByUid = mutableMapOf<Int, String>()
+    var clearedBase = false
     for (profile in selected) {
+        if (profile.bypassBaseRules) {
+            clearedBase = true
+            overridesByUid.clear()
+        }
         // Route sync collapses package keys sharing a UID before resolving that plan's destinations.
         val planByUid = profile.overrides.mapNotNull { (key, rawTarget) ->
             appsByRuleKey[key]?.uid?.takeIf { it > 0 }?.let { it to rawTarget }
@@ -66,7 +71,10 @@ internal fun resolveEffectiveAppTargets(
         }
     }
     return EffectiveAppTargets(
-        apps.associate { it.ruleKey to (overridesByUid[it.uid] ?: it.targetChannelId) },
+        apps.associate {
+            val fallback = if (clearedBase) CHANNEL_DEFAULT else it.targetChannelId
+            it.ruleKey to (overridesByUid[it.uid] ?: fallback)
+        },
         selected.map { it.name }
     )
 }

@@ -641,7 +641,9 @@ fun MainScreen(
                             currentSsids = uiState.channels
                                 .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
                                 .distinct(),
-                            onSave = { name, trigger -> viewModel.saveCurrentAssignmentsAsScenario(name, trigger) },
+                            onSave = { name, trigger, bypassBaseRules ->
+                                viewModel.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules)
+                            },
                             onDismiss = { viewModel.closeScenarioSaveDialog() }
                         )
                     }
@@ -655,11 +657,12 @@ fun MainScreen(
                                 titleRes = com.multiroute.R.string.scenario_details_title,
                                 initialName = edited.name,
                                 initialTrigger = edited.trigger,
+                                initialBypassBaseRules = edited.bypassBaseRules,
                                 currentSsids = uiState.channels
                                     .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
                                     .distinct(),
-                                onSave = { name, trigger ->
-                                    viewModel.saveScenarioDetails(edited.id, name, trigger)
+                                onSave = { name, trigger, bypassBaseRules ->
+                                    viewModel.saveScenarioDetails(edited.id, name, trigger, bypassBaseRules)
                                 },
                                 onDismiss = { viewModel.closeScenarioDetails() }
                             )

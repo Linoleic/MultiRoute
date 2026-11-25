@@ -366,4 +366,48 @@ class ScenarioEngineTest {
         assertEquals("wlan0", resolution.effectiveRules[1002])
         assertEquals(1, resolution.overridden)
     }
+
+    @Test
+    fun testBypassBaseRulesClearsBaseAndSupportsExceptionsAndLayering() {
+        val homeBypass = ScenarioProfile(
+            id = "home",
+            name = "Home",
+            priority = 20,
+            trigger = ScenarioTrigger.SsidMatch(listOf("HomeWiFi")),
+            bypassBaseRules = true
+        )
+        val cleared = ScenarioEngine.resolve(
+            base = mapOf(1001 to "wlan0", 1002 to "rmnet_data0"),
+            profiles = listOf(homeBypass),
+            observation = ScenarioObservation(wifiSsids = listOf("HomeWiFi"), wifiLinkCount = 1),
+            overridesByUid = { emptyMap() }
+        )
+        assertTrue(cleared.effectiveRules.isEmpty())
+        assertEquals(2, cleared.forcedDefault)
+        assertTrue(cleared.overriddenBy.isEmpty())
+
+        val withException = ScenarioEngine.resolve(
+            base = mapOf(1001 to "wlan0", 1002 to "rmnet_data0"),
+            profiles = listOf(homeBypass),
+            observation = ScenarioObservation(wifiSsids = listOf("HomeWiFi"), wifiLinkCount = 1),
+            overridesByUid = { mapOf(1002 to "wlan0") }
+        )
+        assertEquals(mapOf(1002 to "wlan0"), withException.effectiveRules)
+        assertEquals(2, withException.forcedDefault)
+        assertEquals(1, withException.overridden)
+        assertTrue(withException.overriddenBy.isEmpty())
+
+        val earlier = ScenarioProfile("early", "Early", priority = 10, trigger = ScenarioTrigger.Always)
+        val layered = ScenarioEngine.resolve(
+            base = mapOf(1001 to "wlan0"),
+            profiles = listOf(homeBypass, earlier),
+            observation = ScenarioObservation(wifiSsids = listOf("HomeWiFi"), wifiLinkCount = 1),
+            overridesByUid = { profile ->
+                if (profile.id == "early") mapOf(1001 to "wlan1", 1003 to "wlan1") else emptyMap()
+            }
+        )
+        assertTrue(layered.effectiveRules.isEmpty())
+        assertEquals(2, layered.forcedDefault)
+        assertEquals(mapOf(1001 to "Early", 1003 to "Early"), layered.overriddenBy)
+    }
 }

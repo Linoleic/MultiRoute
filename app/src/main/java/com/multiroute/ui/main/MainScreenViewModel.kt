@@ -254,15 +254,22 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun setScenarioAutomatic() = scenarioDelegate.setScenarioAutomatic()
     fun clearManualScenario() = scenarioDelegate.clearManualScenario()
     fun deleteScenario(id: String) = scenarioDelegate.deleteScenario(id)
-    fun saveCurrentAssignmentsAsScenario(name: String, trigger: ScenarioTrigger) =
-        scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger)
+    fun saveCurrentAssignmentsAsScenario(
+        name: String,
+        trigger: ScenarioTrigger,
+        bypassBaseRules: Boolean = false
+    ) = scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules)
     fun startEditingScenario(id: String) = scenarioDelegate.startEditingScenario(id)
     fun finishEditingScenario() = scenarioDelegate.finishEditingScenario()
     fun moveScenario(id: String, delta: Int) = scenarioDelegate.moveScenario(id, delta)
     fun openScenarioDetails(id: String) = scenarioDelegate.openScenarioDetails(id)
     fun closeScenarioDetails() = scenarioDelegate.closeScenarioDetails()
-    fun saveScenarioDetails(id: String, name: String, trigger: ScenarioTrigger) =
-        scenarioDelegate.saveScenarioDetails(id, name, trigger)
+    fun saveScenarioDetails(
+        id: String,
+        name: String,
+        trigger: ScenarioTrigger,
+        bypassBaseRules: Boolean = false
+    ) = scenarioDelegate.saveScenarioDetails(id, name, trigger, bypassBaseRules)
 
     // ------------------------------------------------------------------ Config Transfer
     fun exportConfigToFile() = configDelegate.exportConfigToFile()

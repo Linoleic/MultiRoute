@@ -100,6 +100,8 @@ internal fun rememberVpnUpstream(
                 (CellularTargets.isSim(target) || channels.any { target == it.id || target == it.interfaceName })
             ) {
                 profile.name to target
+            } else if (profile.bypassBaseRules) {
+                profile.name to CHANNEL_DEFAULT
             } else null
         }
     }

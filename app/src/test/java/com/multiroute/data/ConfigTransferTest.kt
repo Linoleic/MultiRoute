@@ -166,4 +166,29 @@ class ConfigTransferTest {
         assertFalse(ConfigTransfer.isSchemeCompatible("xiaomi_slave", "Google", "Google"))
         assertTrue(ConfigTransfer.isSchemeCompatible("xiaomi_slave", "Xiaomi", "Xiaomi"))
     }
+
+    @Test
+    fun scenarioBypassBaseRulesRoundTripsAndRejectsNonBoolean() {
+        val bypassProfile = profile("home").put("bypassBaseRules", true)
+        val root = document().put(
+            "scenarios",
+            JSONObject()
+                .put("profiles", org.json.JSONArray().put(bypassProfile))
+                .put("mode", "auto")
+                .put("manualIds", org.json.JSONArray())
+        )
+        val parsed = ConfigTransfer.parse(root.toString())!!
+        assertEquals(1, parsed.profiles.size)
+        assertTrue(parsed.profiles.single().bypassBaseRules)
+
+        val invalidProfile = profile("home").put("bypassBaseRules", "yes")
+        val badRoot = document().put(
+            "scenarios",
+            JSONObject()
+                .put("profiles", org.json.JSONArray().put(invalidProfile))
+                .put("mode", "auto")
+                .put("manualIds", org.json.JSONArray())
+        )
+        assertNull(ConfigTransfer.parse(badRoot.toString()))
+    }
 }

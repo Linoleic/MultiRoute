@@ -220,6 +220,24 @@ class NetworkTopologyTest {
     }
 
     @Test
+    fun bypassBaseRulesClearsBaseAssignmentsAndKeepsExceptions() {
+        val app1 = app(1, wifi.id).copy(uid = 10_001)
+        val app2 = app(2, cellular.id).copy(uid = 10_002)
+        val home = ScenarioProfile(
+            id = "home",
+            name = "Home",
+            priority = 10,
+            trigger = ScenarioTrigger.Always,
+            bypassBaseRules = true,
+            overrides = mapOf(app2.ruleKey to wifi.id)
+        )
+        val scenario = ScenarioUiState(scenarioProfiles = listOf(home))
+        val resolved = resolveEffectiveAppTargets(listOf(app1, app2), listOf(wifi, cellular), scenario)
+        assertEquals(CHANNEL_DEFAULT, resolved.targetsByRuleKey[app1.ruleKey])
+        assertEquals(wifi.id, resolved.targetsByRuleKey[app2.ruleKey])
+    }
+
+    @Test
     fun traceConnectedGraphIncludesVpnAncestorsAndDescendantsButNotUnrelatedNodes() {
         val unrelated = channel("wlan9")
         val graph = topology(

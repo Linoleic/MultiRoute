@@ -583,6 +583,14 @@
     <string name="scenario_automatic">Back to automatic selection</string>
     <string name="scenario_saved">Saved plan: %1$s</string>
     <string name="scenario_save_failed">Not saved: give it a name and assign at least one app to a channel first</string>
+    <string name="scenario_save_failed_name">Not saved: enter a plan name first</string>
+    <string name="scenario_bypass_base_title">Pause all routing (system default)</string>
+    <string name="scenario_bypass_base_hint">Clears base routing rules while matched so apps use the system default; per-app exceptions can still be added.</string>
+    <string name="scenario_bypass_summary">Pause all routing · system default</string>
+    <plurals name="scenario_bypass_summary_with_overrides">
+        <item quantity="one">Pause base routing · %1$d exception (%2$s)</item>
+        <item quantity="other">Pause base routing · %1$d exceptions (%2$s)</item>
+    </plurals>
     <string name="scenario_empty">No scenario plans yet. Assign apps to channels, then save that as a plan.</string>
     <string name="diag_scenario">• Scenario plan: %1$s%2$s</string>
     <string name="diag_scenario_none">none matched (the default assignment is in use)</string>

@@ -322,6 +322,7 @@ object ConfigTransfer {
             require(p.string("id").isNotBlank()); p.string("name")
             if (p.has("enabled")) p.boolean("enabled")
             if (p.has("priority")) p.integer("priority")
+            if (p.has("bypassBaseRules")) p.boolean("bypassBaseRules")
             val trigger = p.obj("trigger")
             when (trigger.string("kind")) {
                 "ssid" -> require(trigger.stringArray("ssids").all { it.isNotBlank() && it.length <= 32 })

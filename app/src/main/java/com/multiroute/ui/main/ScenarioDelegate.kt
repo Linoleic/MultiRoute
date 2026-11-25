@@ -98,13 +98,18 @@ internal class ScenarioDelegate(
         syncRules()
     }
 
-    fun saveCurrentAssignmentsAsScenario(name: String, trigger: ScenarioTrigger) {
-        val overrides = RouteConfigProvider.getAllRules(application)
-        if (name.isBlank() || overrides.isEmpty()) {
+    fun saveCurrentAssignmentsAsScenario(
+        name: String,
+        trigger: ScenarioTrigger,
+        bypassBaseRules: Boolean = false
+    ) {
+        val overrides = if (bypassBaseRules) emptyMap() else RouteConfigProvider.getAllRules(application)
+        if (name.isBlank() || (!bypassBaseRules && overrides.isEmpty())) {
+            val errorRes = if (bypassBaseRules) R.string.scenario_save_failed_name else R.string.scenario_save_failed
             uiStateFlow.update {
                 it.copy(
                     scenario = it.scenario.copy(showScenarioSaveDialog = false),
-                    snackBarMessage = application.getString(R.string.scenario_save_failed)
+                    snackBarMessage = application.getString(errorRes)
                 )
             }
             return
@@ -115,10 +120,12 @@ internal class ScenarioDelegate(
                 id = "s" + System.currentTimeMillis(),
                 name = name.trim(),
                 trigger = trigger,
+                bypassBaseRules = bypassBaseRules,
                 overrides = overrides
             )
         )
         refreshScenarioState()
+        syncRules()
         uiStateFlow.update {
             it.copy(
                 scenario = it.scenario.copy(showScenarioSaveDialog = false),
@@ -225,10 +232,18 @@ internal class ScenarioDelegate(
         }
     }
 
-    fun saveScenarioDetails(id: String, name: String, trigger: ScenarioTrigger) {
+    fun saveScenarioDetails(
+        id: String,
+        name: String,
+        trigger: ScenarioTrigger,
+        bypassBaseRules: Boolean = false
+    ) {
         val profile = ScenarioStore.load(application).firstOrNull { it.id == id } ?: return
         if (name.isBlank()) return
-        ScenarioStore.upsert(application, profile.copy(name = name.trim(), trigger = trigger))
+        ScenarioStore.upsert(
+            application,
+            profile.copy(name = name.trim(), trigger = trigger, bypassBaseRules = bypassBaseRules)
+        )
         uiStateFlow.update {
             it.copy(
                 scenario = it.scenario.copy(showScenarioDetailsDialog = false, scenarioDetailsId = null),
@@ -255,8 +270,16 @@ internal class ScenarioDelegate(
         val conflicts = mutableMapOf<String, Int>()
         val claimed = mutableMapOf<String, String>()
         selected.forEach { applied ->
+            if (applied.bypassBaseRules) {
+                claimed.values.forEach { previous ->
+                    if (previous != applied.id) conflicts[previous] = (conflicts[previous] ?: 0) + 1
+                }
+                claimed.clear()
+            }
             applied.overrides.keys.forEach { key ->
-                claimed[key]?.let { previous -> conflicts[previous] = (conflicts[previous] ?: 0) + 1 }
+                claimed[key]?.takeIf { it != applied.id }?.let { previous ->
+                    conflicts[previous] = (conflicts[previous] ?: 0) + 1
+                }
                 claimed[key] = applied.id
             }
         }

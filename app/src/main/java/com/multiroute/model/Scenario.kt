@@ -36,6 +36,8 @@ data class ScenarioProfile(
     /** Lower wins. Ties are broken by the order the profiles are listed in. */
     val priority: Int = 100,
     val trigger: ScenarioTrigger,
+    /** When true, clears all base routing rules while active (apps fall back to system default). */
+    val bypassBaseRules: Boolean = false,
     /**
      * `ruleKey` (`pkg` or `pkg@<userId>`) to channel id. [com.multiroute.model.CHANNEL_DEFAULT] means
      * "put this app back on the system default in this profile", which is how a scenario can *remove* an
