@@ -217,6 +217,7 @@ object DeviceCapabilityDetector {
         var hwSupported = false
         var configEnabled = false
         var modeActive = false
+        val hotspotInfo = HotspotDetector.checkHotspotState(context)
         val ifaces = mutableListOf<String>()
 
         for (line in lines) {
@@ -232,7 +233,9 @@ object DeviceCapabilityDetector {
             }
             if (trimmed.startsWith("/sys/class/net/wlan")) {
                 val iface = trimmed.substringAfterLast("/")
-                ifaces.add(iface)
+                if (!com.multiroute.util.NetworkUtils.isHotspotInterface(iface, hotspotInfo)) {
+                    ifaces.add(iface)
+                }
             }
         }
 

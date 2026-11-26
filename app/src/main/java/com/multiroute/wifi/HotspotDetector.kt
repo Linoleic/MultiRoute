@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.IntentFilter
 import android.net.wifi.WifiManager
 import com.multiroute.R
+import com.multiroute.util.RouteRuleBuilder
 import com.multiroute.util.SuHelper
 
 /**
@@ -12,43 +13,56 @@ import com.multiroute.util.SuHelper
  */
 object HotspotDetector {
 
+    private fun isValidSoftApIface(name: String?): Boolean =
+        !name.isNullOrBlank() &&
+            !name.equals("null", ignoreCase = true) &&
+            !name.equals("none", ignoreCase = true) &&
+            RouteRuleBuilder.isValidInterfaceName(name)
+
     /**
-     * Parses kernel nl80211 interface dump from `iw dev` to detect active SoftAP interface and operating frequency.
+     * Parses kernel nl80211 interface dump from `iw dev` to detect active SoftAP interfaces (`type AP`) and operating frequency.
      */
     fun parseHotspotFromIwDev(output: List<String>, context: Context? = null): HotspotInfo {
         var curIface: String? = null
         var isAp = false
-        var freq = 0
+        var curFreq = 0
+        var resolvedFreq = 0
+        val apIfaces = linkedSetOf<String>()
         val freqRegex = Regex("""\((\d{4})\s*MHz\)""")
+
+        fun flushCurrent() {
+            val iface = curIface
+            if (isAp && isValidSoftApIface(iface)) {
+                apIfaces.add(iface!!)
+                if (resolvedFreq == 0 && curFreq > 0) {
+                    resolvedFreq = curFreq
+                }
+            }
+        }
 
         for (line in output) {
             val trimmed = line.trim()
             if (trimmed.startsWith("Interface ")) {
-                if (isAp && curIface != null) {
-                    return HotspotInfo(
-                        isEnabled = true,
-                        iface = curIface,
-                        frequencyMhz = freq,
-                        bandRes = DualWifiBandHelper.bandLabelRes(freq),
-                        bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) }
-                    )
-                }
+                flushCurrent()
                 curIface = trimmed.substringAfter("Interface ").trim()
                 isAp = false
-                freq = 0
+                curFreq = 0
             } else if (trimmed == "type AP" || trimmed.startsWith("type AP ")) {
                 isAp = true
-            } else if (isAp && trimmed.startsWith("channel ") && freq == 0) {
-                freq = freqRegex.find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            } else if (isAp && trimmed.startsWith("channel ") && curFreq == 0) {
+                curFreq = freqRegex.find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
             }
         }
-        if (isAp && curIface != null) {
+        flushCurrent()
+
+        if (apIfaces.isNotEmpty()) {
             return HotspotInfo(
                 isEnabled = true,
-                iface = curIface,
-                frequencyMhz = freq,
-                bandRes = DualWifiBandHelper.bandLabelRes(freq),
-                bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) }
+                iface = apIfaces.first(),
+                frequencyMhz = resolvedFreq,
+                bandRes = DualWifiBandHelper.bandLabelRes(resolvedFreq),
+                bandLabel = context?.let { DualWifiBandHelper.formatBand(resolvedFreq, it) },
+                ifaces = apIfaces
             )
         }
         return HotspotInfo(isEnabled = false)
@@ -87,48 +101,82 @@ object HotspotDetector {
             return HotspotInfo(isEnabled = false)
         }
 
-        // 3. AP is active -> query active interface and frequency via `iw dev`
+        // 3. AP is active -> query nl80211 AP interfaces via `iw dev`
         val iwLines = runCatching {
             SuHelper.executeShellWithOutput("iw dev 2>/dev/null", timeoutSeconds = 2)
         }.getOrDefault(emptyList())
-
         val fromIw = parseHotspotFromIwDev(iwLines, context)
-        if (fromIw.isEnabled) {
-            return fromIw
-        }
 
-        // 4. Fallback for devices without `iw` (e.g. minimal AOSP / Pixel factory images): dumpsys wifi
-        val dumpsysLines = runCatching {
-            SuHelper.executeShellWithOutput("dumpsys wifi 2>/dev/null | grep -i -E 'SoftApInfo|channel_frequency|mApInterfaceName' | head -n 10", timeoutSeconds = 2)
+        // 4. Query `dumpsys wifi` if `iw` missed interfaces or frequency (e.g. clean AOSP / Pixel without `iw`)
+        val fromDumpsys = if (!fromIw.isEnabled || fromIw.frequencyMhz == 0) {
+            val dumpsysLines = runCatching {
+                SuHelper.executeShellWithOutput(
+                    "dumpsys wifi 2>/dev/null | grep -i -E 'SoftApInfo|channel_frequency|mApInterfaceName|mCurrentSoftApInfoMap' | head -n 20",
+                    timeoutSeconds = 2
+                )
+            }.getOrDefault(emptyList())
+            parseHotspotFromDumpsysWifi(dumpsysLines, context)
+        } else HotspotInfo(isEnabled = false)
+
+        // 5. Query `dumpsys tethering` using platform-declared tetherableWifiRegexs (captures L3 bridges like ap_br_*)
+        val tetheringLines = runCatching {
+            SuHelper.executeShellWithOutput(
+                "dumpsys tethering 2>/dev/null | grep -E 'tetherableWifiRegexs|TetheredState' | head -n 20",
+                timeoutSeconds = 2
+            )
         }.getOrDefault(emptyList())
-        val fromDumpsys = parseHotspotFromDumpsysWifi(dumpsysLines, context)
-        if (fromDumpsys.isEnabled) {
-            return fromDumpsys
+        val tetheredWifiIfaces = parseHotspotFromDumpsysTethering(tetheringLines)
+
+        val allIfaces = linkedSetOf<String>().apply {
+            addAll(tetheredWifiIfaces)
+            addAll(fromIw.activeIfaces)
+            addAll(fromDumpsys.activeIfaces)
         }
+        val freq = if (fromIw.frequencyMhz > 0) fromIw.frequencyMhz else fromDumpsys.frequencyMhz
+        val primaryIface = allIfaces.firstOrNull()
 
         return HotspotInfo(
             isEnabled = true,
-            bandRes = R.string.wifi_i18n_band_enabled,
-            bandLabel = context.getString(R.string.wifi_i18n_band_enabled)
+            iface = primaryIface,
+            frequencyMhz = freq,
+            bandRes = if (freq > 0) DualWifiBandHelper.bandLabelRes(freq) else R.string.wifi_i18n_band_enabled,
+            bandLabel = if (freq > 0) DualWifiBandHelper.formatBand(freq, context) else context.getString(R.string.wifi_i18n_band_enabled),
+            ifaces = allIfaces
         )
     }
 
     /**
-     * Parses `dumpsys wifi` output as fallback when `iw` is not installed (e.g. clean AOSP/Pixel builds).
+     * Parses `dumpsys wifi` SoftAP fields without relying on hardcoded interface name prefixes.
      */
     fun parseHotspotFromDumpsysWifi(lines: List<String>, context: Context? = null): HotspotInfo {
-        var iface: String? = null
+        val apIfaces = linkedSetOf<String>()
         var freq = 0
-        val freqRegex = Regex("""(?:frequency|channel_frequency)[=:\s]+(\d{4})""", RegexOption.IGNORE_CASE)
-        val ifaceRegex = Regex("""(?:SoftApInfo on\s+|mApInterfaceName\s*=\s*|iface=|\{)(\w+)(?=[=,}])""", RegexOption.IGNORE_CASE)
+        val freqRegex = Regex("""(?:frequency|channel_frequency)\s*[:=]\s*(\d{4})""", RegexOption.IGNORE_CASE)
+        val apIfaceFieldRegex = Regex("""mApInterfaceName\s*[:=]\s*([a-zA-Z0-9_.-]+)""")
+        val softApMapRegex = Regex("""mCurrentSoftApInfoMap\s*\{([^}]*)\}""")
+        val softApMapKeyRegex = Regex("""([a-zA-Z0-9_.-]+)=SoftApInfo""")
+        val softApOnRegex = Regex("""SoftApInfo on\s+([a-zA-Z0-9_.-]+)""", RegexOption.IGNORE_CASE)
+        val instanceIdRegex = Regex("""mApInstanceIdentifier\s*[:=]\s*([a-zA-Z0-9_.-]+)""")
 
         for (line in lines) {
             val trimmed = line.trim()
-            if (iface == null) {
-                val match = ifaceRegex.find(trimmed)?.groupValues?.getOrNull(1)
-                if (match != null && (match.startsWith("wlan") || match.startsWith("ap") || match.startsWith("softap"))) {
-                    iface = match
+            apIfaceFieldRegex.findAll(trimmed).forEach { m ->
+                val candidate = m.groupValues[1]
+                if (isValidSoftApIface(candidate)) apIfaces.add(candidate)
+            }
+            softApMapRegex.findAll(trimmed).forEach { block ->
+                softApMapKeyRegex.findAll(block.groupValues[1]).forEach { keyMatch ->
+                    val candidate = keyMatch.groupValues[1]
+                    if (isValidSoftApIface(candidate)) apIfaces.add(candidate)
                 }
+            }
+            softApOnRegex.findAll(trimmed).forEach { m ->
+                val candidate = m.groupValues[1]
+                if (isValidSoftApIface(candidate)) apIfaces.add(candidate)
+            }
+            instanceIdRegex.findAll(trimmed).forEach { m ->
+                val candidate = m.groupValues[1]
+                if (isValidSoftApIface(candidate)) apIfaces.add(candidate)
             }
             if (freq == 0) {
                 val matchFreq = freqRegex.find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -136,19 +184,50 @@ object HotspotDetector {
                     freq = matchFreq
                 }
             }
-            if (iface != null && freq > 0) break
         }
 
-        return if (freq > 0 || iface != null) {
+        return if (freq > 0 || apIfaces.isNotEmpty()) {
             HotspotInfo(
                 isEnabled = true,
-                iface = iface ?: "ap0",
+                iface = apIfaces.firstOrNull(),
                 frequencyMhz = freq,
                 bandRes = DualWifiBandHelper.bandLabelRes(freq),
-                bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) }
+                bandLabel = context?.let { DualWifiBandHelper.formatBand(freq, it) },
+                ifaces = apIfaces
             )
         } else {
             HotspotInfo(isEnabled = false)
+        }
+    }
+
+    /**
+     * Parses `dumpsys tethering` to find active tethered interfaces matching the platform's
+     * declared `tetherableWifiRegexs`, avoiding hardcoded interface name assumptions.
+     */
+    internal fun parseHotspotFromDumpsysTethering(lines: List<String>): Set<String> {
+        val wifiRegexes = mutableListOf<Regex>()
+        val tetheredIfaces = linkedSetOf<String>()
+        val regexListPattern = Regex("""tetherableWifiRegexs:\s*\[([^\]]*)\]""")
+        val tetheredStatePattern = Regex("""^\s*([a-zA-Z0-9_.-]+)\s+-\s+TetheredState\b""")
+
+        for (line in lines) {
+            regexListPattern.find(line)?.let { m ->
+                m.groupValues[1].split(',').forEach { raw ->
+                    val trimmed = raw.trim()
+                    if (trimmed.isNotEmpty()) {
+                        runCatching { Regex(trimmed) }.getOrNull()?.let(wifiRegexes::add)
+                    }
+                }
+            }
+            tetheredStatePattern.find(line)?.let { m ->
+                val iface = m.groupValues[1]
+                if (isValidSoftApIface(iface)) tetheredIfaces.add(iface)
+            }
+        }
+
+        if (wifiRegexes.isEmpty() || tetheredIfaces.isEmpty()) return emptySet()
+        return tetheredIfaces.filterTo(linkedSetOf()) { iface ->
+            wifiRegexes.any { regex -> regex.matches(iface) }
         }
     }
 }

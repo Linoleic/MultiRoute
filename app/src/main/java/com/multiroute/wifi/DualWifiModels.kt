@@ -109,8 +109,15 @@ data class HotspotInfo(
     val iface: String? = null,
     val frequencyMhz: Int = 0,
     @param:StringRes @get:StringRes val bandRes: Int? = null,
-    val bandLabel: String? = null
-)
+    val bandLabel: String? = null,
+    val ifaces: Set<String> = emptySet()
+) {
+    val activeIfaces: Set<String>
+        get() = if (!isEnabled) emptySet() else buildSet {
+            iface?.takeIf { it.isNotBlank() }?.let(::add)
+            ifaces.filter { it.isNotBlank() }.forEach(::add)
+        }
+}
 
 data class DualWifiStatus(
     val capability: DualWifiCapability = DualWifiCapability(),

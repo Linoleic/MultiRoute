@@ -344,10 +344,16 @@ object DualWifiManager {
     suspend fun refreshConnectionState(context: Context) = withContext(Dispatchers.IO) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val activeDefault = cm?.activeNetwork
+        val hotspotInfo = checkHotspotState(context)
         val detailsMap = NetworkUtils.getConnectedWifiDetails()
+            .filterKeys { !NetworkUtils.isHotspotInterface(it, hotspotInfo) }
 
-        val primaryTargetIface = _status.value.capability.primaryIface?.takeIf { it != "wlan1" } ?: "wlan0"
-        val secondaryTargetIface = _status.value.capability.secondaryIface?.takeIf { it != primaryTargetIface } ?: "wlan1"
+        val primaryTargetIface = _status.value.capability.primaryIface
+            ?.takeIf { it != "wlan1" && !NetworkUtils.isHotspotInterface(it, hotspotInfo) }
+            ?: "wlan0"
+        val secondaryTargetIface = _status.value.capability.secondaryIface
+            ?.takeIf { it != primaryTargetIface && !NetworkUtils.isHotspotInterface(it, hotspotInfo) }
+            ?: "wlan1"
 
         data class IfaceLink(val iface: String, val ip: String?, val isDefault: Boolean)
         val cmIfaces = mutableMapOf<String, IfaceLink>()
@@ -355,6 +361,9 @@ object DualWifiManager {
             for (network in cm.allNetworks) {
                 val link = cm.getLinkProperties(network) ?: continue
                 val iface = link.interfaceName ?: continue
+                if (NetworkUtils.isHotspotInterface(iface, hotspotInfo)) continue
+                val caps = cm.getNetworkCapabilities(network)
+                if (caps != null && NetworkUtils.isHotspotNetwork(iface, caps, hotspotInfo)) continue
                 if (!iface.startsWith("wlan")) continue
                 val ip = link.linkAddresses.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
                 cmIfaces[iface] = IfaceLink(iface, ip, network == activeDefault)
@@ -417,8 +426,6 @@ object DualWifiManager {
         } else {
             secIpFinal
         }
-
-        val hotspotInfo = checkHotspotState(context)
 
         hotspotMutex.withLock {
             val hotspotTarget = SuHelper.getHotspotUpstream()

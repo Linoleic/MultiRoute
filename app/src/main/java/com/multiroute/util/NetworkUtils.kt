@@ -94,14 +94,18 @@ object NetworkUtils {
      * and role) per interface (wlan0, wlan1) using cmd wifi status with dumpsys wifi fallback.
      */
     fun getConnectedWifiDetails(): Map<String, WifiConnectionDetails> {
+        val statusLines = try {
+            SuHelper.executeShellWithOutput("cmd wifi status", timeoutSeconds = 4)
+        } catch (_: Exception) {
+            emptyList()
+        }
         val result = try {
-            parseWifiStatusDetails(SuHelper.executeShellWithOutput("cmd wifi status", timeoutSeconds = 4))
-                .toMutableMap()
+            parseWifiStatusDetails(statusLines).toMutableMap()
         } catch (_: Exception) {
             mutableMapOf()
         }
 
-        if (result.isNotEmpty()) {
+        if (result.isNotEmpty() || isAuthoritativeWifiStatusOutput(statusLines)) {
             return result
         }
 
@@ -127,6 +131,14 @@ object NetworkUtils {
         } catch (_: Exception) {}
 
         return result
+    }
+
+    internal fun isAuthoritativeWifiStatusOutput(lines: List<String>): Boolean = lines.any { line ->
+        line.contains("Wifi is enabled", ignoreCase = true) ||
+            line.contains("Wifi is disabled", ignoreCase = true) ||
+            line.contains("Wifi is not connected", ignoreCase = true) ||
+            line.contains("Wifi is connected", ignoreCase = true) ||
+            line.contains("ClientModeManager", ignoreCase = true)
     }
 
     internal fun parseWifiStatusDetails(lines: List<String>): Map<String, WifiConnectionDetails> {
@@ -739,6 +751,13 @@ object NetworkUtils {
     }
 
     /**
+     * Identifies whether [iface] is one of the currently active SoftAP/hotspot interfaces
+     * reported by [hotspotInfo] (no hardcoded interface name heuristics).
+     */
+    internal fun isHotspotInterface(iface: String, hotspotInfo: com.multiroute.wifi.HotspotInfo?): Boolean =
+        hotspotInfo != null && hotspotInfo.isEnabled && iface in hotspotInfo.activeIfaces
+
+    /**
      * Identifies whether a given network interface is an active personal hotspot (SoftAP) downlink interface.
      */
     fun isHotspotNetwork(
@@ -746,20 +765,17 @@ object NetworkUtils {
         caps: NetworkCapabilities,
         hotspotInfo: com.multiroute.wifi.HotspotInfo?
     ): Boolean {
-        if (hotspotInfo != null && hotspotInfo.isEnabled && hotspotInfo.iface == iface) {
-            return true
-        }
+        if (isHotspotInterface(iface, hotspotInfo)) return true
         val isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-        val hasNoInternet = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        if (!isWifi) return false
         val isLocalNetwork = if (Build.VERSION.SDK_INT >= 34) {
             caps.hasCapability(36 /* NetworkCapabilities.NET_CAPABILITY_LOCAL_NETWORK */)
         } else {
             false
         }
-        if (isWifi && (isLocalNetwork || (hasNoInternet && (iface.startsWith("swlan") || iface.startsWith("ap") || iface == "wlan2")))) {
-            return true
-        }
-        return false
+        if (isLocalNetwork) return true
+        val hasNoInternet = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return hasNoInternet && hotspotInfo?.isEnabled == true && hotspotInfo.activeIfaces.isEmpty()
     }
 
     /**

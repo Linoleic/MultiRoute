@@ -81,4 +81,99 @@ class NetworkUtilsTest {
         assertEquals(listOf(wlan0, synthetic), NetworkUtils.ensureHotspotChannel(listOf(wlan0, synthetic), enabled) { error("duplicate") })
         assertEquals(listOf(wlan0), NetworkUtils.ensureHotspotChannel(listOf(wlan0), disabled) { error("disabled") })
     }
+
+    @Test
+    fun testIsAuthoritativeWifiStatusOutputRecognizesDisconnectedAndDisabledStates() {
+        val disabled = listOf("Wifi is disabled")
+        val disconnected = listOf(
+            "Wifi is enabled",
+            "Wifi scanning is always available",
+            "==== ClientModeManager instance: ConcreteClientModeManager{id=1 iface=wlan0 role=ROLE_CLIENT_PRIMARY} ====",
+            "Wifi is not connected"
+        )
+        assertEquals(true, NetworkUtils.isAuthoritativeWifiStatusOutput(disabled))
+        assertEquals(true, NetworkUtils.isAuthoritativeWifiStatusOutput(disconnected))
+        assertEquals(emptyMap<String, NetworkUtils.WifiConnectionDetails>(), NetworkUtils.parseWifiStatusDetails(disabled))
+        assertEquals(emptyMap<String, NetworkUtils.WifiConnectionDetails>(), NetworkUtils.parseWifiStatusDetails(disconnected))
+
+        assertEquals(false, NetworkUtils.isAuthoritativeWifiStatusOutput(emptyList()))
+        assertEquals(false, NetworkUtils.isAuthoritativeWifiStatusOutput(listOf("cmd: Can't find service: wifi")))
+    }
+
+    @Test
+    fun testIsHotspotInterfaceUsesActiveHotspotInfoOnly() {
+        val active = com.multiroute.wifi.HotspotInfo(
+            isEnabled = true,
+            iface = "ap_br_custom",
+            ifaces = setOf("ap_br_custom", "wlan2", "custom_ap")
+        )
+        assertEquals(true, NetworkUtils.isHotspotInterface("ap_br_custom", active))
+        assertEquals(true, NetworkUtils.isHotspotInterface("wlan2", active))
+        assertEquals(true, NetworkUtils.isHotspotInterface("custom_ap", active))
+        assertEquals(false, NetworkUtils.isHotspotInterface("wlan0", active))
+
+        val inactive = com.multiroute.wifi.HotspotInfo(
+            isEnabled = false,
+            iface = "wlan2",
+            ifaces = setOf("swlan0", "ap0", "wlan2")
+        )
+        assertEquals(false, NetworkUtils.isHotspotInterface("swlan0", inactive))
+        assertEquals(false, NetworkUtils.isHotspotInterface("ap0", inactive))
+        assertEquals(false, NetworkUtils.isHotspotInterface("wlan2", inactive))
+        assertEquals(false, NetworkUtils.isHotspotInterface("swlan0", null))
+    }
+
+    @Test
+    fun testHotspotDetectorParsesIwDevMultipleApInterfaces() {
+        val iwOutput = listOf(
+            "phy#0",
+            "\tInterface custom_ap0",
+            "\t\ttype AP",
+            "\t\tchannel 149 (5745 MHz), width: 80 MHz, center1: 5775 MHz",
+            "\tInterface custom_ap1",
+            "\t\ttype AP",
+            "\t\tchannel 6 (2437 MHz), width: 20 MHz",
+            "\tInterface wlan0",
+            "\t\ttype managed"
+        )
+        val info = com.multiroute.wifi.HotspotDetector.parseHotspotFromIwDev(iwOutput)
+        assertEquals(true, info.isEnabled)
+        assertEquals("custom_ap0", info.iface)
+        assertEquals(5745, info.frequencyMhz)
+        assertEquals(setOf("custom_ap0", "custom_ap1"), info.activeIfaces)
+    }
+
+    @Test
+    fun testHotspotDetectorParsesDumpsysWifiRealAndArbitraryNames() {
+        val xiaomiOutput = listOf(
+            "mApInterfaceName: wlan2",
+            "mCurrentSoftApInfoMap {wlan2=SoftApInfo{bandwidth= 4, frequency= 5745,bssid=0a:3d:fd:ca:93:da, wifiStandard= 6, mApInstanceIdentifier= wlan2}}",
+            "mApInterfaceName: null",
+            "mCurrentSoftApInfoMap {}"
+        )
+        val xiaomiInfo = com.multiroute.wifi.HotspotDetector.parseHotspotFromDumpsysWifi(xiaomiOutput)
+        assertEquals(true, xiaomiInfo.isEnabled)
+        assertEquals("wlan2", xiaomiInfo.iface)
+        assertEquals(5745, xiaomiInfo.frequencyMhz)
+        assertEquals(setOf("wlan2"), xiaomiInfo.activeIfaces)
+
+        val customInfo = com.multiroute.wifi.HotspotDetector.parseHotspotFromDumpsysWifi(
+            listOf("SoftApInfo on custom_softap0, frequency=5180")
+        )
+        assertEquals(true, customInfo.isEnabled)
+        assertEquals("custom_softap0", customInfo.iface)
+        assertEquals(5180, customInfo.frequencyMhz)
+    }
+
+    @Test
+    fun testHotspotDetectorParsesDumpsysTetheringUsingPlatformWifiRegexes() {
+        val tetheringLines = listOf(
+            "tetherableWifiRegexs: [wlan\\d, softap\\d, ap_br_wlan\\d, ap_br_softap\\d]",
+            "    ap_br_wlan2 - TetheredState - lastError = 0",
+            "    wlan2 - TetheredState - lastError = 0",
+            "    rndis0 - TetheredState - lastError = 0"
+        )
+        val resolved = com.multiroute.wifi.HotspotDetector.parseHotspotFromDumpsysTethering(tetheringLines)
+        assertEquals(setOf("ap_br_wlan2", "wlan2"), resolved)
+    }
 }

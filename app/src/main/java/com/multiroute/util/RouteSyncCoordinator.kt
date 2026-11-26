@@ -405,14 +405,14 @@ internal class RouteSyncCoordinator(
         )
 
         val channelToUidsMap = mutableMapOf<String, MutableList<Int>>()
-        val hotspotIface = runCatching { DualWifiManager.checkHotspotState(context).iface }.getOrNull()
+        val hotspotInfo = runCatching { DualWifiManager.checkHotspotState(context) }.getOrNull()
         val vpnOwnerPackages = mutableMapOf<Int, List<String>>()
 
         for ((uid, channelId) in uidRules) {
             if (channelId == CHANNEL_DEFAULT) continue
             if (!RouteRuleBuilder.isValidUid(uid)) continue
             if (!RouteRuleBuilder.isValidInterfaceName(channelId)) continue
-            if ((hotspotIface != null && channelId == hotspotIface) || channelId.startsWith("swlan") || channelId.startsWith("ap")) continue
+            if (NetworkUtils.isHotspotInterface(channelId, hotspotInfo)) continue
 
             // Prevent anti-loopback: VPN client apps must not route into VPN tunnels. The VPN owner UID
             // is an exact system-provided identity; package/appId checks only retain the cross-user safety.
