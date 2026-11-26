@@ -429,16 +429,62 @@ object NetworkUtils {
             }
         }
 
+        val synced = ensureHotspotChannel(result, hotspotInfo) { info ->
+            syntheticHotspotChannel(context, info)
+        }
+
         // Sort: default network first, then non-hotspot uplinks, then VPN tunnels, then hotspot downlink, then by interface
-        result.sortWith(
+        synced.sortedWith(
             compareByDescending<NetworkChannel> { it.isDefault }
                 .thenBy { it.isHotspot }
                 .thenBy { it.isVpn }
                 .thenBy { it.transportType }
                 .thenBy { it.interfaceName }
         )
+    }
 
-        result
+    internal fun ensureHotspotChannel(
+        channels: List<NetworkChannel>,
+        hotspotInfo: com.multiroute.wifi.HotspotInfo?,
+        buildSynthetic: (com.multiroute.wifi.HotspotInfo) -> NetworkChannel
+    ): List<NetworkChannel> {
+        if (hotspotInfo == null || !hotspotInfo.isEnabled || channels.any { it.isHotspot }) {
+            return channels
+        }
+        return channels + buildSynthetic(hotspotInfo)
+    }
+
+    internal fun syntheticHotspotChannel(
+        context: Context,
+        hotspotInfo: com.multiroute.wifi.HotspotInfo
+    ): NetworkChannel {
+        val iface = hotspotInfo.iface?.takeIf { it.isNotBlank() } ?: "hotspot"
+        val netIf = runCatching { java.net.NetworkInterface.getByName(iface) }.getOrNull()
+        val addrs = runCatching {
+            netIf?.interfaceAddresses
+                ?.mapNotNull { addr ->
+                    val host = addr.address?.hostAddress ?: return@mapNotNull null
+                    "$host/${addr.networkPrefixLength}"
+                }
+                .orEmpty()
+        }.getOrDefault(emptyList())
+        val primaryIp = runCatching {
+            val list = netIf?.interfaceAddresses.orEmpty()
+            list.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
+                ?: list.firstOrNull()?.address?.hostAddress
+        }.getOrNull()
+        val mtu = runCatching { netIf?.mtu ?: 0 }.getOrDefault(0)
+        return NetworkChannel(
+            id = iface,
+            interfaceName = iface,
+            transportType = "hotspot",
+            shortName = context.getString(com.multiroute.R.string.channel_hotspot_short, iface),
+            frequencyMhz = hotspotInfo.frequencyMhz,
+            ipAddress = primaryIp,
+            allIpAddresses = addrs,
+            mtu = mtu,
+            isHotspot = true
+        )
     }
 
     /**

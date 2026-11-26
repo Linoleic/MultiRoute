@@ -65,4 +65,20 @@ class NetworkUtilsTest {
         assertEquals(144, wlan1.rxLinkSpeedMbps)
         assertEquals(144, wlan1.txLinkSpeedMbps)
     }
+
+    @Test
+    fun testEnsureHotspotChannelSynthesizesOnlyWhenEnabledAndMissing() {
+        val wlan0 = com.multiroute.model.NetworkChannel(
+            id = "wlan0", interfaceName = "wlan0", transportType = "WLAN", shortName = "wlan0", ipAddress = null
+        )
+        val synthetic = com.multiroute.model.NetworkChannel(
+            id = "swlan0", interfaceName = "swlan0", transportType = "hotspot", shortName = "Hotspot", ipAddress = null, isHotspot = true
+        )
+        val enabled = com.multiroute.wifi.HotspotInfo(isEnabled = true, iface = "swlan0", frequencyMhz = 5180)
+        val disabled = com.multiroute.wifi.HotspotInfo(isEnabled = false, iface = "swlan0", frequencyMhz = 5180)
+
+        assertEquals(listOf(wlan0, synthetic), NetworkUtils.ensureHotspotChannel(listOf(wlan0), enabled) { synthetic })
+        assertEquals(listOf(wlan0, synthetic), NetworkUtils.ensureHotspotChannel(listOf(wlan0, synthetic), enabled) { error("duplicate") })
+        assertEquals(listOf(wlan0), NetworkUtils.ensureHotspotChannel(listOf(wlan0), disabled) { error("disabled") })
+    }
 }

@@ -59,11 +59,39 @@ fun ChannelsTab(
     onShowChannelTestsChange: (Boolean) -> Unit = {},
     onOpenProxyGateway: () -> Unit
 ) {
+    val context = LocalContext.current
     val dualWifiStatus by DualWifiManager.status.collectAsState()
     val cellularState by viewModel.cellularControlState.collectAsState()
     ObserveNetworkManagement(viewModel)
     ObserveChannelTraffic(viewModel)
-    val candidates = activationCandidates(cellularState, dualWifiStatus, uiState.channels)
+    LaunchedEffect(dualWifiStatus.isHotspotEnabled, dualWifiStatus.hotspotIface) {
+        val hasHotspotChannel = uiState.channels.any { it.isHotspot }
+        val activeIface = uiState.channels.firstOrNull { it.isHotspot }?.interfaceName
+        if (dualWifiStatus.isHotspotEnabled != hasHotspotChannel ||
+            (dualWifiStatus.isHotspotEnabled && !dualWifiStatus.hotspotIface.isNullOrBlank() &&
+                activeIface != dualWifiStatus.hotspotIface)
+        ) {
+            viewModel.refreshEnvironment()
+        }
+    }
+    val listChannels = remember(
+        uiState.channels,
+        dualWifiStatus.isHotspotEnabled,
+        dualWifiStatus.hotspotIface,
+        dualWifiStatus.hotspotFreq
+    ) {
+        val info = if (dualWifiStatus.isHotspotEnabled) {
+            com.multiroute.wifi.HotspotInfo(
+                isEnabled = true,
+                iface = dualWifiStatus.hotspotIface,
+                frequencyMhz = dualWifiStatus.hotspotFreq
+            )
+        } else null
+        NetworkUtils.ensureHotspotChannel(uiState.channels, info) {
+            NetworkUtils.syntheticHotspotChannel(context, it)
+        }
+    }
+    val candidates = activationCandidates(cellularState, dualWifiStatus, listChannels)
     val listState = rememberLazyListState()
     var inspectedChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     var showTopology by rememberSaveable { mutableStateOf(false) }
@@ -90,7 +118,7 @@ fun ChannelsTab(
             fraction = 0.38f
         )
         val activeDetail = if (dualPane) {
-            uiState.channels.firstOrNull { it.id == inspectedChannelId } ?: uiState.channels.firstOrNull()
+            listChannels.firstOrNull { it.id == inspectedChannelId } ?: listChannels.firstOrNull()
         } else {
             null
         }
@@ -115,10 +143,10 @@ fun ChannelsTab(
                         }
                     }
                     item(key = "channels-heading") {
-                        SettingsSectionLabel(stringResource(R.string.ui_active_channels, uiState.channels.size))
+                        SettingsSectionLabel(stringResource(R.string.ui_active_channels, listChannels.size))
                     }
 
-                    if (uiState.channels.isEmpty()) {
+                    if (listChannels.isEmpty()) {
                         item(key = "channels-empty") {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -142,7 +170,7 @@ fun ChannelsTab(
                             }
                         }
                     } else {
-                        items(uiState.channels, key = { it.id }) { channel ->
+                        items(listChannels, key = { it.id }) { channel ->
                             ChannelDetailCard(
                                 channel = channel,
                                 testResult = uiState.testResults[channel.id],
