@@ -24,6 +24,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,7 +86,7 @@ fun AppRulesTab(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppRulesContent(
     uiState: MainUiState,
@@ -107,18 +110,32 @@ private fun AppRulesContent(
         animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
         label = "listBottomPadding"
     )
+    val pullRefreshState = rememberPullToRefreshState()
 
     Box(modifier) {
-        LazyVerticalGrid(
-            state = gridState,
-            columns = if (wideGrid) GridCells.Adaptive(minSize = 350.dp) else GridCells.Fixed(1),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = RoutingDimensions.contentPadding),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(if (wideGrid) 10.dp else ListItemDefaults.SegmentedGap),
-            contentPadding = PaddingValues(bottom = listBottomPadding)
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshingApps,
+            onRefresh = viewModel::pullRefreshInstalledApps,
+            state = pullRefreshState,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                PullToRefreshDefaults.LoadingIndicator(
+                    state = pullRefreshState,
+                    isRefreshing = uiState.isRefreshingApps,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            }
         ) {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = if (wideGrid) GridCells.Adaptive(minSize = 350.dp) else GridCells.Fixed(1),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = RoutingDimensions.contentPadding),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(if (wideGrid) 10.dp else ListItemDefaults.SegmentedGap),
+                contentPadding = PaddingValues(bottom = listBottomPadding)
+            ) {
             // 搜索与过滤器
             item(key = "routing-controls", span = { GridItemSpan(maxLineSpan) }) {
                 Column(
@@ -128,6 +145,31 @@ private fun AppRulesContent(
                     ),
                     verticalArrangement = Arrangement.spacedBy(if (compactControls) 8.dp else 10.dp)
                 ) {
+                    if (uiState.routingPaused) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.routing_paused_banner),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = { viewModel.setRoutingPaused(false) }) {
+                                    Text(stringResource(R.string.routing_resume_action))
+                                }
+                            }
+                        }
+                    }
                     val searchField: @Composable (Modifier) -> Unit = { fieldModifier ->
                         OutlinedTextField(
                             value = uiState.searchQuery,
@@ -417,6 +459,7 @@ private fun AppRulesContent(
                     )
                 }
             }
+        }
         }
 
         // 批量操作悬浮工具栏 (Material 3 Expressive HorizontalFloatingToolbar)

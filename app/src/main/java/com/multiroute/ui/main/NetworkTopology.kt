@@ -42,12 +42,14 @@ internal fun resolveEffectiveAppTargets(
     channels: List<NetworkChannel>,
     scenario: ScenarioUiState
 ): EffectiveAppTargets {
+    if (scenario.routingPaused) {
+        return EffectiveAppTargets(apps.associate { it.ruleKey to CHANNEL_DEFAULT }, emptyList())
+    }
     val observation = ScenarioObservation.fromChannels(channels)
     val selected = ScenarioEngine.selectProfiles(
         scenario.scenarioProfiles,
         observation,
-        if (scenario.scenarioManualMode) ScenarioEngine.SelectionMode.MANUAL
-        else ScenarioEngine.SelectionMode.AUTOMATIC,
+        scenario.scenarioMode,
         scenario.manualScenarioIds
     )
     val knownChannels = channels.flatMap { listOf(it.id, it.interfaceName) }.toSet()

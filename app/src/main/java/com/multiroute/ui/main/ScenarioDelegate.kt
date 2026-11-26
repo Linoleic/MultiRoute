@@ -58,7 +58,7 @@ internal class ScenarioDelegate(
     }
 
     fun toggleScenarioManually(id: String) {
-        ScenarioStore.setManualMode(application, true)
+        ScenarioStore.setMode(application, ScenarioEngine.SelectionMode.MANUAL)
         val on = ScenarioStore.toggleManualId(application, id)
         refreshScenarioState()
         uiStateFlow.update {
@@ -74,16 +74,38 @@ internal class ScenarioDelegate(
 
     fun setScenarioManualMode(ids: Set<String>) {
         ScenarioStore.setManualIds(application, ids)
-        ScenarioStore.setManualMode(application, true)
+        ScenarioStore.setMode(application, ScenarioEngine.SelectionMode.MANUAL)
         refreshScenarioState()
         syncRules()
     }
 
     fun setScenarioAutomatic() {
-        ScenarioStore.setManualMode(application, false)
+        ScenarioStore.setMode(application, ScenarioEngine.SelectionMode.AUTOMATIC)
         refreshScenarioState()
         uiStateFlow.update {
             it.copy(snackBarMessage = application.getString(R.string.scenario_automatic))
+        }
+        syncRules()
+    }
+
+    fun setScenarioDisabled() {
+        ScenarioStore.setMode(application, ScenarioEngine.SelectionMode.DISABLED)
+        refreshScenarioState()
+        uiStateFlow.update {
+            it.copy(snackBarMessage = application.getString(R.string.scenario_disabled_toast))
+        }
+        syncRules()
+    }
+
+    fun setRoutingPaused(paused: Boolean) {
+        ScenarioStore.setRoutingPaused(application, paused)
+        refreshScenarioState()
+        uiStateFlow.update {
+            it.copy(
+                snackBarMessage = application.getString(
+                    if (paused) R.string.routing_paused_toast else R.string.routing_resumed_toast
+                )
+            )
         }
         syncRules()
     }
@@ -256,14 +278,15 @@ internal class ScenarioDelegate(
 
     fun refreshScenarioState() {
         val profiles = ScenarioStore.load(application)
-        val manualMode = ScenarioStore.isManualMode(application)
+        val mode = ScenarioStore.getMode(application)
+        val routingPaused = ScenarioStore.isRoutingPaused(application)
         val manualIds = ScenarioStore.getManualIds(application)
         val channels = uiStateFlow.value.channelProbe.channels
         val observation = ScenarioObservation.fromChannels(channels)
-        val selected = if (manualMode) {
-            ScenarioEngine.selectProfiles(profiles, observation, ScenarioEngine.SelectionMode.MANUAL, manualIds)
+        val selected = if (routingPaused) {
+            emptyList()
         } else {
-            ScenarioEngine.selectProfiles(profiles, observation, ScenarioEngine.SelectionMode.AUTOMATIC)
+            ScenarioEngine.selectProfiles(profiles, observation, mode, manualIds)
         }
         val profile = selected.firstOrNull()
         val trigger = profile?.trigger
@@ -288,7 +311,8 @@ internal class ScenarioDelegate(
                 scenario = state.scenario.copy(
                     scenarioProfiles = profiles,
                     manualScenarioId = manualIds.firstOrNull() ?: "",
-                    scenarioManualMode = manualMode,
+                    scenarioMode = mode,
+                    routingPaused = routingPaused,
                     manualScenarioIds = manualIds,
                     activeScenarioIds = selected.map { it.id }.toSet(),
                     scenarioConflicts = conflicts,
@@ -296,7 +320,7 @@ internal class ScenarioDelegate(
                     activeScenarioName = profile?.name,
                     activeScenarioTrigger = trigger,
                     activeScenarioSsid = trigger?.let { ScenarioEngine.matchedSsid(it, observation) },
-                    activeScenarioManual = manualMode
+                    activeScenarioManual = mode == ScenarioEngine.SelectionMode.MANUAL
                 )
             )
         }

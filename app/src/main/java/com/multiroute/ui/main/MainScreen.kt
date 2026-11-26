@@ -222,7 +222,11 @@ fun MainScreen(
                                         stringResource(R.string.scenario_editing, it)
                                     } ?: uiState.activeScenarioName?.let {
                                         stringResource(R.string.scenario_current, it)
-                                    } ?: stringResource(R.string.scenario_default)
+                                    } ?: if (uiState.scenarioMode == com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED) {
+                                        stringResource(R.string.scenario_mode_disabled_chip)
+                                    } else {
+                                        stringResource(R.string.scenario_default)
+                                    }
                                     val onScenarioAction: () -> Unit = {
                                         if (uiState.scenarioEditId != null) {
                                             viewModel.finishEditingScenario()
@@ -230,7 +234,8 @@ fun MainScreen(
                                             viewModel.openScenarioSheet()
                                         }
                                     }
-                                    val scenarioColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                    val isHighlighted = uiState.activeScenarioName != null || editingName != null
+                                    val scenarioColor = if (isHighlighted) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
                                         MaterialTheme.colorScheme.onSurfaceVariant
@@ -244,7 +249,7 @@ fun MainScreen(
                                             FilledTonalIconButton(
                                                 onClick = onScenarioAction,
                                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                                    containerColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                                    containerColor = if (isHighlighted) {
                                                         MaterialTheme.colorScheme.secondaryContainer
                                                     } else {
                                                         MaterialTheme.colorScheme.surfaceContainerHigh
@@ -620,10 +625,11 @@ fun MainScreen(
                     if (uiState.showScenarioSheet) {
                         ScenarioBottomSheet(
                             profiles = uiState.scenarioProfiles,
-                            manualMode = uiState.scenarioManualMode,
+                            mode = uiState.scenarioMode,
                             manualIds = uiState.manualScenarioIds,
                             channels = uiState.channels,
                             onSetManual = viewModel::setScenarioManualMode,
+                            onSetDisabled = viewModel::setScenarioDisabled,
                             activeIds = uiState.activeScenarioIds,
                             conflicts = uiState.scenarioConflicts,
                             onApplyManually = { viewModel.toggleScenarioManually(it) },

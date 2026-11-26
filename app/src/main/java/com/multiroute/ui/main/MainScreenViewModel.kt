@@ -118,6 +118,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun refreshInstalledApps() = appRoutingDelegate.loadInstalledApps()
 
+    fun pullRefreshInstalledApps() = appRoutingDelegate.loadInstalledApps(userInitiated = true)
+
     fun clearSearchAndChannelFilter() = appRoutingDelegate.clearSearchAndChannelFilter()
 
     fun isVpnSelfLoop(channel: NetworkChannel, app: AppItem) = appRoutingDelegate.isVpnSelfLoop(channel, app)
@@ -252,6 +254,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun toggleScenarioManually(id: String) = scenarioDelegate.toggleScenarioManually(id)
     fun setScenarioManualMode(ids: Set<String>) = scenarioDelegate.setScenarioManualMode(ids)
     fun setScenarioAutomatic() = scenarioDelegate.setScenarioAutomatic()
+    fun setScenarioDisabled() = scenarioDelegate.setScenarioDisabled()
+    fun setRoutingPaused(paused: Boolean) = scenarioDelegate.setRoutingPaused(paused)
     fun clearManualScenario() = scenarioDelegate.clearManualScenario()
     fun deleteScenario(id: String) = scenarioDelegate.deleteScenario(id)
     fun saveCurrentAssignmentsAsScenario(

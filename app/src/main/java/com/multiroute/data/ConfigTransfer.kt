@@ -32,6 +32,7 @@ object ConfigTransfer {
         val sections: Set<Section>, val assignments: Map<String, String> = emptyMap(),
         val profiles: List<ScenarioProfile> = emptyList(), val mode: String? = null,
         val manualIds: Set<String> = emptySet(),
+        val routingPaused: Boolean? = null,
         val rulesSettings: Map<Section, Map<String, Any>> = emptyMap(),
         val testServer: Map<String, Any> = emptyMap(), val hotspot: String? = null,
         val wifiManufacturer: String? = null, val wifiNetwork: Map<String, Any>? = null,
@@ -70,10 +71,19 @@ object ConfigTransfer {
         val root = JSONObject().put("format", FORMAT).put("version", VERSION).put("exportedAt", now)
         root.put("assignments", JSONObject(normalizeAssignments(RouteConfigProvider.getAllRules(context))))
         val profiles = ScenarioStore.load(context)
-        root.put("scenarios", JSONObject()
+        val scenarioMode = when (ScenarioStore.getMode(context)) {
+            ScenarioEngine.SelectionMode.MANUAL -> ScenarioStore.MODE_MANUAL
+            ScenarioEngine.SelectionMode.DISABLED -> ScenarioStore.MODE_DISABLED
+            ScenarioEngine.SelectionMode.AUTOMATIC -> ScenarioStore.MODE_AUTOMATIC
+        }
+        val scenariosJson = JSONObject()
             .put("profiles", ScenarioStore.encodeProfiles(profiles))
-            .put("mode", if (ScenarioStore.isManualMode(context)) "manual" else "auto")
-            .put("manualIds", JSONArray(ScenarioStore.getManualIds(context).filter { id -> profiles.any { it.id == id } }.sorted())))
+            .put("mode", scenarioMode)
+            .put("manualIds", JSONArray(ScenarioStore.getManualIds(context).filter { id -> profiles.any { it.id == id } }.sorted()))
+        if (ScenarioStore.isRoutingPaused(context)) {
+            scenariosJson.put("routingPaused", true)
+        }
+        root.put("scenarios", scenariosJson)
         root.put("settings", JSONObject()
             .put("dnsFollowsChannel", RouteConfigProvider.isDnsFollowsChannel(context))
             .put("keepSlaveWifiScreenOff", RouteConfigProvider.isKeepSlaveWifiScreenOff(context))
@@ -114,6 +124,7 @@ object ConfigTransfer {
         var profiles = emptyList<ScenarioProfile>()
         var mode: String? = null
         var manualIds = emptySet<String>()
+        var routingPaused: Boolean? = null
         var ignored = 0
         if (root.has("assignments")) {
             val raw = root.obj("assignments").strings()
@@ -127,9 +138,10 @@ object ConfigTransfer {
             require(profiles.size == array.length() && profiles.map { it.id }.distinct().size == profiles.size)
             if (version >= 2) {
                 val s = root.obj("scenarios")
-                mode = s.string("mode").also { require(it in setOf("auto", "manual")) }
+                mode = s.string("mode").also { require(it in setOf("auto", "manual", "disabled")) }
                 manualIds = s.stringArray("manualIds").toSet()
                 require(manualIds.all { id -> profiles.any { it.id == id } })
+                routingPaused = if (s.has("routingPaused")) s.boolean("routingPaused") else false
             }
             sections += Section.SCENARIOS
         }
@@ -195,7 +207,7 @@ object ConfigTransfer {
             }
         }
         require(sections.isNotEmpty())
-        Document(sections, assignments, profiles, mode, manualIds, ruleSettings, server, hotspot, manufacturer, wifiNetwork, ignored)
+        Document(sections, assignments, profiles, mode, manualIds, routingPaused, ruleSettings, server, hotspot, manufacturer, wifiNetwork, ignored)
     } catch (_: Exception) { null }
 
     suspend fun preview(context: Context, json: String): Preview? {
@@ -247,6 +259,7 @@ object ConfigTransfer {
                 val values = next.getValue(scenarios)
                 values["profiles"] = ScenarioStore.encodeProfiles(doc.profiles).toString()
                 values["mode"] = doc.mode ?: "auto"; values["manual_ids"] = doc.manualIds; values.remove("manual_id")
+                values["routing_paused"] = doc.routingPaused ?: false
             }
             var settings = 0
             doc.rulesSettings.filterKeys { it in sections }.forEach { (_, values) -> next.getValue(rules).putAll(values); settings += values.size }

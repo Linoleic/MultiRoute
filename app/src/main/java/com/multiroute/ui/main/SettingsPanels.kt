@@ -349,6 +349,28 @@ internal fun NetworkSettingsPanel(uiState: MainUiState, viewModel: MainScreenVie
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
+                        text = stringResource(com.multiroute.R.string.routing_pause_global_title),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = stringResource(com.multiroute.R.string.routing_pause_global_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+                Switch(
+                    checked = uiState.routingPaused,
+                    onCheckedChange = { viewModel.setRoutingPaused(it) }
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
                         text = stringResource(com.multiroute.R.string.settings_dns_redirect),
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                     )
@@ -549,6 +571,23 @@ internal fun RuleActionsMenu(uiState: MainUiState, viewModel: MainScreenViewMode
             Icon(painterResource(R.drawable.ic_symbol_more_vert), contentDescription = stringResource(com.multiroute.R.string.rules_actions))
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(if (uiState.routingPaused) com.multiroute.R.string.routing_resume_action else com.multiroute.R.string.routing_pause_global_title),
+                        color = if (uiState.routingPaused) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        painterResource(R.drawable.ic_symbol_power_settings_new),
+                        contentDescription = null,
+                        tint = if (uiState.routingPaused) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                    )
+                },
+                enabled = !uiState.isSyncing,
+                onClick = { showMenu = false; viewModel.setRoutingPaused(!uiState.routingPaused) }
+            )
             DropdownMenuItem(
                 text = { Text(stringResource(if (uiState.isSyncing) com.multiroute.R.string.ui_syncing_kernel else com.multiroute.R.string.ui_force_resync)) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_symbol_sync), contentDescription = null) },

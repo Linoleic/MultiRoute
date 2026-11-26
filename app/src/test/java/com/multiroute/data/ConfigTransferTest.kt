@@ -191,4 +191,19 @@ class ConfigTransferTest {
         )
         assertNull(ConfigTransfer.parse(badRoot.toString()))
     }
+
+    @Test
+    fun disabledScenarioModeAndRoutingPausedRoundTrip() {
+        val root = document().put(
+            "scenarios",
+            JSONObject()
+                .put("profiles", org.json.JSONArray().put(profile("a")))
+                .put("mode", "disabled")
+                .put("manualIds", org.json.JSONArray())
+                .put("routingPaused", true)
+        )
+        val parsed = ConfigTransfer.parse(root.toString())!!
+        assertEquals("disabled", parsed.mode)
+        assertEquals(true, parsed.routingPaused)
+    }
 }

@@ -60,6 +60,7 @@ data class NavigationUiState(
 
 data class AppRoutingUiState(
     val isLoadingApps: Boolean = true,
+    val isRefreshingApps: Boolean = false,
     /** True when one or more installed-app enumeration sources could not be read. */
     val isInstalledAppsIncomplete: Boolean = false,
     val apps: List<AppItem> = emptyList(),
@@ -98,8 +99,11 @@ data class ScenarioUiState(
     val activeScenarioSsid: String? = null,
     val activeScenarioManual: Boolean = false,
     val manualScenarioId: String = "",
-    /** True when conditions are ignored and plans are switched by hand only. */
-    val scenarioManualMode: Boolean = false,
+    /** Selected scenario evaluation mode: automatic, manual, or disabled. */
+    val scenarioMode: com.multiroute.util.ScenarioEngine.SelectionMode =
+        com.multiroute.util.ScenarioEngine.SelectionMode.AUTOMATIC,
+    /** When true, all base and scenario routing rules are paused (apps use system default). */
+    val routingPaused: Boolean = false,
     /** Plans switched on by hand; several can be on at once. */
     val manualScenarioIds: Set<String> = emptySet(),
     val showScenarioSheet: Boolean = false,
@@ -108,7 +112,10 @@ data class ScenarioUiState(
     val scenarioEditId: String? = null,
     val scenarioDetailsId: String? = null,
     val showScenarioDetailsDialog: Boolean = false
-)
+) {
+    val scenarioManualMode: Boolean
+        get() = scenarioMode == com.multiroute.util.ScenarioEngine.SelectionMode.MANUAL
+}
 
 data class ConfigTransferUiState(
     val configPath: String = "",
@@ -161,6 +168,7 @@ data class MainUiState(
 
     // App routing & selection
     val isLoadingApps: Boolean get() = routing.isLoadingApps
+    val isRefreshingApps: Boolean get() = routing.isRefreshingApps
     val isInstalledAppsIncomplete: Boolean get() = routing.isInstalledAppsIncomplete
     val apps: List<AppItem> get() = routing.apps
     val totalAppsCount: Int get() = routing.totalAppsCount
@@ -191,6 +199,8 @@ data class MainUiState(
     val activeScenarioSsid: String? get() = scenario.activeScenarioSsid
     val activeScenarioManual: Boolean get() = scenario.activeScenarioManual
     val manualScenarioId: String get() = scenario.manualScenarioId
+    val scenarioMode: com.multiroute.util.ScenarioEngine.SelectionMode get() = scenario.scenarioMode
+    val routingPaused: Boolean get() = scenario.routingPaused
     val scenarioManualMode: Boolean get() = scenario.scenarioManualMode
     val manualScenarioIds: Set<String> get() = scenario.manualScenarioIds
     val showScenarioSheet: Boolean get() = scenario.showScenarioSheet

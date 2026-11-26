@@ -298,6 +298,11 @@ internal class RouteSyncCoordinator(
         base: Map<Int, String>,
         profiles: List<com.multiroute.model.ScenarioProfile> = ScenarioStore.load(context)
     ): ScenarioResolution {
+        val routingPaused = ScenarioStore.isRoutingPaused(context)
+        if (routingPaused) {
+            Log.i(TAG, "Global routing paused: clearing all ${base.size} active route rule(s)")
+            return ScenarioResolution(effectiveRules = emptyMap(), forcedDefault = base.size)
+        }
         if (profiles.isEmpty()) {
             return ScenarioResolution(effectiveRules = base)
         }
@@ -320,11 +325,7 @@ internal class RouteSyncCoordinator(
             base = base,
             profiles = profiles,
             observation = observation,
-            mode = if (ScenarioStore.isManualMode(context)) {
-                ScenarioEngine.SelectionMode.MANUAL
-            } else {
-                ScenarioEngine.SelectionMode.AUTOMATIC
-            },
+            mode = ScenarioStore.getMode(context),
             manualIds = ScenarioStore.getManualIds(context),
             overridesByUid = { profile ->
                 profile.overrides.mapNotNull { (ruleKey, channelId) ->

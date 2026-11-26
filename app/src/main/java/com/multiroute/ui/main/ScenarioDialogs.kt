@@ -27,10 +27,11 @@ import com.multiroute.util.ScenarioEngine
 @Composable
 fun ScenarioBottomSheet(
     profiles: List<ScenarioProfile>,
-    manualMode: Boolean,
+    mode: ScenarioEngine.SelectionMode,
     manualIds: Set<String>,
     channels: List<NetworkChannel>,
     onSetManual: (Set<String>) -> Unit,
+    onSetDisabled: () -> Unit,
     activeIds: Set<String>,
     conflicts: Map<String, Int>,
     onApplyManually: (String) -> Unit,
@@ -43,6 +44,7 @@ fun ScenarioBottomSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val manualMode = mode == ScenarioEngine.SelectionMode.MANUAL
     var pendingManualIds by remember { mutableStateOf<Set<String>?>(null) }
     var confirmAutomatic by remember { mutableStateOf(false) }
     val enabledProfiles = profiles.filter { it.enabled }
@@ -71,21 +73,33 @@ fun ScenarioBottomSheet(
                 color = MaterialTheme.colorScheme.outline
             )
 
-            // Side by side: the two modes are one choice, not two stacked options.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Three scenario selection modes: Automatic, Manual, Disabled (base rules only).
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 FilterChip(
-                    selected = !manualMode,
+                    selected = mode == ScenarioEngine.SelectionMode.AUTOMATIC,
                     onClick = {
-                        if (manualMode) {
-                            if (selectedManualIds.isEmpty()) onClearManual() else confirmAutomatic = true
+                        when (mode) {
+                            ScenarioEngine.SelectionMode.MANUAL -> {
+                                if (selectedManualIds.isEmpty()) onClearManual() else confirmAutomatic = true
+                            }
+                            ScenarioEngine.SelectionMode.DISABLED -> onClearManual()
+                            ScenarioEngine.SelectionMode.AUTOMATIC -> Unit
                         }
                     },
                     label = { Text(stringResource(com.multiroute.R.string.scenario_mode_auto)) }
                 )
                 FilterChip(
-                    selected = manualMode,
+                    selected = mode == ScenarioEngine.SelectionMode.MANUAL,
                     onClick = { if (!manualMode) pendingManualIds = selectedManualIds },
                     label = { Text(stringResource(com.multiroute.R.string.scenario_mode_manual)) }
+                )
+                FilterChip(
+                    selected = mode == ScenarioEngine.SelectionMode.DISABLED,
+                    onClick = { if (mode != ScenarioEngine.SelectionMode.DISABLED) onSetDisabled() },
+                    label = { Text(stringResource(com.multiroute.R.string.scenario_mode_disabled)) }
                 )
             }
             if (profiles.isEmpty()) {
@@ -157,6 +171,7 @@ fun ScenarioBottomSheet(
                                     text = stringResource(
                                         when {
                                             !profile.enabled -> com.multiroute.R.string.scenario_status_disabled
+                                            mode == ScenarioEngine.SelectionMode.DISABLED -> com.multiroute.R.string.scenario_status_mode_disabled
                                             manualMode && profile.id in manualIds -> com.multiroute.R.string.scenario_status_manual_on
                                             manualMode -> com.multiroute.R.string.scenario_status_manual_off
                                             profile.id in activeIds -> com.multiroute.R.string.scenario_status_matched

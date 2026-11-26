@@ -238,6 +238,39 @@ class NetworkTopologyTest {
     }
 
     @Test
+    fun disabledScenarioModeAndGlobalPauseResolveCorrectly() {
+        val app1 = app(1, wifi.id).copy(uid = 10_001)
+        val plan = ScenarioProfile(
+            id = "always",
+            name = "Always",
+            trigger = ScenarioTrigger.Always,
+            overrides = mapOf(app1.ruleKey to cellular.id)
+        )
+        val disabled = resolveEffectiveAppTargets(
+            listOf(app1),
+            listOf(wifi, cellular),
+            ScenarioUiState(
+                scenarioProfiles = listOf(plan),
+                scenarioMode = com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED
+            )
+        )
+        assertEquals(wifi.id, disabled.targetsByRuleKey[app1.ruleKey])
+        assertTrue(disabled.activeScenarioNames.isEmpty())
+
+        val paused = resolveEffectiveAppTargets(
+            listOf(app1),
+            listOf(wifi, cellular),
+            ScenarioUiState(
+                scenarioProfiles = listOf(plan),
+                scenarioMode = com.multiroute.util.ScenarioEngine.SelectionMode.AUTOMATIC,
+                routingPaused = true
+            )
+        )
+        assertEquals(CHANNEL_DEFAULT, paused.targetsByRuleKey[app1.ruleKey])
+        assertTrue(paused.activeScenarioNames.isEmpty())
+    }
+
+    @Test
     fun traceConnectedGraphIncludesVpnAncestorsAndDescendantsButNotUnrelatedNodes() {
         val unrelated = channel("wlan9")
         val graph = topology(

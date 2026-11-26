@@ -20,9 +20,11 @@ object ScenarioStore {
     private const val KEY_MANUAL = "manual_id"
     private const val KEY_MODE = "mode"
     private const val KEY_MANUAL_IDS = "manual_ids"
+    private const val KEY_ROUTING_PAUSED = "routing_paused"
 
     const val MODE_AUTOMATIC = "auto"
     const val MODE_MANUAL = "manual"
+    const val MODE_DISABLED = "disabled"
 
     /** Trigger kinds, written to JSON so the format stays readable and forward-compatible. */
     private const val KIND_ALWAYS = "always"
@@ -77,20 +79,51 @@ object ScenarioStore {
         }
     }
 
+    fun getMode(context: Context): com.multiroute.util.ScenarioEngine.SelectionMode {
+        val sp = prefs(context)
+        if (sp.contains(KEY_MODE)) {
+            return when (sp.getString(KEY_MODE, MODE_AUTOMATIC)) {
+                MODE_MANUAL -> com.multiroute.util.ScenarioEngine.SelectionMode.MANUAL
+                MODE_DISABLED -> com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED
+                else -> com.multiroute.util.ScenarioEngine.SelectionMode.AUTOMATIC
+            }
+        }
+        return if (getManualIds(context).isNotEmpty()) {
+            com.multiroute.util.ScenarioEngine.SelectionMode.MANUAL
+        } else {
+            com.multiroute.util.ScenarioEngine.SelectionMode.AUTOMATIC
+        }
+    }
+
+    fun setMode(context: Context, mode: com.multiroute.util.ScenarioEngine.SelectionMode) {
+        val raw = when (mode) {
+            com.multiroute.util.ScenarioEngine.SelectionMode.MANUAL -> MODE_MANUAL
+            com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED -> MODE_DISABLED
+            com.multiroute.util.ScenarioEngine.SelectionMode.AUTOMATIC -> MODE_AUTOMATIC
+        }
+        prefs(context).edit().putString(KEY_MODE, raw).apply()
+    }
+
+    fun isRoutingPaused(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ROUTING_PAUSED, false)
+
+    fun setRoutingPaused(context: Context, paused: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ROUTING_PAUSED, paused).apply()
+    }
+
     /**
      * True when the conditions are ignored and plans are switched by hand only. Stored explicitly; a
      * database written by an older build has no mode, and its single pinned plan meant the same thing.
      */
-    fun isManualMode(context: Context): Boolean {
-        val sp = prefs(context)
-        if (sp.contains(KEY_MODE)) return sp.getString(KEY_MODE, MODE_AUTOMATIC) == MODE_MANUAL
-        return getManualIds(context).isNotEmpty()
-    }
+    fun isManualMode(context: Context): Boolean =
+        getMode(context) == com.multiroute.util.ScenarioEngine.SelectionMode.MANUAL
 
     fun setManualMode(context: Context, manual: Boolean) {
-        prefs(context).edit()
-            .putString(KEY_MODE, if (manual) MODE_MANUAL else MODE_AUTOMATIC)
-            .apply()
+        setMode(
+            context,
+            if (manual) com.multiroute.util.ScenarioEngine.SelectionMode.MANUAL
+            else com.multiroute.util.ScenarioEngine.SelectionMode.AUTOMATIC
+        )
     }
 
     /** Plans switched on by hand. Several can be on at once, and they layer by priority like the rest. */

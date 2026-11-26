@@ -70,16 +70,18 @@ object ScenarioEngine {
 
     /**
      * How the active plans are chosen. In [MANUAL] no trigger is evaluated at all: exactly the plans the
-     * user switched on apply, and several may be on at once.
+     * user switched on apply, and several may be on at once. [DISABLED] ignores all scenario plans so
+     * only the base assignments apply.
      */
-    enum class SelectionMode { AUTOMATIC, MANUAL }
+    enum class SelectionMode { AUTOMATIC, MANUAL, DISABLED }
 
     /**
      * Every profile that applies, lowest priority first.
      *
      * In [SelectionMode.AUTOMATIC] that is every enabled profile whose condition holds, so dual Wi-Fi with a
      * plan per link applies both. In [SelectionMode.MANUAL] the conditions are ignored entirely and the
-     * hand-switched [manualIds] apply, again layered by priority.
+     * hand-switched [manualIds] apply, again layered by priority. In [SelectionMode.DISABLED] no profile
+     * applies.
      */
     fun selectProfiles(
         profiles: List<ScenarioProfile>,
@@ -88,6 +90,7 @@ object ScenarioEngine {
         manualIds: Set<String> = emptySet()
     ): List<ScenarioProfile> {
         val candidates = when (mode) {
+            SelectionMode.DISABLED -> emptyList()
             SelectionMode.MANUAL -> profiles.filter { it.enabled && it.id in manualIds }
             SelectionMode.AUTOMATIC -> profiles.filter { it.enabled && matches(it.trigger, observation) }
         }
@@ -154,8 +157,12 @@ object ScenarioEngine {
         overridesByUid: (ScenarioProfile) -> Map<Int, String> = { emptyMap() },
         hasChannel: (String) -> Boolean = { true },
         mode: SelectionMode = SelectionMode.AUTOMATIC,
-        manualIds: Set<String> = emptySet()
+        manualIds: Set<String> = emptySet(),
+        routingPaused: Boolean = false
     ): ScenarioResolution {
+        if (routingPaused) {
+            return ScenarioResolution(effectiveRules = emptyMap(), forcedDefault = base.size)
+        }
         // A legacy pin behaves as manual mode with that single plan switched on.
         val legacyPin = manualId?.takeIf { it.isNotEmpty() && it != MANUAL_NONE }
         val selected = if (legacyPin != null) {

@@ -410,4 +410,44 @@ class ScenarioEngineTest {
         assertEquals(2, layered.forcedDefault)
         assertEquals(mapOf(1001 to "Early", 1003 to "Early"), layered.overriddenBy)
     }
+
+    @Test
+    fun testDisabledModeAndGlobalRoutingPaused() {
+        val plan = ScenarioProfile(
+            id = "always",
+            name = "Always",
+            trigger = ScenarioTrigger.Always,
+            overrides = mapOf("x" to "wlan1")
+        )
+        val disabled = ScenarioEngine.resolve(
+            base = mapOf(1001 to "wlan0"),
+            profiles = listOf(plan),
+            observation = ScenarioObservation(),
+            mode = ScenarioEngine.SelectionMode.DISABLED,
+            overridesByUid = { mapOf(1001 to "wlan1") }
+        )
+        assertNull(disabled.activeId)
+        assertEquals(mapOf(1001 to "wlan0"), disabled.effectiveRules)
+
+        val pausedWithProfiles = ScenarioEngine.resolve(
+            base = mapOf(1001 to "wlan0", 1002 to "rmnet0"),
+            profiles = listOf(plan),
+            observation = ScenarioObservation(),
+            mode = ScenarioEngine.SelectionMode.AUTOMATIC,
+            overridesByUid = { mapOf(1001 to "wlan1") },
+            routingPaused = true
+        )
+        assertNull(pausedWithProfiles.activeId)
+        assertTrue(pausedWithProfiles.effectiveRules.isEmpty())
+        assertEquals(2, pausedWithProfiles.forcedDefault)
+
+        val pausedWithoutProfiles = ScenarioEngine.resolve(
+            base = mapOf(1001 to "wlan0"),
+            profiles = emptyList(),
+            observation = ScenarioObservation(),
+            routingPaused = true
+        )
+        assertTrue(pausedWithoutProfiles.effectiveRules.isEmpty())
+        assertEquals(1, pausedWithoutProfiles.forcedDefault)
+    }
 }

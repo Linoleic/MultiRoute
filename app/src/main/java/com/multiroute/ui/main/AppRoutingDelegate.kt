@@ -18,6 +18,7 @@ import com.multiroute.util.SuHelper
 import com.multiroute.util.VpnRouteLoopGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -387,143 +388,162 @@ internal class AppRoutingDelegate(
         }
     }
 
-    fun loadInstalledApps() {
+    fun loadInstalledApps(userInitiated: Boolean = false) {
         loadAppsJob?.cancel()
-        loadAppsJob = scope.launch {
-            if (allApps.isEmpty() || uiStateFlow.value.routing.isInstalledAppsIncomplete) {
+        lateinit var currentJob: Job
+        currentJob = scope.launch(start = CoroutineStart.LAZY) {
+            if (userInitiated) {
+                uiStateFlow.update { it.copy(routing = it.routing.copy(isRefreshingApps = true)) }
+            } else if (allApps.isEmpty() || uiStateFlow.value.routing.isInstalledAppsIncomplete) {
                 uiStateFlow.update { it.copy(routing = it.routing.copy(isLoadingApps = true)) }
             }
 
-            val pm = application.packageManager
-            val previousSecondary = allApps.filter { it.userId > 0 }
-            val (loaded, enumerationIncomplete, secondaryScanFailed) = withContext(Dispatchers.IO) {
-                val packageMap = mutableMapOf<String, AppItem>()
-                var launcherScanFailed = false
-                var installedAppsScanFailed = false
+            try {
+                val pm = application.packageManager
+                val previousSecondary = allApps.filter { it.userId > 0 }
+                val (loaded, enumerationIncomplete, secondaryScanFailed) = withContext(Dispatchers.IO) {
+                    val packageMap = mutableMapOf<String, AppItem>()
+                    var launcherScanFailed = false
+                    var installedAppsScanFailed = false
 
-                try {
-                    val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                        addCategory(Intent.CATEGORY_LAUNCHER)
-                    }
-                    val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
-                    for (ri in resolveInfos) {
-                        val pkg = ri.activityInfo.packageName
-                        if (pkg == application.packageName) continue
-                        val appName = ri.loadLabel(pm).toString()
-                        val icon = runCatching { ri.loadIcon(pm) }.getOrNull()
-                        val isSystem = (ri.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                        val uid = ri.activityInfo.applicationInfo.uid
+                    try {
+                        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                            addCategory(Intent.CATEGORY_LAUNCHER)
+                        }
+                        val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+                        for (ri in resolveInfos) {
+                            val pkg = ri.activityInfo.packageName
+                            if (pkg == application.packageName) continue
+                            val appName = ri.loadLabel(pm).toString()
+                            val icon = runCatching { ri.loadIcon(pm) }.getOrNull()
+                            val isSystem = (ri.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                            val uid = ri.activityInfo.applicationInfo.uid
 
-                        packageMap[pkg] = AppItem(
-                            packageName = pkg,
-                            appName = appName,
-                            icon = icon,
-                            uid = uid,
-                            targetChannelId = CHANNEL_DEFAULT,
-                            isSystemApp = isSystem
-                        )
-                    }
-                } catch (c: CancellationException) {
-                    throw c
-                } catch (t: Throwable) {
-                    launcherScanFailed = true
-                    Log.w(TAG, "Launcher activity enumeration failed: ${t.message}")
-                }
-
-                try {
-                    val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                    for (app in installed) {
-                        if (app.packageName == application.packageName) continue
-                        if (!packageMap.containsKey(app.packageName)) {
-                            val appName = runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(app.packageName)
-                            val icon = runCatching { pm.getApplicationIcon(app) }.getOrNull()
-                            val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-
-                            packageMap[app.packageName] = AppItem(
-                                packageName = app.packageName,
+                            packageMap[pkg] = AppItem(
+                                packageName = pkg,
                                 appName = appName,
                                 icon = icon,
-                                uid = app.uid,
+                                uid = uid,
                                 targetChannelId = CHANNEL_DEFAULT,
                                 isSystemApp = isSystem
                             )
                         }
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (t: Throwable) {
+                        launcherScanFailed = true
+                        Log.w(TAG, "Launcher activity enumeration failed: ${t.message}")
                     }
-                } catch (c: CancellationException) {
-                    throw c
-                } catch (t: Throwable) {
-                    installedAppsScanFailed = true
-                    Log.w(TAG, "Installed package enumeration failed: ${t.message}")
-                }
 
-                // OEM clone spaces (Xiaomi XSpace = user 999) and work profiles
-                var secondaryFailed = false
-                try {
-                    val scan = SuHelper.querySecondaryUserInstalls()
-                    if (scan.succeeded) {
-                        for (installs in scan.installs) {
-                            for ((pkg, uid) in installs.packageUids) {
-                                if (pkg == application.packageName) continue
-                                val key = RouteRuleBuilder.ruleKey(pkg, installs.userId)
-                                if (packageMap.containsKey(key)) continue
-                                val base = packageMap[pkg]
-                                packageMap[key] = AppItem(
-                                    packageName = pkg,
-                                    appName = "${base?.appName ?: pkg} (${installs.userId})",
-                                    icon = base?.icon,
-                                    uid = uid,
+                    try {
+                        val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                        for (app in installed) {
+                            if (app.packageName == application.packageName) continue
+                            if (!packageMap.containsKey(app.packageName)) {
+                                val appName = runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(app.packageName)
+                                val icon = runCatching { pm.getApplicationIcon(app) }.getOrNull()
+                                val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+
+                                packageMap[app.packageName] = AppItem(
+                                    packageName = app.packageName,
+                                    appName = appName,
+                                    icon = icon,
+                                    uid = app.uid,
                                     targetChannelId = CHANNEL_DEFAULT,
-                                    isSystemApp = base?.isSystemApp ?: false,
-                                    userId = installs.userId
+                                    isSystemApp = isSystem
                                 )
                             }
                         }
-                    } else {
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (t: Throwable) {
+                        installedAppsScanFailed = true
+                        Log.w(TAG, "Installed package enumeration failed: ${t.message}")
+                    }
+
+                    // OEM clone spaces (Xiaomi XSpace = user 999) and work profiles
+                    var secondaryFailed = false
+                    try {
+                        val scan = SuHelper.querySecondaryUserInstalls()
+                        if (scan.succeeded) {
+                            for (installs in scan.installs) {
+                                for ((pkg, uid) in installs.packageUids) {
+                                    if (pkg == application.packageName) continue
+                                    val key = RouteRuleBuilder.ruleKey(pkg, installs.userId)
+                                    if (packageMap.containsKey(key)) continue
+                                    val base = packageMap[pkg]
+                                    packageMap[key] = AppItem(
+                                        packageName = pkg,
+                                        appName = "${base?.appName ?: pkg} (${installs.userId})",
+                                        icon = base?.icon,
+                                        uid = uid,
+                                        targetChannelId = CHANNEL_DEFAULT,
+                                        isSystemApp = base?.isSystemApp ?: false,
+                                        userId = installs.userId
+                                    )
+                                }
+                            }
+                        } else {
+                            secondaryFailed = true
+                            for (cached in previousSecondary) {
+                                packageMap.putIfAbsent(cached.ruleKey, cached)
+                            }
+                        }
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (t: Throwable) {
                         secondaryFailed = true
+                        Log.w(TAG, "Secondary-user enumeration failed: ${t.message}", t)
                         for (cached in previousSecondary) {
                             packageMap.putIfAbsent(cached.ruleKey, cached)
                         }
                     }
-                } catch (c: CancellationException) {
-                    throw c
-                } catch (t: Throwable) {
-                    secondaryFailed = true
-                    Log.w(TAG, "Secondary-user enumeration failed: ${t.message}", t)
-                    for (cached in previousSecondary) {
-                        packageMap.putIfAbsent(cached.ruleKey, cached)
-                    }
+
+                    // Treat any failed source as a partial snapshot. The launcher query can
+                    // still provide a fallback list when installed-app access is restricted,
+                    // and retained clone entries are useful but cannot prove that scan complete.
+                    val incomplete = launcherScanFailed || installedAppsScanFailed || secondaryFailed
+                    Triple(packageMap.values.toList(), incomplete, secondaryFailed)
                 }
 
-                // Treat any failed source as a partial snapshot. The launcher query can
-                // still provide a fallback list when installed-app access is restricted,
-                // and retained clone entries are useful but cannot prove that scan complete.
-                val incomplete = launcherScanFailed || installedAppsScanFailed || secondaryFailed
-                Triple(packageMap.values.toList(), incomplete, secondaryFailed)
-            }
+                if (secondaryScanFailed) {
+                    Log.w(TAG, "Retained ${previousSecondary.size} cached clone app(s) after secondary-user scan failure")
+                }
 
-            if (secondaryScanFailed) {
-                Log.w(TAG, "Retained ${previousSecondary.size} cached clone app(s) after secondary-user scan failure")
-            }
-
-            val currentRules = RouteConfigProvider.getAllRules(application)
-            packageNamesByUid = loaded.groupBy({ it.uid }, { it.packageName })
-            allApps = loaded.map {
-                it.copy(targetChannelId = currentRules[it.ruleKey] ?: CHANNEL_DEFAULT)
-            }.sortedWith(
-                compareByDescending<AppItem> { it.packageName == PROBE_PACKAGE }
-                    .thenBy { if (it.packageName == PROBE_PACKAGE) it.userId else 0 }
-                    .thenByDescending { it.targetChannelId != CHANNEL_DEFAULT }
-                    .thenBy { it.isSystemApp }
-                    .thenBy { it.appName.lowercase() }
-            )
-            filterApps()
-            uiStateFlow.update {
-                it.copy(routing = it.routing.copy(
-                    isLoadingApps = false,
-                    isInstalledAppsIncomplete = enumerationIncomplete
-                ))
+                val currentRules = RouteConfigProvider.getAllRules(application)
+                packageNamesByUid = loaded.groupBy({ it.uid }, { it.packageName })
+                val baseLoaded = sortInstalledApps(
+                    loaded.map { it.copy(targetChannelId = currentRules[it.ruleKey] ?: CHANNEL_DEFAULT) }
+                )
+                val editingId = uiStateFlow.value.scenario.scenarioEditId
+                if (editingId != null) {
+                    val editingOverrides = ScenarioStore.load(application).firstOrNull { it.id == editingId }?.overrides.orEmpty()
+                    allApps = sortInstalledApps(
+                        loaded.map {
+                            it.copy(targetChannelId = editingOverrides[it.ruleKey] ?: currentRules[it.ruleKey] ?: CHANNEL_DEFAULT)
+                        }
+                    )
+                    uiStateFlow.update { it.copy(routing = it.routing.copy(baseApps = baseLoaded)) }
+                } else {
+                    allApps = baseLoaded
+                }
+                filterApps()
+                uiStateFlow.update {
+                    it.copy(routing = it.routing.copy(isInstalledAppsIncomplete = enumerationIncomplete))
+                }
+                if (userInitiated) {
+                    onRefreshEnvironment()
+                }
+            } finally {
+                if (loadAppsJob === currentJob) {
+                    uiStateFlow.update {
+                        it.copy(routing = it.routing.copy(isLoadingApps = false, isRefreshingApps = false))
+                    }
+                }
             }
         }
+        loadAppsJob = currentJob
+        currentJob.start()
     }
 
     fun filterApps() {
@@ -582,3 +602,11 @@ internal fun matchesProxyGatewayRule(ruleKey: String, configuredRuleKeys: Set<St
 
 internal fun shouldShowSystemAppsForTopology(target: String, apps: List<AppItem>): Boolean =
     target != CHANNEL_DEFAULT && target != FILTER_PROXY_EGRESS && apps.isNotEmpty() && apps.all { it.isSystemApp }
+
+internal fun sortInstalledApps(apps: List<AppItem>): List<AppItem> = apps.sortedWith(
+    compareByDescending<AppItem> { it.packageName == "com.multiroute.probe" }
+        .thenBy { if (it.packageName == "com.multiroute.probe") it.userId else 0 }
+        .thenByDescending { it.targetChannelId != CHANNEL_DEFAULT }
+        .thenBy { it.isSystemApp }
+        .thenBy { it.appName.lowercase() }
+)

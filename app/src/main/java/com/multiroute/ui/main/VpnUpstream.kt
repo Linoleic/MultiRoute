@@ -85,12 +85,13 @@ internal fun rememberVpnUpstream(
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val override = remember(channels, scenario, packages, uid) {
+        if (scenario.routingPaused) return@remember null
         val keys = packages.map { vpnOwnerRuleKey(it, uid) }.toSet()
         val observation = ScenarioObservation.fromChannels(channels)
         val selected = ScenarioEngine.selectProfiles(
             scenario.scenarioProfiles,
             observation,
-            if (scenario.scenarioManualMode) ScenarioEngine.SelectionMode.MANUAL else ScenarioEngine.SelectionMode.AUTOMATIC,
+            scenario.scenarioMode,
             scenario.manualScenarioIds
         )
         selected.asReversed().firstNotNullOfOrNull { profile ->
@@ -105,7 +106,8 @@ internal fun rememberVpnUpstream(
             } else null
         }
     }
-    val effectiveTarget = override?.second ?: baseTarget.takeIf { uid > 0 }
+    val effectiveTarget = if (scenario.routingPaused && uid > 0) CHANNEL_DEFAULT
+        else override?.second ?: baseTarget.takeIf { uid > 0 }
     return VpnUpstream(
         ownerName = ownerName,
         ownerTarget = ownerTarget,
