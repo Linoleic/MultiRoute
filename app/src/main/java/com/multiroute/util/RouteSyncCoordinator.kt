@@ -354,6 +354,33 @@ internal class RouteSyncCoordinator(
         return resolution
     }
 
+    fun reconcileAndGetBaseUidRules(context: Context): Map<Int, String> {
+        val packageRules = RouteConfigProvider.getAllRules(context)
+        val existingUidRules = RouteConfigProvider.getUidRules(context)
+        val hasSecondaryRules = packageRules.keys.any { RouteRuleBuilder.parseRuleKey(it).second > 0 }
+        val secondaryResult = if (hasSecondaryRules) querySecondaryUserInstalls() else null
+        val secondaryInstalls = secondaryResult?.installs.orEmpty()
+        val secondaryLookupFailed = secondaryResult != null && !secondaryResult.succeeded
+        val fresh = RouteConfigProvider.reconcileUidRulesMap(
+            packageRules = packageRules,
+            existingUidRules = existingUidRules,
+            resolveUid = { ruleKey ->
+                val (pkg, userId) = RouteRuleBuilder.parseRuleKey(ruleKey)
+                if (pkg.isEmpty()) -1
+                else if (userId <= 0) {
+                    runCatching { context.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
+                } else {
+                    secondaryInstalls.firstOrNull { it.userId == userId }?.packageUids?.get(pkg) ?: -1
+                }
+            },
+            secondaryLookupFailed = secondaryLookupFailed
+        )
+        if (RouteConfigProvider.replaceUidRules(context, fresh)) {
+            Log.i(TAG, "Reconciled base UID rules: ${existingUidRules.size} -> ${fresh.size}")
+        }
+        return fresh
+    }
+
     suspend fun syncAllRouteRules(context: Context): Boolean = withContext(Dispatchers.IO) {
         syncMutex.withLock { syncAllRouteRulesInternal(context) }
     }
@@ -364,7 +391,7 @@ internal class RouteSyncCoordinator(
         val keepAliveValue = if (RouteConfigProvider.isKeepSlaveWifiScreenOff(context)) "1" else "0"
         shell.executeCommand("setprop persist.multiroute.keep_slave_wifi $keepAliveValue")
 
-        val baseUidRules = RouteConfigProvider.getUidRules(context)
+        val baseUidRules = reconcileAndGetBaseUidRules(context)
         val profiles = ScenarioStore.load(context)
         val scenarioTargets = profiles.filter { it.enabled }.flatMap { it.overrides.values }
         val configuredInterfaces = (baseUidRules.filterKeys(RouteRuleBuilder::isValidUid).values + scenarioTargets)

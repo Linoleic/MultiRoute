@@ -370,6 +370,43 @@ class RouteConfigProvider : ContentProvider() {
             else sp.edit().putString(KEY_MERGED_CELLULAR_UIDS, text).apply()
         }
 
+        internal fun reconcileUidRulesMap(
+            packageRules: Map<String, String>,
+            existingUidRules: Map<Int, String>,
+            resolveUid: (String) -> Int,
+            secondaryLookupFailed: Boolean = false
+        ): Map<Int, String> {
+            val fresh = mutableMapOf<Int, String>()
+            for ((ruleKey, channelId) in packageRules) {
+                val uid = resolveUid(ruleKey)
+                if (RouteRuleBuilder.isValidUid(uid)) {
+                    fresh[uid] = channelId
+                }
+            }
+            if (secondaryLookupFailed && packageRules.keys.any { RouteRuleBuilder.parseRuleKey(it).second > 0 }) {
+                for ((uid, channelId) in existingUidRules) {
+                    if (uid >= 100_000 && uid !in fresh) {
+                        fresh[uid] = channelId
+                    }
+                }
+            }
+            return fresh
+        }
+
+        fun replaceUidRules(context: Context, freshUidRules: Map<Int, String>): Boolean {
+            if (getUidRules(context) == freshUidRules) return false
+            val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            val editor = sp.edit()
+            sp.all.keys.filter { Regex("uid_[0-9]+").matches(it) }.forEach(editor::remove)
+            freshUidRules.forEach { (uid, channelId) ->
+                if (RouteRuleBuilder.isValidUid(uid) && isValidChannelId(channelId)) {
+                    editor.putString("uid_$uid", channelId)
+                }
+            }
+            editor.apply()
+            return true
+        }
+
         fun clearAllRules(context: Context) {
             val sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val editor = sp.edit()
