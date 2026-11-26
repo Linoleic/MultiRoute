@@ -5,6 +5,22 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.11.0-beta.2 - 2026-11-26
+
+**中文**
+
+### 修复
+
+- 修复断开或关闭 WLAN 后 `NetworkUtils` 回退读取 `dumpsys wifi` 历史残留 SSID 的问题，并为场景自动评估增加活跃 Wi-Fi 链路数守卫（`wifiLinkCount > 0`），解决「连接指定 Wi-Fi 自动暂停分流」在断开 Wi-Fi 后无法自动恢复，以及双 Wi-Fi 管理/热点上游选择器残留旧 WLAN 的问题。
+- 重构个人热点检测与排除逻辑：改用 nl80211 `type AP`、`dumpsys wifi` SoftAP 字段、`dumpsys tethering` 平台声明的 `tetherableWifiRegexs` 与 `NET_CAPABILITY_LOCAL_NETWORK` 共同判定，移除对端口名前缀的硬编码猜想以兼容各机型与双频并发热点桥接口。
+
+**English**
+
+### Fixed
+
+- Fixed `NetworkUtils` falling back to stale `dumpsys wifi` SSIDs after Wi-Fi disconnect/disable and guarded scenario root SSID lookup on `wifiLinkCount > 0`, fixing both lingering WLAN display in Dual Wi-Fi Manager / Hotspot Upstream Picker and SSID-triggered pause scenarios failing to auto-resume on Wi-Fi disconnect.
+- Refactored personal hotspot detection and exclusion to rely on nl80211 `type AP`, `dumpsys wifi` SoftAP fields, `dumpsys tethering` platform `tetherableWifiRegexs`, and `NET_CAPABILITY_LOCAL_NETWORK` instead of hardcoded interface-name prefixes, improving compatibility across devices and dual-band SoftAP bridges.
+
 ## v1.11.0-beta.1 - 2026-11-26
 
 **中文**
