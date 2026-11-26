@@ -362,7 +362,7 @@ private fun AppRulesContent(
                         }
                     }
 
-                    if (uiState.routing.filterByEffectiveChannel && uiState.scenario.activeScenarioIds.isNotEmpty() && uiState.scenarioEditId == null) {
+                    if (uiState.routing.filterByEffectiveChannel && uiState.scenario.activeScenarioIds.isNotEmpty()) {
                         Text(
                             stringResource(R.string.topology_effective_filter_hint),
                             style = MaterialTheme.typography.bodySmall,
@@ -442,7 +442,7 @@ private fun AppRulesContent(
                         app = app,
                         channels = uiState.channels,
                         stackChannel = stackChannel,
-                        gatewayTarget = proxy.gatewayAppTargets[app.ruleKey].takeIf { uiState.scenarioEditId == null },
+                        gatewayTarget = proxy.gatewayAppTargets[app.ruleKey],
                         isVpnOwner = app.uid > 0 && uiState.channels.any { it.isVpn && it.vpnOwnerUid == app.uid },
                         modifier = Modifier.animateItem(
                             fadeInSpec = AppMotion.itemFade(),

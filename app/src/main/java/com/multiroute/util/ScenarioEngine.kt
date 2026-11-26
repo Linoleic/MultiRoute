@@ -237,4 +237,25 @@ object ScenarioEngine {
             unresolved = unresolved
         )
     }
+
+    /**
+     * Reorders [profiles] according to [orderedIds], appending any unlisted profiles in their original order,
+     * and assigns sequential priorities (`10, 20, ...`).
+     */
+    fun reorderProfiles(profiles: List<ScenarioProfile>, orderedIds: List<String>): List<ScenarioProfile> {
+        if (profiles.isEmpty()) return emptyList()
+        val byId = profiles.associateBy { it.id }
+        val seen = linkedSetOf<String>()
+        val reordered = mutableListOf<ScenarioProfile>()
+        for (id in orderedIds) {
+            val profile = byId[id] ?: continue
+            if (seen.add(id)) reordered += profile
+        }
+        for (profile in profiles) {
+            if (seen.add(profile.id)) reordered += profile
+        }
+        return reordered.mapIndexed { index, profile ->
+            profile.copy(priority = (index + 1) * 10)
+        }
+    }
 }

@@ -108,8 +108,8 @@ data class ScenarioUiState(
     val manualScenarioIds: Set<String> = emptySet(),
     val showScenarioSheet: Boolean = false,
     val showScenarioSaveDialog: Boolean = false,
-    /** id of the plan whose overrides are being edited; null when assignments go to the base. */
-    val scenarioEditId: String? = null,
+    /** id of the plan whose dedicated overrides editor sheet is open; completely decoupled from base routing. */
+    val scenarioOverridesId: String? = null,
     val scenarioDetailsId: String? = null,
     val showScenarioDetailsDialog: Boolean = false
 ) {
@@ -205,7 +205,7 @@ data class MainUiState(
     val manualScenarioIds: Set<String> get() = scenario.manualScenarioIds
     val showScenarioSheet: Boolean get() = scenario.showScenarioSheet
     val showScenarioSaveDialog: Boolean get() = scenario.showScenarioSaveDialog
-    val scenarioEditId: String? get() = scenario.scenarioEditId
+    val scenarioOverridesId: String? get() = scenario.scenarioOverridesId
     val scenarioDetailsId: String? get() = scenario.scenarioDetailsId
     val showScenarioDetailsDialog: Boolean get() = scenario.showScenarioDetailsDialog
 

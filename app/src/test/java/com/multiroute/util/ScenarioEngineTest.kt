@@ -482,4 +482,16 @@ class ScenarioEngineTest {
             )
         )
     }
+
+    @Test
+    fun testReorderProfilesReassignsPrioritiesAndPreservesUnlisted() {
+        val a = ScenarioProfile("a", "A", priority = 10, trigger = ScenarioTrigger.Always)
+        val b = ScenarioProfile("b", "B", priority = 20, trigger = ScenarioTrigger.Always)
+        val c = ScenarioProfile("c", "C", priority = 30, trigger = ScenarioTrigger.Always)
+
+        val reordered = ScenarioEngine.reorderProfiles(listOf(a, b, c), listOf("c", "unknown", "a"))
+
+        assertEquals(listOf("c", "a", "b"), reordered.map { it.id })
+        assertEquals(listOf(10, 20, 30), reordered.map { it.priority })
+    }
 }

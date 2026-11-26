@@ -68,13 +68,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             application = getApplication(),
             scope = viewModelScope,
             uiStateFlow = _uiState,
-            onRefreshEnvironment = { envDelegate.refreshEnvironment() },
-            onRefreshScenario = { scenarioDelegate.refreshScenarioState() },
-            onPlanOverrideValue = { channelId -> scenarioDelegate.planOverrideValue(channelId) },
-            onAddBatchScenarioOverrides = { editingId, keys, channelId ->
-                scenarioDelegate.addOverridesToScenario(editingId, keys, channelId)
-            },
-            onFinishScenarioEdit = { scenarioDelegate.finishEditingScenario() }
+            onRefreshEnvironment = { envDelegate.refreshEnvironment() }
         )
     }
 
@@ -82,9 +76,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         ScenarioDelegate(
             application = getApplication(),
             scope = viewModelScope,
-            uiStateFlow = _uiState,
-            transformAllApps = { transform -> appRoutingDelegate.transformAllApps(transform) },
-            onFilterApps = { appRoutingDelegate.filterApps() }
+            uiStateFlow = _uiState
         )
     }
 
@@ -263,9 +255,37 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         trigger: ScenarioTrigger,
         bypassBaseRules: Boolean = false
     ) = scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules)
-    fun startEditingScenario(id: String) = scenarioDelegate.startEditingScenario(id)
-    fun finishEditingScenario() = scenarioDelegate.finishEditingScenario()
+    fun openScenarioOverrides(id: String) = scenarioDelegate.openScenarioOverrides(id)
+    fun closeScenarioOverrides(reopenSheet: Boolean = true) = scenarioDelegate.closeScenarioOverrides(reopenSheet)
+    fun setScenarioOverrides(id: String, ruleKeys: Set<String>, targetValue: String) {
+        val state = _uiState.value
+        val targetChannel = state.channels.firstOrNull {
+            it.id == targetValue || it.interfaceName == targetValue
+        }?.takeIf { it.isVpn }
+        val allowedKeys = if (targetChannel != null) {
+            val appsByKey = state.routing.baseApps.associateBy { it.ruleKey }
+            ruleKeys.filter { key ->
+                val app = appsByKey[key]
+                app == null || !appRoutingDelegate.isVpnSelfLoop(targetChannel, app)
+            }.toSet()
+        } else {
+            ruleKeys
+        }
+        if (allowedKeys.isEmpty()) {
+            if (ruleKeys.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(snackBarMessage = getApplication<Application>().getString(com.multiroute.R.string.routing_batch_vpn_unavailable))
+                }
+            }
+            return
+        }
+        scenarioDelegate.setScenarioOverrides(id, allowedKeys, targetValue)
+    }
+    fun removeScenarioOverride(id: String, ruleKey: String) = scenarioDelegate.removeScenarioOverride(id, ruleKey)
+    fun removeScenarioOverrides(id: String, ruleKeys: Set<String>) = scenarioDelegate.removeScenarioOverrides(id, ruleKeys)
     fun moveScenario(id: String, delta: Int) = scenarioDelegate.moveScenario(id, delta)
+    fun reorderScenarios(orderedIds: List<String>) = scenarioDelegate.reorderScenarios(orderedIds)
+    fun setScenarioEnabled(id: String, enabled: Boolean) = scenarioDelegate.setScenarioEnabled(id, enabled)
     fun openScenarioDetails(id: String) = scenarioDelegate.openScenarioDetails(id)
     fun closeScenarioDetails() = scenarioDelegate.closeScenarioDetails()
     fun saveScenarioDetails(

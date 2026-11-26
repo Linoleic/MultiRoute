@@ -77,10 +77,12 @@ fun MainScreen(
         }
     }
 
-    LaunchedEffect(uiState.snackBarMessage) {
-        uiState.snackBarMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.dismissSnackBar()
+    LaunchedEffect(uiState.snackBarMessage, uiState.scenarioOverridesId) {
+        if (uiState.scenarioOverridesId == null) {
+            uiState.snackBarMessage?.let {
+                snackbarHostState.showSnackbar(it)
+                viewModel.dismissSnackBar()
+            }
         }
     }
 
@@ -157,14 +159,9 @@ fun MainScreen(
                                 transitionSpec = { AppMotion.content() using null },
                                 label = "topBarTitle"
                             ) { selectionMode ->
-                                val editingName = uiState.scenarioEditId?.let { id ->
-                                    uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
-                                }
                                 Text(
                                     text = if (selectionMode) {
-                                        editingName?.let {
-                                            stringResource(com.multiroute.R.string.scenario_editing, it)
-                                        } ?: stringResource(com.multiroute.R.string.ui_batch_title)
+                                        stringResource(com.multiroute.R.string.ui_batch_title)
                                     } else "MultiRoute",
                                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                     maxLines = if (selectionMode) 2 else 1,
@@ -215,12 +212,7 @@ fun MainScreen(
                                         )
                                     }
                                 } else {
-                                    val editingName = uiState.scenarioEditId?.let { id ->
-                                        uiState.scenarioProfiles.firstOrNull { it.id == id }?.name
-                                    }
-                                    val actionLabel = editingName?.let {
-                                        stringResource(R.string.scenario_editing, it)
-                                    } ?: uiState.activeScenarioName?.let {
+                                    val actionLabel = uiState.activeScenarioName?.let {
                                         stringResource(R.string.scenario_current, it)
                                     } ?: if (uiState.scenarioMode == com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED) {
                                         stringResource(R.string.scenario_mode_disabled_chip)
@@ -228,13 +220,9 @@ fun MainScreen(
                                         stringResource(R.string.scenario_default)
                                     }
                                     val onScenarioAction: () -> Unit = {
-                                        if (uiState.scenarioEditId != null) {
-                                            viewModel.finishEditingScenario()
-                                        } else {
-                                            viewModel.openScenarioSheet()
-                                        }
+                                        viewModel.openScenarioSheet()
                                     }
-                                    val isHighlighted = uiState.activeScenarioName != null || editingName != null
+                                    val isHighlighted = uiState.activeScenarioName != null
                                     val scenarioColor = if (isHighlighted) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
@@ -258,10 +246,7 @@ fun MainScreen(
                                                 )
                                             ) {
                                                 Icon(
-                                                    painterResource(
-                                                        if (uiState.scenarioEditId != null) R.drawable.ic_symbol_check
-                                                        else R.drawable.ic_symbol_layers
-                                                    ),
+                                                    painterResource(R.drawable.ic_symbol_layers),
                                                     contentDescription = actionLabel
                                                 )
                                             }
@@ -273,7 +258,7 @@ fun MainScreen(
                                             shapes = ButtonDefaults.shapes(),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             colors = ButtonDefaults.filledTonalButtonColors(
-                                                containerColor = if (uiState.activeScenarioName != null || editingName != null) {
+                                                containerColor = if (isHighlighted) {
                                                     MaterialTheme.colorScheme.secondaryContainer
                                                 } else {
                                                     MaterialTheme.colorScheme.surfaceContainerHigh
@@ -282,10 +267,7 @@ fun MainScreen(
                                             )
                                         ) {
                                             Icon(
-                                                painterResource(
-                                                    if (uiState.scenarioEditId != null) R.drawable.ic_symbol_check
-                                                    else R.drawable.ic_symbol_layers
-                                                ),
+                                                painterResource(R.drawable.ic_symbol_layers),
                                                 contentDescription = null,
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -417,7 +399,7 @@ fun MainScreen(
                     if (uiState.selectedAppForSheet != null) {
                         val app = uiState.selectedAppForSheet!!
                         val proxy by viewModel.proxyUpstream.state.collectAsStateWithLifecycle()
-                        val showGateway = uiState.scenarioEditId == null && RouteRuleBuilder.isValidUid(app.uid)
+                        val showGateway = RouteRuleBuilder.isValidUid(app.uid)
                         val canConfigureGateway = showGateway && uiState.channels.none { it.isVpn && it.vpnOwnerUid == app.uid }
                         fun openGatewayPreview() {
                             val vpn = uiState.supportedAndroidVpn
@@ -636,9 +618,10 @@ fun MainScreen(
                             onClearManual = { viewModel.clearManualScenario() },
                             onSaveCurrent = { viewModel.openScenarioSaveDialog() },
                             onDelete = { viewModel.deleteScenario(it) },
-                            onEditOverrides = { viewModel.startEditingScenario(it) },
+                            onEditOverrides = { viewModel.openScenarioOverrides(it) },
                             onEditDetails = { viewModel.openScenarioDetails(it) },
-                            onMove = { id, delta -> viewModel.moveScenario(id, delta) },
+                            onReorder = viewModel::reorderScenarios,
+                            onSetEnabled = viewModel::setScenarioEnabled,
                             onDismiss = { viewModel.closeScenarioSheet() }
                         )
                     }
@@ -691,6 +674,21 @@ fun MainScreen(
                 }
             )
         }
+        val editedScenarioProfile = uiState.scenarioOverridesId?.let { editId ->
+            uiState.scenarioProfiles.firstOrNull { it.id == editId }
+        }
+        ScenarioOverridesOverlay(
+            profile = editedScenarioProfile,
+            allProfiles = uiState.scenarioProfiles,
+            installedApps = uiState.routing.baseApps,
+            channels = uiState.channels,
+            snackBarMessage = uiState.snackBarMessage,
+            isVpnSelfLoop = viewModel::isVpnSelfLoop,
+            onSetOverrides = { id, keys, target -> viewModel.setScenarioOverrides(id, keys, target) },
+            onRemoveOverrides = { id, keys -> viewModel.removeScenarioOverrides(id, keys) },
+            onDismissSnackBar = viewModel::dismissSnackBar,
+            onDismiss = { viewModel.closeScenarioOverrides(reopenSheet = true) }
+        )
     }
 }
 

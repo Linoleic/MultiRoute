@@ -33,7 +33,7 @@ import com.multiroute.util.HotspotHookState
 import com.multiroute.util.NetworkUtils
 import com.multiroute.wifi.DualWifiStatus
 
-private data class ChannelPickerEntry(
+internal data class ChannelPickerEntry(
     val key: String,
     val title: String,
     val subtitle: String,
@@ -604,7 +604,7 @@ internal fun BatchChannelSelectBottomSheet(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ChannelPickerSheet(
+internal fun ChannelPickerSheet(
     singleChoice: Boolean,
     onDismiss: () -> Unit,
     content: LazyListScope.() -> Unit
@@ -632,7 +632,7 @@ private fun ChannelPickerSheet(
 }
 
 @Composable
-private fun ChannelPickerHeader(title: String, subtitle: String, app: AppItem? = null) {
+internal fun ChannelPickerHeader(title: String, subtitle: String, app: AppItem? = null) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(bottom = RoutingDimensions.rowVerticalPadding),
         horizontalArrangement = Arrangement.spacedBy(RoutingDimensions.rowContentGap),
@@ -651,7 +651,7 @@ private fun ChannelPickerHeader(title: String, subtitle: String, app: AppItem? =
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ChannelOption(
+internal fun ChannelOption(
     entry: ChannelPickerEntry,
     index: Int,
     count: Int
@@ -725,7 +725,7 @@ private fun ChannelOption(
 private fun NetworkChannel.matchesTarget(app: AppItem) = id == app.targetChannelId || interfaceName == app.targetChannelId
 
 @Composable
-private fun channelOptionSubtitle(channel: NetworkChannel): String {
+internal fun channelOptionSubtitle(channel: NetworkChannel): String {
     val ssid = channel.ssid?.let { " [$it]" }.orEmpty()
     val ip = channel.ipAddress ?: stringResource(R.string.ui_no_ip)
     val default = if (channel.isDefault) stringResource(R.string.channel_current_default) else ""

@@ -8,7 +8,6 @@ import android.util.Log
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.RuleTarget
-import com.multiroute.data.ScenarioStore
 import com.multiroute.model.AppItem
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
@@ -34,11 +33,7 @@ internal class AppRoutingDelegate(
     private val application: Application,
     private val scope: CoroutineScope,
     private val uiStateFlow: MutableStateFlow<MainUiState>,
-    private val onRefreshEnvironment: () -> Unit,
-    private val onRefreshScenario: () -> Unit,
-    private val onPlanOverrideValue: (String) -> String,
-    private val onAddBatchScenarioOverrides: (String, Set<String>, String) -> Unit,
-    private val onFinishScenarioEdit: () -> Unit
+    private val onRefreshEnvironment: () -> Unit
 ) {
     private var allApps: List<AppItem> = emptyList()
     private var packageNamesByUid: Map<Int, List<String>> = emptyMap()
@@ -49,10 +44,6 @@ internal class AppRoutingDelegate(
     private companion object {
         const val TAG = "MultiRoute-AppScan"
         const val PROBE_PACKAGE = "com.multiroute.probe"
-    }
-
-    fun transformAllApps(transform: (AppItem) -> AppItem) {
-        allApps = allApps.map(transform)
     }
 
     fun getAllAppsSnapshot(): List<AppItem> = allApps
@@ -85,12 +76,6 @@ internal class AppRoutingDelegate(
     }
 
     fun exitSelectionMode() {
-        // Leaving the selection also ends scenario edit mode: everything assigned there is already stored
-        // in the plan, so nothing is lost, and the app list goes back to the base configuration.
-        if (uiStateFlow.value.scenario.scenarioEditId != null) {
-            onFinishScenarioEdit()
-            return
-        }
         uiStateFlow.update {
             it.copy(
                 routing = it.routing.copy(
@@ -157,13 +142,6 @@ internal class AppRoutingDelegate(
                     it.copy(snackBarMessage = application.getString(R.string.routing_batch_vpn_unavailable))
                 }
             }
-            return
-        }
-
-        // While a plan is being edited the selection lands in that plan instead of the base configuration -
-        // that is what edit mode is for, and it keeps the routing screen meaning "the default plan".
-        state.scenario.scenarioEditId?.let { editingId ->
-            onAddBatchScenarioOverrides(editingId, keys, channelId)
             return
         }
 
@@ -275,29 +253,6 @@ internal class AppRoutingDelegate(
             return
         }
 
-        // Same rule as the batch path: while editing a plan, a single assignment belongs to that plan.
-        state.scenario.scenarioEditId?.let { editingId ->
-            val profile = ScenarioStore.load(application).firstOrNull { it.id == editingId }
-            if (profile != null) {
-                val overrides = profile.overrides.toMutableMap()
-                overrides[app.ruleKey] = onPlanOverrideValue(channelId)
-                ScenarioStore.upsert(application, profile.copy(overrides = overrides))
-                allApps = allApps.map {
-                    if (it.ruleKey == app.ruleKey) it.copy(targetChannelId = channelId) else it
-                }
-                uiStateFlow.update {
-                    it.copy(
-                        navigation = it.navigation.copy(selectedAppForSheet = null),
-                        snackBarMessage = application.getString(R.string.scenario_override_added, 1, profile.name)
-                    )
-                }
-                filterApps()
-                onRefreshScenario()
-                scope.launch { withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(application) } }
-                return
-            }
-        }
-
         saveBaseRoute(RuleTarget(app.ruleKey, app.uid), channelId)
     }
 
@@ -335,18 +290,16 @@ internal class AppRoutingDelegate(
 
     private fun saveBaseRoute(target: RuleTarget, channelId: String) {
         RouteConfigProvider.setTargetChannel(application, target, channelId)
-        if (uiStateFlow.value.scenarioEditId == null) {
-            allApps = allApps.map {
-                if (it.ruleKey == target.key) it.copy(targetChannelId = channelId) else it
-            }
-            uiStateFlow.update { state ->
-                val app = state.selectedAppForSheet
-                if (app?.ruleKey == target.key) {
-                    state.copy(navigation = state.navigation.copy(selectedAppForSheet = app.copy(targetChannelId = channelId)))
-                } else state
-            }
-            filterApps()
+        allApps = allApps.map {
+            if (it.ruleKey == target.key) it.copy(targetChannelId = channelId) else it
         }
+        uiStateFlow.update { state ->
+            val app = state.selectedAppForSheet
+            if (app?.ruleKey == target.key) {
+                state.copy(navigation = state.navigation.copy(selectedAppForSheet = app.copy(targetChannelId = channelId)))
+            } else state
+        }
+        filterApps()
 
         scope.launch {
             uiStateFlow.update { it.copy(routing = it.routing.copy(isSyncing = true)) }
@@ -511,22 +464,27 @@ internal class AppRoutingDelegate(
                 }
 
                 val currentRules = RouteConfigProvider.getAllRules(application)
+                if (!enumerationIncomplete && !secondaryScanFailed) {
+                    val uidByRuleKey = loaded.associate { it.ruleKey to it.uid }
+                    val freshUids = RouteConfigProvider.reconcileUidRulesMap(
+                        packageRules = currentRules,
+                        existingUidRules = RouteConfigProvider.getUidRules(application),
+                        resolveUid = { key ->
+                            uidByRuleKey[key] ?: run {
+                                val (pkg, userId) = RouteRuleBuilder.parseRuleKey(key)
+                                if (userId <= 0 && pkg.isNotEmpty()) {
+                                    runCatching { application.packageManager.getPackageUid(pkg, 0) }.getOrDefault(-1)
+                                } else -1
+                            }
+                        },
+                        secondaryLookupFailed = false
+                    )
+                    RouteConfigProvider.replaceUidRules(application, freshUids)
+                }
                 packageNamesByUid = loaded.groupBy({ it.uid }, { it.packageName })
-                val baseLoaded = sortInstalledApps(
+                allApps = sortInstalledApps(
                     loaded.map { it.copy(targetChannelId = currentRules[it.ruleKey] ?: CHANNEL_DEFAULT) }
                 )
-                val editingId = uiStateFlow.value.scenario.scenarioEditId
-                if (editingId != null) {
-                    val editingOverrides = ScenarioStore.load(application).firstOrNull { it.id == editingId }?.overrides.orEmpty()
-                    allApps = sortInstalledApps(
-                        loaded.map {
-                            it.copy(targetChannelId = editingOverrides[it.ruleKey] ?: currentRules[it.ruleKey] ?: CHANNEL_DEFAULT)
-                        }
-                    )
-                    uiStateFlow.update { it.copy(routing = it.routing.copy(baseApps = baseLoaded)) }
-                } else {
-                    allApps = baseLoaded
-                }
                 filterApps()
                 uiStateFlow.update {
                     it.copy(routing = it.routing.copy(isInstalledAppsIncomplete = enumerationIncomplete))
@@ -553,7 +511,7 @@ internal class AppRoutingDelegate(
             val showSys = routing.showSystemApps
             val filterChannel = resolveProxyEgressFilter(routing.filterChannelId, proxyGatewayRuleKeys)
             val channels = state.channelProbe.channels
-            val effectiveTargets = if (routing.filterByEffectiveChannel && state.scenarioEditId == null) {
+            val effectiveTargets = if (routing.filterByEffectiveChannel) {
                 resolveEffectiveAppTargets(allApps, channels, state.scenario).targetsByRuleKey
             } else emptyMap()
             val filterInterface = channels.firstOrNull { it.id == filterChannel }?.interfaceName
@@ -581,7 +539,7 @@ internal class AppRoutingDelegate(
             state.copy(
                 routing = routing.copy(
                     apps = filtered,
-                    baseApps = if (state.scenarioEditId == null) allApps else routing.baseApps,
+                    baseApps = allApps,
                     filterChannelId = filterChannel,
                     proxyGatewayRuleCount = proxyGatewayRuleKeys.size,
                     totalAppsCount = allApps.size,

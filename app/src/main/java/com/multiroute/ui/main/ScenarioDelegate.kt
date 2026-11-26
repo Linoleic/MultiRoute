@@ -4,8 +4,6 @@ import android.app.Application
 import com.multiroute.R
 import com.multiroute.data.RouteConfigProvider
 import com.multiroute.data.ScenarioStore
-import com.multiroute.model.AppItem
-import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.ScenarioObservation
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
@@ -25,9 +23,7 @@ import kotlinx.coroutines.withContext
 internal class ScenarioDelegate(
     private val application: Application,
     private val scope: CoroutineScope,
-    private val uiStateFlow: MutableStateFlow<MainUiState>,
-    private val transformAllApps: ((AppItem) -> AppItem) -> Unit,
-    private val onFilterApps: () -> Unit
+    private val uiStateFlow: MutableStateFlow<MainUiState>
 ) {
 
     private fun syncRules() {
@@ -48,7 +44,7 @@ internal class ScenarioDelegate(
     fun openScenarioSaveDialog() {
         uiStateFlow.update {
             it.copy(
-                scenario = it.scenario.copy(showScenarioSheet = false, showScenarioSaveDialog = true)
+                scenario = it.scenario.copy(showScenarioSaveDialog = true)
             )
         }
     }
@@ -116,6 +112,13 @@ internal class ScenarioDelegate(
 
     fun deleteScenario(id: String) {
         ScenarioStore.delete(application, id)
+        uiStateFlow.update {
+            it.copy(
+                scenario = it.scenario.copy(
+                    scenarioOverridesId = if (it.scenario.scenarioOverridesId == id) null else it.scenario.scenarioOverridesId
+                )
+            )
+        }
         refreshScenarioState()
         syncRules()
     }
@@ -156,39 +159,27 @@ internal class ScenarioDelegate(
         }
     }
 
-    fun startEditingScenario(id: String) {
-        val profile = ScenarioStore.load(application).firstOrNull { it.id == id } ?: return
-        transformAllApps { app ->
-            val override = profile.overrides[app.ruleKey]
-            if (override != null) app.copy(targetChannelId = override) else app
-        }
+    fun openScenarioOverrides(id: String) {
+        refreshScenarioState()
         uiStateFlow.update {
             it.copy(
-                scenario = it.scenario.copy(showScenarioSheet = false, scenarioEditId = id),
-                routing = it.routing.copy(isSelectionMode = true, selectedRuleKeys = profile.overrides.keys),
-                snackBarMessage = application.getString(R.string.scenario_editing, profile.name)
-            )
-        }
-        onFilterApps()
-    }
-
-    fun finishEditingScenario() {
-        val base = RouteConfigProvider.getAllRules(application)
-        transformAllApps { app ->
-            app.copy(targetChannelId = base[app.ruleKey] ?: CHANNEL_DEFAULT)
-        }
-        uiStateFlow.update {
-            it.copy(
-                scenario = it.scenario.copy(scenarioEditId = null),
-                routing = it.routing.copy(
-                    isSelectionMode = false,
-                    selectedRuleKeys = emptySet(),
-                    showBatchAssignSheet = false
+                scenario = it.scenario.copy(
+                    showScenarioSheet = false,
+                    scenarioOverridesId = id
                 )
             )
         }
-        onFilterApps()
-        refreshScenarioState()
+    }
+
+    fun closeScenarioOverrides(reopenSheet: Boolean = true) {
+        uiStateFlow.update {
+            it.copy(
+                scenario = it.scenario.copy(
+                    scenarioOverridesId = null,
+                    showScenarioSheet = reopenSheet
+                )
+            )
+        }
     }
 
     fun planOverrideValue(channelId: String): String =
@@ -197,20 +188,37 @@ internal class ScenarioDelegate(
             ?.let { ScenarioEngine.symbolicSsid(it) }
             ?: channelId
 
-    fun addOverridesToScenario(id: String, ruleKeys: Set<String>, channelId: String) {
+    fun setScenarioOverrides(id: String, ruleKeys: Set<String>, targetValue: String) {
+        if (ruleKeys.isEmpty()) return
         val profile = ScenarioStore.load(application).firstOrNull { it.id == id } ?: return
         val overrides = profile.overrides.toMutableMap()
-        val stored = planOverrideValue(channelId)
+        val stored = planOverrideValue(targetValue)
         ruleKeys.forEach { key -> overrides[key] = stored }
         ScenarioStore.upsert(application, profile.copy(overrides = overrides))
-        transformAllApps { if (it.ruleKey in ruleKeys) it.copy(targetChannelId = channelId) else it }
         uiStateFlow.update {
             it.copy(
-                routing = it.routing.copy(showBatchAssignSheet = false),
                 snackBarMessage = application.getString(R.string.scenario_override_added, ruleKeys.size, profile.name)
             )
         }
-        onFilterApps()
+        refreshScenarioState()
+        syncRules()
+    }
+
+    fun removeScenarioOverride(id: String, ruleKey: String) =
+        removeScenarioOverrides(id, setOf(ruleKey))
+
+    fun removeScenarioOverrides(id: String, ruleKeys: Set<String>) {
+        if (ruleKeys.isEmpty()) return
+        val profile = ScenarioStore.load(application).firstOrNull { it.id == id } ?: return
+        val toRemove = ruleKeys.filter { it in profile.overrides }.toSet()
+        if (toRemove.isEmpty()) return
+        ScenarioStore.upsert(application, profile.copy(overrides = profile.overrides - toRemove))
+        val msg = if (toRemove.size > 1) {
+            application.getString(R.string.scenario_override_removed_batch, toRemove.size, profile.name)
+        } else {
+            application.getString(R.string.scenario_override_removed, profile.name)
+        }
+        uiStateFlow.update { it.copy(snackBarMessage = msg) }
         refreshScenarioState()
         syncRules()
     }
@@ -231,11 +239,37 @@ internal class ScenarioDelegate(
         syncRules()
     }
 
+    fun reorderScenarios(orderedIds: List<String>) {
+        val current = ScenarioStore.load(application)
+        val reordered = ScenarioEngine.reorderProfiles(current, orderedIds)
+        if (reordered == current) return
+        ScenarioStore.save(application, reordered)
+        uiStateFlow.update { it.copy(snackBarMessage = application.getString(R.string.scenario_moved)) }
+        refreshScenarioState()
+        syncRules()
+    }
+
+    fun setScenarioEnabled(id: String, enabled: Boolean) {
+        val profile = ScenarioStore.load(application).firstOrNull { it.id == id } ?: return
+        if (profile.enabled == enabled) return
+        ScenarioStore.upsert(application, profile.copy(enabled = enabled))
+        uiStateFlow.update {
+            it.copy(
+                snackBarMessage = application.getString(
+                    if (enabled) R.string.scenario_plan_enabled_toast
+                    else R.string.scenario_plan_disabled_toast,
+                    profile.name
+                )
+            )
+        }
+        refreshScenarioState()
+        syncRules()
+    }
+
     fun openScenarioDetails(id: String) {
         uiStateFlow.update {
             it.copy(
                 scenario = it.scenario.copy(
-                    showScenarioSheet = false,
                     showScenarioDetailsDialog = true,
                     scenarioDetailsId = id
                 )
