@@ -5,6 +5,7 @@ import com.multiroute.model.ScenarioObservation
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioResolution
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.model.ScenarioVpnCondition
 
 /**
  * Picks the profile that applies and folds its overrides into the base assignments.
@@ -60,6 +61,16 @@ object ScenarioEngine {
         }
     }
 
+    /** True when [condition] holds for [observation]. */
+    fun matchesVpn(condition: ScenarioVpnCondition, observation: ScenarioObservation): Boolean = when (condition) {
+        ScenarioVpnCondition.ANY -> true
+        ScenarioVpnCondition.CONNECTED -> observation.hasVpn
+        ScenarioVpnCondition.DISCONNECTED -> !observation.hasVpn
+    }
+
+    /** True when both [profile]'s primary trigger and its optional VPN constraint hold. */
+    fun matches(profile: ScenarioProfile, observation: ScenarioObservation): Boolean =
+        matches(profile.trigger, observation) && matchesVpn(profile.vpnCondition, observation)
     /** The SSID that made an SSID trigger match, for the UI to show. */
     fun matchedSsid(trigger: ScenarioTrigger, observation: ScenarioObservation): String? {
         if (trigger !is ScenarioTrigger.SsidMatch) return null
@@ -92,7 +103,7 @@ object ScenarioEngine {
         val candidates = when (mode) {
             SelectionMode.DISABLED -> emptyList()
             SelectionMode.MANUAL -> profiles.filter { it.enabled && it.id in manualIds }
-            SelectionMode.AUTOMATIC -> profiles.filter { it.enabled && matches(it.trigger, observation) }
+            SelectionMode.AUTOMATIC -> profiles.filter { it.enabled && matches(it, observation) }
         }
         return candidates.sortedBy { it.priority }
     }

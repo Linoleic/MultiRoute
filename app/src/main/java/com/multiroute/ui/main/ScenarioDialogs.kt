@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.model.ScenarioVpnCondition
 import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.util.NetworkUtils
@@ -388,7 +389,7 @@ fun ScenarioBottomSheet(
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = scenarioTriggerLabel(profile.trigger),
+                                text = scenarioTriggerLabel(profile.trigger, profile.vpnCondition),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -611,17 +612,28 @@ private fun ScenarioModeConfirmation(title: String, message: String, onDismiss: 
 
 /** 触发条件的可读描述，用于方案列表。 */
 @Composable
-fun scenarioTriggerLabel(trigger: ScenarioTrigger): String = when (trigger) {
-    is ScenarioTrigger.SsidMatch -> if (trigger.ssids.isEmpty()) {
-        stringResource(com.multiroute.R.string.scenario_trigger_ssid_empty)
-    } else {
-        stringResource(com.multiroute.R.string.scenario_trigger_ssid) + " " +
-                trigger.ssids.joinToString(" / ")
+fun scenarioTriggerLabel(
+    trigger: ScenarioTrigger,
+    vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
+): String {
+    val base = when (trigger) {
+        is ScenarioTrigger.SsidMatch -> if (trigger.ssids.isEmpty()) {
+            stringResource(com.multiroute.R.string.scenario_trigger_ssid_empty)
+        } else {
+            stringResource(com.multiroute.R.string.scenario_trigger_ssid) + " " +
+                    trigger.ssids.joinToString(" / ")
+        }
+        is ScenarioTrigger.WifiLinkCount -> stringResource(com.multiroute.R.string.scenario_trigger_links2)
+        is ScenarioTrigger.CellularOnly -> stringResource(com.multiroute.R.string.scenario_trigger_cellular)
+        is ScenarioTrigger.Always -> stringResource(com.multiroute.R.string.scenario_trigger_always)
+        is ScenarioTrigger.Manual -> stringResource(com.multiroute.R.string.scenario_trigger_manual)
     }
-    is ScenarioTrigger.WifiLinkCount -> stringResource(com.multiroute.R.string.scenario_trigger_links2)
-    is ScenarioTrigger.CellularOnly -> stringResource(com.multiroute.R.string.scenario_trigger_cellular)
-    is ScenarioTrigger.Always -> stringResource(com.multiroute.R.string.scenario_trigger_always)
-    is ScenarioTrigger.Manual -> stringResource(com.multiroute.R.string.scenario_trigger_manual)
+    if (trigger is ScenarioTrigger.Manual) return base
+    return when (vpnCondition) {
+        ScenarioVpnCondition.CONNECTED -> "$base · ${stringResource(com.multiroute.R.string.scenario_vpn_cond_on_short)}"
+        ScenarioVpnCondition.DISCONNECTED -> "$base · ${stringResource(com.multiroute.R.string.scenario_vpn_cond_off_short)}"
+        ScenarioVpnCondition.ANY -> base
+    }
 }
 
 /**
@@ -631,15 +643,17 @@ fun scenarioTriggerLabel(trigger: ScenarioTrigger): String = when (trigger) {
 @Composable
 fun ScenarioSaveDialog(
     currentSsids: List<String>,
-    onSave: (String, ScenarioTrigger, Boolean) -> Unit,
+    onSave: (String, ScenarioTrigger, Boolean, ScenarioVpnCondition) -> Unit,
     onDismiss: () -> Unit,
     titleRes: Int = com.multiroute.R.string.scenario_save_title,
     initialName: String = "",
     initialTrigger: ScenarioTrigger? = null,
-    initialBypassBaseRules: Boolean = false
+    initialBypassBaseRules: Boolean = false,
+    initialVpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
 ) {
     val name = remember { mutableStateOf(initialName) }
     val bypassBaseRules = remember { mutableStateOf(initialBypassBaseRules) }
+    val vpnCondition = remember { mutableStateOf(initialVpnCondition) }
     val kind = remember {
         mutableStateOf(
             when (initialTrigger) {
@@ -764,6 +778,28 @@ fun ScenarioSaveDialog(
                         }
                     }
                 }
+                if (kind.value != "manual") {
+                    Text(
+                        text = stringResource(com.multiroute.R.string.scenario_vpn_condition_title),
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(
+                            ScenarioVpnCondition.ANY to com.multiroute.R.string.scenario_vpn_cond_any,
+                            ScenarioVpnCondition.CONNECTED to com.multiroute.R.string.scenario_vpn_cond_on,
+                            ScenarioVpnCondition.DISCONNECTED to com.multiroute.R.string.scenario_vpn_cond_off
+                        ).forEach { (cond, labelRes) ->
+                            FilterChip(
+                                selected = vpnCondition.value == cond,
+                                onClick = { vpnCondition.value = cond },
+                                label = { Text(stringResource(labelRes)) }
+                            )
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -796,7 +832,12 @@ fun ScenarioSaveDialog(
                     "manual" -> ScenarioTrigger.Manual
                     else -> ScenarioTrigger.SsidMatch(picked.value.toList())
                 }
-                onSave(name.value, trigger, bypassBaseRules.value)
+                val effectiveVpn = if (trigger is ScenarioTrigger.Manual) {
+                    ScenarioVpnCondition.ANY
+                } else {
+                    vpnCondition.value
+                }
+                onSave(name.value, trigger, bypassBaseRules.value, effectiveVpn)
             }) {
                 Text(stringResource(com.multiroute.R.string.ui_save_apply))
             }

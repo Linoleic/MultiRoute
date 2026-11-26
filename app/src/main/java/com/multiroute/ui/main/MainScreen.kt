@@ -630,8 +630,8 @@ fun MainScreen(
                             currentSsids = uiState.channels
                                 .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
                                 .distinct(),
-                            onSave = { name, trigger, bypassBaseRules ->
-                                viewModel.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules)
+                            onSave = { name, trigger, bypassBaseRules, vpnCondition ->
+                                viewModel.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules, vpnCondition)
                             },
                             onDismiss = { viewModel.closeScenarioSaveDialog() }
                         )
@@ -647,11 +647,12 @@ fun MainScreen(
                                 initialName = edited.name,
                                 initialTrigger = edited.trigger,
                                 initialBypassBaseRules = edited.bypassBaseRules,
+                                initialVpnCondition = edited.vpnCondition,
                                 currentSsids = uiState.channels
                                     .mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } }
                                     .distinct(),
-                                onSave = { name, trigger, bypassBaseRules ->
-                                    viewModel.saveScenarioDetails(edited.id, name, trigger, bypassBaseRules)
+                                onSave = { name, trigger, bypassBaseRules, vpnCondition ->
+                                    viewModel.saveScenarioDetails(edited.id, name, trigger, bypassBaseRules, vpnCondition)
                                 },
                                 onDismiss = { viewModel.closeScenarioDetails() }
                             )

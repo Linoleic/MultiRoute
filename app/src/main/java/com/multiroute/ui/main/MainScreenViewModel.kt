@@ -13,6 +13,7 @@ import com.multiroute.data.RuleTarget
 import com.multiroute.model.AppItem
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.model.ScenarioVpnCondition
 import com.multiroute.util.ChannelTrafficStats
 import com.multiroute.wifi.DualWifiManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -253,8 +254,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun saveCurrentAssignmentsAsScenario(
         name: String,
         trigger: ScenarioTrigger,
-        bypassBaseRules: Boolean = false
-    ) = scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules)
+        bypassBaseRules: Boolean = false,
+        vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
+    ) = scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules, vpnCondition)
     fun openScenarioOverrides(id: String) = scenarioDelegate.openScenarioOverrides(id)
     fun closeScenarioOverrides(reopenSheet: Boolean = true) = scenarioDelegate.closeScenarioOverrides(reopenSheet)
     fun setScenarioOverrides(id: String, ruleKeys: Set<String>, targetValue: String) {
@@ -292,8 +294,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         id: String,
         name: String,
         trigger: ScenarioTrigger,
-        bypassBaseRules: Boolean = false
-    ) = scenarioDelegate.saveScenarioDetails(id, name, trigger, bypassBaseRules)
+        bypassBaseRules: Boolean = false,
+        vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
+    ) = scenarioDelegate.saveScenarioDetails(id, name, trigger, bypassBaseRules, vpnCondition)
 
     // ------------------------------------------------------------------ Config Transfer
     fun exportConfigToFile() = configDelegate.exportConfigToFile()

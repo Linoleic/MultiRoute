@@ -28,6 +28,9 @@ sealed class ScenarioTrigger {
     object Manual : ScenarioTrigger()
 }
 
+/** Optional VPN state constraint combined with a profile's primary [ScenarioTrigger]. */
+enum class ScenarioVpnCondition { ANY, CONNECTED, DISCONNECTED }
+
 /** One profile: what it is called, when it applies, and which apps it overrides. */
 data class ScenarioProfile(
     val id: String,
@@ -36,6 +39,8 @@ data class ScenarioProfile(
     /** Lower wins. Ties are broken by the order the profiles are listed in. */
     val priority: Int = 100,
     val trigger: ScenarioTrigger,
+    /** Optional VPN state constraint evaluated alongside [trigger] in automatic mode. */
+    val vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY,
     /** When true, clears all base routing rules while active (apps fall back to system default). */
     val bypassBaseRules: Boolean = false,
     /**
@@ -51,6 +56,7 @@ data class ScenarioObservation(
     val wifiSsids: List<String> = emptyList(),
     val wifiLinkCount: Int = 0,
     val hasCellular: Boolean = false,
+    val hasVpn: Boolean = false,
     /**
      * SSID → interface name for the links that are up. Lets an override be written as "the Wi-Fi whose
      * SSID is X" instead of naming an interface: which interface is `wlan0` and which is `wlan1` swaps
@@ -66,6 +72,7 @@ data class ScenarioObservation(
                 wifiSsids = wifi.mapNotNull { it.ssid?.takeIf { ssid -> ssid.isNotBlank() } },
                 wifiLinkCount = wifi.size,
                 hasCellular = channels.any { it.transportType == "cellular" && !it.isHotspot },
+                hasVpn = channels.any { it.isVpn && !it.isHotspot },
                 ssidToInterface = wifi.mapNotNull { channel ->
                     channel.ssid?.takeIf { it.isNotBlank() }?.let { it to channel.interfaceName }
                 }.toMap()

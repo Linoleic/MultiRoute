@@ -494,4 +494,106 @@ class ScenarioEngineTest {
         assertEquals(listOf("c", "a", "b"), reordered.map { it.id })
         assertEquals(listOf(10, 20, 30), reordered.map { it.priority })
     }
+
+    @Test
+    fun testVpnConditionCombinesWithTriggersAndIgnoresManualMode() {
+        val cellularVpnBypass = ScenarioProfile(
+            id = "cell_vpn",
+            name = "Cellular + VPN",
+            trigger = ScenarioTrigger.CellularOnly,
+            vpnCondition = com.multiroute.model.ScenarioVpnCondition.CONNECTED,
+            bypassBaseRules = true
+        )
+        val homeNoVpn = ScenarioProfile(
+            id = "home_no_vpn",
+            name = "Home no VPN",
+            trigger = ScenarioTrigger.SsidMatch(listOf("Home")),
+            vpnCondition = com.multiroute.model.ScenarioVpnCondition.DISCONNECTED,
+            overrides = mapOf("a" to "wlan0")
+        )
+        val base = mapOf(1001 to "rmnet_data0")
+
+        // Cellular + VPN on -> matches and pauses base routing.
+        val cellWithVpn = ScenarioEngine.resolve(
+            base = base,
+            profiles = listOf(cellularVpnBypass, homeNoVpn),
+            observation = ScenarioObservation(wifiLinkCount = 0, hasCellular = true, hasVpn = true),
+            overridesByUid = { emptyMap() }
+        )
+        assertEquals("cell_vpn", cellWithVpn.activeId)
+        assertTrue(cellWithVpn.effectiveRules.isEmpty())
+
+        // Cellular + VPN off -> does not match, base routing stays active.
+        val cellNoVpn = ScenarioEngine.resolve(
+            base = base,
+            profiles = listOf(cellularVpnBypass, homeNoVpn),
+            observation = ScenarioObservation(wifiLinkCount = 0, hasCellular = true, hasVpn = false),
+            overridesByUid = { emptyMap() }
+        )
+        assertNull(cellNoVpn.activeId)
+        assertEquals(base, cellNoVpn.effectiveRules)
+
+        // Wi-Fi + VPN on -> neither CellularOnly+CONNECTED nor Home+DISCONNECTED matches.
+        val wifiWithVpn = ScenarioEngine.resolve(
+            base = base,
+            profiles = listOf(cellularVpnBypass, homeNoVpn),
+            observation = ScenarioObservation(wifiSsids = listOf("Home"), wifiLinkCount = 1, hasVpn = true),
+            overridesByUid = { mapOf(1001 to "wlan0") }
+        )
+        assertNull(wifiWithVpn.activeId)
+        assertEquals(base, wifiWithVpn.effectiveRules)
+
+        // Wi-Fi + VPN off -> Home+DISCONNECTED matches.
+        val wifiNoVpn = ScenarioEngine.resolve(
+            base = base,
+            profiles = listOf(cellularVpnBypass, homeNoVpn),
+            observation = ScenarioObservation(wifiSsids = listOf("Home"), wifiLinkCount = 1, hasVpn = false),
+            overridesByUid = { mapOf(1001 to "wlan0") }
+        )
+        assertEquals("home_no_vpn", wifiNoVpn.activeId)
+        assertEquals(mapOf(1001 to "wlan0"), wifiNoVpn.effectiveRules)
+
+        // Manual mode ignores vpnCondition.
+        val manual = ScenarioEngine.resolve(
+            base = base,
+            profiles = listOf(cellularVpnBypass),
+            observation = ScenarioObservation(wifiLinkCount = 1, hasVpn = false),
+            mode = ScenarioEngine.SelectionMode.MANUAL,
+            manualIds = setOf("cell_vpn"),
+            overridesByUid = { emptyMap() }
+        )
+        assertEquals("cell_vpn", manual.activeId)
+        assertTrue(manual.effectiveRules.isEmpty())
+    }
+
+    @Test
+    fun testObservationFromChannelsDetectsVpn() {
+        val noVpn = ScenarioObservation.fromChannels(
+            listOf(
+                com.multiroute.model.NetworkChannel(
+                    id = "wlan0",
+                    interfaceName = "wlan0",
+                    transportType = "WLAN",
+                    shortName = "wlan0",
+                    ssid = "Home",
+                    ipAddress = "192.168.1.2"
+                )
+            )
+        )
+        assertFalse(noVpn.hasVpn)
+
+        val withVpn = ScenarioObservation.fromChannels(
+            listOf(
+                com.multiroute.model.NetworkChannel(
+                    id = "tun0",
+                    interfaceName = "tun0",
+                    transportType = "vpn",
+                    shortName = "tun0",
+                    ipAddress = "10.0.0.2",
+                    isVpn = true
+                )
+            )
+        )
+        assertTrue(withVpn.hasVpn)
+    }
 }

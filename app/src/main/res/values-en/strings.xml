@@ -596,6 +596,12 @@
     <string name="scenario_trigger_cellular">Cellular only</string>
     <string name="scenario_trigger_always">Always</string>
     <string name="scenario_trigger_manual">Manual only</string>
+    <string name="scenario_vpn_condition_title">VPN condition</string>
+    <string name="scenario_vpn_cond_any">Any</string>
+    <string name="scenario_vpn_cond_on">When VPN is on</string>
+    <string name="scenario_vpn_cond_off">When VPN is off</string>
+    <string name="scenario_vpn_cond_on_short">VPN on</string>
+    <string name="scenario_vpn_cond_off_short">VPN off</string>
     <string name="scenario_no_ssid">No Wi-Fi is connected right now, so matching by name is not possible.</string>
     <string name="scenario_reason_ssid">Matched Wi-Fi: %1$s</string>
     <string name="scenario_reason_links2">Matched: two Wi-Fi links</string>

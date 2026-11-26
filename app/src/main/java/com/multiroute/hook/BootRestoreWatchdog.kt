@@ -415,9 +415,10 @@ internal class BootRestoreWatchdog(
                 val configured = runCatching {
                     File(RouteRuleBuilder.CONFIGURED_ROUTE_INTERFACES).readText().trim().split(' ').toSet()
                 }.getOrDefault(emptySet())
-                val shouldSync = changed.any { it in configured }
+                val shouldSync = changed.any { it in configured } || hasScenarioPlans()
                 changed.clear()
                 if (shouldSync) {
+                    onRefreshVpnUids()
                     syncInFlight = true
                     worker.execute {
                         try {

@@ -7,6 +7,7 @@ import com.multiroute.data.ScenarioStore
 import com.multiroute.model.ScenarioObservation
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.model.ScenarioVpnCondition
 import com.multiroute.util.ScenarioEngine
 import com.multiroute.util.SuHelper
 import kotlinx.coroutines.CoroutineScope
@@ -126,7 +127,8 @@ internal class ScenarioDelegate(
     fun saveCurrentAssignmentsAsScenario(
         name: String,
         trigger: ScenarioTrigger,
-        bypassBaseRules: Boolean = false
+        bypassBaseRules: Boolean = false,
+        vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
     ) {
         val overrides = if (bypassBaseRules) emptyMap() else RouteConfigProvider.getAllRules(application)
         if (name.isBlank() || (!bypassBaseRules && overrides.isEmpty())) {
@@ -139,12 +141,14 @@ internal class ScenarioDelegate(
             }
             return
         }
+        val effectiveVpn = if (trigger is ScenarioTrigger.Manual) ScenarioVpnCondition.ANY else vpnCondition
         ScenarioStore.upsert(
             application,
             ScenarioProfile(
                 id = "s" + System.currentTimeMillis(),
                 name = name.trim(),
                 trigger = trigger,
+                vpnCondition = effectiveVpn,
                 bypassBaseRules = bypassBaseRules,
                 overrides = overrides
             )
@@ -292,13 +296,20 @@ internal class ScenarioDelegate(
         id: String,
         name: String,
         trigger: ScenarioTrigger,
-        bypassBaseRules: Boolean = false
+        bypassBaseRules: Boolean = false,
+        vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
     ) {
         val profile = ScenarioStore.load(application).firstOrNull { it.id == id } ?: return
         if (name.isBlank()) return
+        val effectiveVpn = if (trigger is ScenarioTrigger.Manual) ScenarioVpnCondition.ANY else vpnCondition
         ScenarioStore.upsert(
             application,
-            profile.copy(name = name.trim(), trigger = trigger, bypassBaseRules = bypassBaseRules)
+            profile.copy(
+                name = name.trim(),
+                trigger = trigger,
+                vpnCondition = effectiveVpn,
+                bypassBaseRules = bypassBaseRules
+            )
         )
         uiStateFlow.update {
             it.copy(

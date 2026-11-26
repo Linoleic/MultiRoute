@@ -336,6 +336,9 @@ object ConfigTransfer {
             if (p.has("enabled")) p.boolean("enabled")
             if (p.has("priority")) p.integer("priority")
             if (p.has("bypassBaseRules")) p.boolean("bypassBaseRules")
+            if (p.has("vpnCondition")) {
+                require(p.string("vpnCondition") in setOf("any", "connected", "disconnected"))
+            }
             val trigger = p.obj("trigger")
             when (trigger.string("kind")) {
                 "ssid" -> require(trigger.stringArray("ssids").all { it.isNotBlank() && it.length <= 32 })

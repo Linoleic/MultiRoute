@@ -592,6 +592,12 @@
     <string name="scenario_trigger_cellular">仅蜂窝</string>
     <string name="scenario_trigger_always">始终</string>
     <string name="scenario_trigger_manual">仅手动</string>
+    <string name="scenario_vpn_condition_title">VPN 状态条件</string>
+    <string name="scenario_vpn_cond_any">不限</string>
+    <string name="scenario_vpn_cond_on">VPN 开启时</string>
+    <string name="scenario_vpn_cond_off">VPN 关闭时</string>
+    <string name="scenario_vpn_cond_on_short">VPN 已开启</string>
+    <string name="scenario_vpn_cond_off_short">VPN 未开启</string>
     <string name="scenario_no_ssid">当前没有已连接的 Wi-Fi，无法按名称匹配。</string>
     <string name="scenario_reason_ssid">命中 Wi-Fi：%1$s</string>
     <string name="scenario_reason_links2">命中：双 Wi-Fi 在线</string>

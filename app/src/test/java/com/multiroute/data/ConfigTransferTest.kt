@@ -206,4 +206,36 @@ class ConfigTransferTest {
         assertEquals("disabled", parsed.mode)
         assertEquals(true, parsed.routingPaused)
     }
+
+    @Test
+    fun scenarioVpnConditionRoundTripsAndRejectsInvalidValues() {
+        val connectedProfile = profile("cell_vpn").put("vpnCondition", "connected")
+        val disconnectedProfile = profile("home_novpn").put("vpnCondition", "disconnected")
+        val root = document().put(
+            "scenarios",
+            JSONObject()
+                .put("profiles", org.json.JSONArray().put(connectedProfile).put(disconnectedProfile))
+                .put("mode", "auto")
+                .put("manualIds", org.json.JSONArray())
+        )
+        val parsed = ConfigTransfer.parse(root.toString())!!
+        assertEquals(
+            com.multiroute.model.ScenarioVpnCondition.CONNECTED,
+            parsed.profiles[0].vpnCondition
+        )
+        assertEquals(
+            com.multiroute.model.ScenarioVpnCondition.DISCONNECTED,
+            parsed.profiles[1].vpnCondition
+        )
+
+        val invalidProfile = profile("bad").put("vpnCondition", "always")
+        val badRoot = document().put(
+            "scenarios",
+            JSONObject()
+                .put("profiles", org.json.JSONArray().put(invalidProfile))
+                .put("mode", "auto")
+                .put("manualIds", org.json.JSONArray())
+        )
+        assertNull(ConfigTransfer.parse(badRoot.toString()))
+    }
 }

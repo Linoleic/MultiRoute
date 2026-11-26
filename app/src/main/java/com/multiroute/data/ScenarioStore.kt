@@ -3,6 +3,7 @@ package com.multiroute.data
 import android.content.Context
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
+import com.multiroute.model.ScenarioVpnCondition
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -32,6 +33,8 @@ object ScenarioStore {
     private const val KIND_SSID = "ssid"
     private const val KIND_LINK_COUNT = "wifi_links"
     private const val KIND_CELLULAR_ONLY = "cellular_only"
+    private const val VPN_CONNECTED = "connected"
+    private const val VPN_DISCONNECTED = "disconnected"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -188,6 +191,11 @@ object ScenarioStore {
             put("enabled", profile.enabled)
             put("priority", profile.priority)
             put("trigger", trigger)
+            when (profile.vpnCondition) {
+                ScenarioVpnCondition.CONNECTED -> put("vpnCondition", VPN_CONNECTED)
+                ScenarioVpnCondition.DISCONNECTED -> put("vpnCondition", VPN_DISCONNECTED)
+                ScenarioVpnCondition.ANY -> Unit
+            }
             if (profile.bypassBaseRules) put("bypassBaseRules", true)
             put("overrides", overrides)
         }
@@ -214,12 +222,18 @@ object ScenarioStore {
             val value = overridesJson.optString(key)
             if (key.isNotBlank() && value.isNotBlank()) overrides[key] = value
         }
+        val vpnCondition = when (json.optString("vpnCondition")) {
+            VPN_CONNECTED -> ScenarioVpnCondition.CONNECTED
+            VPN_DISCONNECTED -> ScenarioVpnCondition.DISCONNECTED
+            else -> ScenarioVpnCondition.ANY
+        }
         return ScenarioProfile(
             id = json.optString("id").ifBlank { return missingId() },
             name = json.optString("name"),
             enabled = json.optBoolean("enabled", true),
             priority = json.optInt("priority", 100),
             trigger = trigger,
+            vpnCondition = vpnCondition,
             bypassBaseRules = json.optBoolean("bypassBaseRules", false),
             overrides = overrides
         )
