@@ -258,7 +258,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         vpnCondition: ScenarioVpnCondition = ScenarioVpnCondition.ANY
     ) = scenarioDelegate.saveCurrentAssignmentsAsScenario(name, trigger, bypassBaseRules, vpnCondition)
     fun openScenarioOverrides(id: String) = scenarioDelegate.openScenarioOverrides(id)
-    fun closeScenarioOverrides(reopenSheet: Boolean = true) = scenarioDelegate.closeScenarioOverrides(reopenSheet)
+    fun closeScenarioOverrides() = scenarioDelegate.closeScenarioOverrides()
     fun setScenarioOverrides(id: String, ruleKeys: Set<String>, targetValue: String) {
         val state = _uiState.value
         val targetChannel = state.channels.firstOrNull {

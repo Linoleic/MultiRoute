@@ -1,14 +1,9 @@
 package com.multiroute.ui.main
 
-import androidx.activity.BackEventCompat
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.PredictiveBackHandler
-import androidx.compose.animation.AnimatedContent
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,7 +14,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -36,8 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -48,7 +42,11 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.multiroute.R
 import com.multiroute.cellular.CellularTargets
 import com.multiroute.model.AppItem
@@ -56,15 +54,11 @@ import com.multiroute.model.CHANNEL_DEFAULT
 import com.multiroute.model.NetworkChannel
 import com.multiroute.model.ScenarioProfile
 import com.multiroute.model.ScenarioTrigger
-import com.multiroute.theme.AppMotion
 import com.multiroute.theme.RoutingDimensions
-import com.multiroute.theme.ThemeSettings
 import com.multiroute.util.NetworkUtils
 import com.multiroute.util.ScenarioEngine
 import com.multiroute.wifi.DualWifiScanParser
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal data class ResolvedScenarioTarget(
@@ -229,110 +223,81 @@ internal fun ScenarioOverridesOverlay(
     onDismissSnackBar: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val usePredictive = ThemeSettings.predictiveBack
-    val backProgress = remember { Animatable(0f) }
-    var backEdge by remember { mutableIntStateOf(BackEventCompat.EDGE_LEFT) }
-    val backScope = rememberCoroutineScope()
-    val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val activeProfile = profile ?: return
+    var isSelectionMode by remember(activeProfile.id) { mutableStateOf(false) }
+    var selectedKeys by remember(activeProfile.id) { mutableStateOf<Set<String>>(emptySet()) }
+    val transitionState = remember(activeProfile.id) {
+        MutableTransitionState(false).apply { targetState = true }
+    }
+    var isDismissing by remember(activeProfile.id) { mutableStateOf(false) }
 
-    LaunchedEffect(profile?.id) {
-        if (profile != null && backProgress.value != 0f) {
-            backProgress.snapTo(0f)
+    val requestClose: () -> Unit = {
+        if (!isDismissing) {
+            isDismissing = true
+            transitionState.targetState = false
         }
     }
-    LaunchedEffect(usePredictive) {
-        if (!usePredictive && backProgress.value != 0f) {
-            backProgress.snapTo(0f)
+
+    LaunchedEffect(transitionState.isIdle, transitionState.currentState, isDismissing) {
+        if (isDismissing && transitionState.isIdle && !transitionState.currentState) {
+            onDismiss()
         }
     }
 
-    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
-    val inEffects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
-    val outEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-
-    AnimatedContent(
-        targetState = profile,
-        contentKey = { it?.id },
-        modifier = Modifier.fillMaxSize(),
-        transitionSpec = {
-            val transform = if (targetState != null) {
-                (slideInHorizontally(spatial) { it / 4 } + fadeIn(inEffects)) togetherWith ExitTransition.None
-            } else if (usePredictive) {
-                EnterTransition.None togetherWith (scaleOut(targetScale = 0.86f, animationSpec = settleSpec) +
-                    slideOutHorizontally(spatial) { if (backEdge == BackEventCompat.EDGE_RIGHT) -it / 6 else it / 6 } +
-                    fadeOut(outEffects))
+    Dialog(
+        onDismissRequest = {
+            if (isSelectionMode) {
+                isSelectionMode = false
+                selectedKeys = emptySet()
             } else {
-                EnterTransition.None togetherWith (slideOutHorizontally(spatial) { it / 4 } + fadeOut(outEffects))
+                requestClose()
             }
-            transform using null
         },
-        label = "scenarioOverridesOverlay"
-    ) { activeProfile ->
-        if (activeProfile != null) {
-            var isSelectionMode by remember(activeProfile.id) { mutableStateOf(false) }
-            var selectedKeys by remember(activeProfile.id) { mutableStateOf<Set<String>>(emptySet()) }
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            dialogWindow?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            dialogWindow?.setDimAmount(0f)
+            dialogWindow?.setWindowAnimations(0)
+        }
+        val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+        val inEffects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+        val outEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
 
-            val handleBack: () -> Unit = {
-                if (isSelectionMode) {
-                    isSelectionMode = false
-                    selectedKeys = emptySet()
-                } else {
-                    onDismiss()
-                }
-            }
-
-            BackHandler(enabled = !usePredictive || isSelectionMode) {
-                handleBack()
-            }
-            PredictiveBackHandler(enabled = usePredictive && !isSelectionMode) { events ->
-                try {
-                    events.collect { event ->
-                        backEdge = event.swipeEdge
-                        backProgress.snapTo(event.progress.coerceIn(0f, 1f))
-                    }
-                    onDismiss()
-                } catch (e: CancellationException) {
-                    backScope.launch { backProgress.animateTo(0f, animationSpec = settleSpec) }
-                    throw e
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val p = backProgress.value
-                        if (p > 0f) {
-                            val scale = 1f - 0.12f * p
-                            scaleX = scale
-                            scaleY = scale
-                            val edgeDir = if (backEdge == BackEventCompat.EDGE_RIGHT) -1f else 1f
-                            translationX = edgeDir * 24.dp.toPx() * p
-                            shape = RoundedCornerShape(28.dp * p)
-                            clip = true
-                            shadowElevation = (12.dp * p).toPx()
-                        }
-                    }
-                    .background(MaterialTheme.colorScheme.surface)
+        Box(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visibleState = transitionState,
+                enter = slideInHorizontally(spatial) { it / 4 } + fadeIn(inEffects),
+                exit = slideOutHorizontally(spatial) { it / 4 } + fadeOut(outEffects)
             ) {
-                ScenarioOverridesScreenContent(
-                    profile = activeProfile,
-                    allProfiles = allProfiles,
-                    installedApps = installedApps,
-                    channels = channels,
-                    snackBarMessage = snackBarMessage,
-                    isSelectionMode = isSelectionMode,
-                    selectedKeys = selectedKeys,
-                    onSelectionModeChange = { nextMode, nextSelected ->
-                        isSelectionMode = nextMode
-                        selectedKeys = nextSelected
-                    },
-                    isVpnSelfLoop = isVpnSelfLoop,
-                    onSetOverrides = { keys, target -> onSetOverrides(activeProfile.id, keys, target) },
-                    onRemoveOverrides = { keys -> onRemoveOverrides(activeProfile.id, keys) },
-                    onDismissSnackBar = onDismissSnackBar,
-                    onBack = onDismiss
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                ) {
+                    ScenarioOverridesScreenContent(
+                        profile = activeProfile,
+                        allProfiles = allProfiles,
+                        installedApps = installedApps,
+                        channels = channels,
+                        snackBarMessage = snackBarMessage,
+                        isSelectionMode = isSelectionMode,
+                        selectedKeys = selectedKeys,
+                        onSelectionModeChange = { nextMode, nextSelected ->
+                            isSelectionMode = nextMode
+                            selectedKeys = nextSelected
+                        },
+                        isVpnSelfLoop = isVpnSelfLoop,
+                        onSetOverrides = { keys, target -> onSetOverrides(activeProfile.id, keys, target) },
+                        onRemoveOverrides = { keys -> onRemoveOverrides(activeProfile.id, keys) },
+                        onDismissSnackBar = onDismissSnackBar,
+                        onBack = requestClose
+                    )
+                }
             }
         }
     }

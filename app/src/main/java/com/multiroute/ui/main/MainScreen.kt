@@ -688,7 +688,7 @@ fun MainScreen(
             onSetOverrides = { id, keys, target -> viewModel.setScenarioOverrides(id, keys, target) },
             onRemoveOverrides = { id, keys -> viewModel.removeScenarioOverrides(id, keys) },
             onDismissSnackBar = viewModel::dismissSnackBar,
-            onDismiss = { viewModel.closeScenarioOverrides(reopenSheet = true) }
+            onDismiss = { viewModel.closeScenarioOverrides() }
         )
     }
 }

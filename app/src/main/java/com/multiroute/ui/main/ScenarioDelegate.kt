@@ -167,21 +167,15 @@ internal class ScenarioDelegate(
         refreshScenarioState()
         uiStateFlow.update {
             it.copy(
-                scenario = it.scenario.copy(
-                    showScenarioSheet = false,
-                    scenarioOverridesId = id
-                )
+                scenario = it.scenario.copy(scenarioOverridesId = id)
             )
         }
     }
 
-    fun closeScenarioOverrides(reopenSheet: Boolean = true) {
+    fun closeScenarioOverrides() {
         uiStateFlow.update {
             it.copy(
-                scenario = it.scenario.copy(
-                    scenarioOverridesId = null,
-                    showScenarioSheet = reopenSheet
-                )
+                scenario = it.scenario.copy(scenarioOverridesId = null)
             )
         }
     }
