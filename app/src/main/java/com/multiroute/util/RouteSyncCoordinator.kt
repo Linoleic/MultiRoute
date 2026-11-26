@@ -310,10 +310,7 @@ internal class RouteSyncCoordinator(
         val channels = runCatching { NetworkUtils.getActiveChannels(context) }.getOrDefault(emptyList())
         var observation = ScenarioObservation.fromChannels(channels)
 
-        val needsSsids = profiles.any {
-            it.enabled && it.trigger is ScenarioTrigger.SsidMatch
-        }
-        if (needsSsids && observation.wifiSsids.isEmpty()) {
+        if (shouldQueryRootWifiSsids(profiles, observation)) {
             val fromRoot = runCatching { NetworkUtils.getConnectedWifiSsids().values.toList() }
                 .getOrDefault(emptyList())
             observation = observation.copy(wifiSsids = fromRoot.filter { it.isNotBlank() }.distinct())
@@ -597,3 +594,10 @@ internal class RouteSyncCoordinator(
         RouteConfigProvider.setMergedCellularUids(context, ourContribution)
     }
 }
+
+internal fun shouldQueryRootWifiSsids(
+    profiles: List<com.multiroute.model.ScenarioProfile>,
+    observation: ScenarioObservation
+): Boolean = observation.wifiLinkCount > 0 &&
+    observation.wifiSsids.isEmpty() &&
+    profiles.any { it.enabled && it.trigger is ScenarioTrigger.SsidMatch }

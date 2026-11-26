@@ -450,4 +450,36 @@ class ScenarioEngineTest {
         assertTrue(pausedWithoutProfiles.effectiveRules.isEmpty())
         assertEquals(1, pausedWithoutProfiles.forcedDefault)
     }
+
+    @Test
+    fun shouldQueryRootWifiSsidsRequiresActiveWifiLink() {
+        val ssidPlan = ScenarioProfile("s", "S", trigger = ScenarioTrigger.SsidMatch(listOf("Home")))
+        val disabledSsidPlan = ssidPlan.copy(enabled = false)
+        val cellularPlan = ScenarioProfile("c", "C", trigger = ScenarioTrigger.CellularOnly)
+
+        assertFalse(
+            shouldQueryRootWifiSsids(
+                listOf(ssidPlan),
+                ScenarioObservation(wifiSsids = emptyList(), wifiLinkCount = 0, hasCellular = true)
+            )
+        )
+        assertTrue(
+            shouldQueryRootWifiSsids(
+                listOf(ssidPlan),
+                ScenarioObservation(wifiSsids = emptyList(), wifiLinkCount = 1, hasCellular = true)
+            )
+        )
+        assertFalse(
+            shouldQueryRootWifiSsids(
+                listOf(ssidPlan),
+                ScenarioObservation(wifiSsids = listOf("Home"), wifiLinkCount = 1, hasCellular = true)
+            )
+        )
+        assertFalse(
+            shouldQueryRootWifiSsids(
+                listOf(disabledSsidPlan, cellularPlan),
+                ScenarioObservation(wifiSsids = emptyList(), wifiLinkCount = 1, hasCellular = true)
+            )
+        )
+    }
 }
