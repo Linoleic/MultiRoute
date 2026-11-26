@@ -5,6 +5,42 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.11.0-beta.3 - 2026-11-27
+
+**中文**
+
+### 新增
+
+- 场景方案新增「VPN 状态条件」（不限 / VPN 开启时 / VPN 关闭时），可与「仅蜂窝」「Wi-Fi 名称」「始终」等主条件组合使用（例如「仅蜂窝 + VPN 开启时 + 暂停全部分流」），并支持后台 VPN 上下线自动唤醒同步及配置备份校验。
+- 场景方案列表新增左侧手柄拖拽排序、单方案独立启停开关、删除二次确认以及 Wi-Fi 名称手动输入/系统已保存网络点选。
+- 重构「编辑应用」为完全独立于基础分流的全屏方案应用编辑器，复用分组列表、长按多选与悬浮批量工具栏及通道选择抽屉，完整保留离线通道与未安装应用，支持单/批量移出方案以及选择离线/已保存 Wi-Fi 作为目标通道。
+- 双卡/eSIM 热点共享出口改用稳定的订阅 ID（`sub:<subId>`）绑定以防蜂窝接口名漂移，并扩展蜂窝基带接口前缀识别（`seth`、`pdp`、`wwan`、`v4-rmnet`）。
+
+### 变更
+
+- 优化场景卡片内部布局为单行操作底栏与胶囊状态标签，进入「条件」「保存方案」或「编辑应用」时保持底层抽屉开启并配备平滑进退动画，避免闪烁与重弹。
+
+### 修复
+
+- 修复基础分流在应用卸载或重装更换 UID 后 `uid_<n>` 残留与孤儿 UID 问题：同步与扫描应用时按持久化包名规则实时对账重建 UID 映射，保留包名配置以便重装恢复并在分身扫描失败时安全保留分身 UID。
+
+**English**
+
+### Added
+
+- Added an optional VPN state constraint (`Any` / `When VPN is on` / `When VPN is off`) to scenario plans so it can combine with primary triggers (such as `Cellular only + When VPN is on + Pause all routing`), along with background VPN transition wakeup and backup validation.
+- Added drag-handle priority reordering, per-plan enable switches, delete confirmation, and manual/saved Wi-Fi SSID selection to Scenario Plans.
+- Replaced main-list edit hijacking with a decoupled full-screen Scenario App Overrides editor reusing segmented app rows, multi-select floating toolbar, and the channel picker sheet while preserving offline channels, uninstalled apps, and saved Wi-Fi targets.
+- Pinned dual-SIM/eSIM hotspot upstream selection by stable subscription ID (`sub:<subId>`) to avoid cellular interface drift and expanded modem interface prefix detection (`seth`, `pdp`, `wwan`, `v4-rmnet`).
+
+### Changed
+
+- Streamlined scenario plan cards with a single-row action bar and status pill badges, and kept the Scenario Plans sheet open with smooth slide+fade transitions when opening Details, Save, or Edit Apps.
+
+### Fixed
+
+- Reconciled base `uid_<n>` kernel rules against durable package rules during rule sync and app scans, pruning uninstalled and orphan UIDs and refreshing changed UIDs on reinstall while preserving clone UIDs when secondary-user enumeration fails.
+
 ## v1.11.0-beta.2 - 2026-11-26
 
 **中文**
