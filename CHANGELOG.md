@@ -5,6 +5,35 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.11.0-beta.1 - 2026-11-26
+
+**中文**
+
+### 新增
+
+- 场景方案新增「暂停全部基础分流规则」选项，支持在连上指定 Wi-Fi 时自动暂停所有基础分流（不覆盖或丢失现有配置）。
+- 场景模式新增「停用场景」选项（与自动/手动并列），并将全局「暂停全部分流」开关整合到「应用分流」右上角菜单与「设置 → 分流行为」，暂停时支持顶部横幅一键恢复。
+- 应用分流列表新增下拉刷新，可随时重新扫描已安装/分身应用并按最新规则重排。
+
+### 修复
+
+- 增强 eSIM 订阅发现兼容性：支持跨用户订阅清单、完整活跃订阅列表与卡槽索引补充查询，自动过滤非地面卫星 eSIM，并在蜂窝控制卡片展开区展示清单读取错误。
+- 修复列表模式下已开启的热点网络通道卡片偶发不显示的问题。
+- 修复「DNS 跟随通道」开启时 `MULTIROUTE_DNS` 误劫持活跃 VPN 宿主自身上游 DNS，以及 `OUTPUT DNAT` 二次重路由丢失 UID 导致走偏到默认网口的问题（跳过 VPN 宿主并用 `mangle OUTPUT` fwmark 与 `POSTROUTING MASQUERADE` 保序）。
+
+**English**
+
+### Added
+
+- Added a "Pause all base routing rules" option to scenario plans so all base rules can be suspended automatically when matching conditions (such as a specific Wi-Fi SSID) are active without losing saved rules.
+- Added a "Plans off" mode alongside Automatic and Manual in the Scenario sheet, moved the global "Pause all routing" toggle to the App Rules overflow menu and Settings → Routing behavior (with a 1-tap Resume banner), and added pull-to-refresh to the App List to rescan and re-sort apps.
+
+### Fixed
+
+- Hardened eSIM discovery across user profiles (`createForAllUserProfiles`), complete active subscription lists, and per-slot fallback queries, filtered out non-terrestrial satellite eSIMs, and surfaced inventory read errors in the expanded Cellular Control card.
+- Fixed an issue where an active Hotspot channel could be missing in Channels List mode.
+- Fixed `MULTIROUTE_DNS` hijacking active VPN clients' own upstream DNS queries and losing per-UID routing after `OUTPUT DNAT` rerouting (now excludes active VPN owner UIDs and preserves egress via `mangle OUTPUT` fwmark, `pref 14450` policy rules, and `POSTROUTING MASQUERADE`).
+
 ## v1.10.0 - 2026-11-24
 
 **中文**
