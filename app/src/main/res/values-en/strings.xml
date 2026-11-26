@@ -1064,6 +1064,7 @@
     <string name="tools_network_management">Network management</string>
     <string name="tools_debugging">Debugging and troubleshooting</string>
     <string name="tools_cellular_summary">Manage the non-default data SIM channel</string>
+    <string name="ui_hotspot_upstream_sim_offline">Cellular SIM #%1$d (offline)</string>
     <string name="tools_inventory_loading">Reading SIM status</string>
     <string name="tools_no_secondary_sim">No secondary SIM available</string>
     <string name="tools_not_enabled">Not enabled</string>

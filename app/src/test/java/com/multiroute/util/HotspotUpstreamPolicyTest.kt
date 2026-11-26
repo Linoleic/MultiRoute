@@ -112,4 +112,15 @@ class HotspotUpstreamPolicyTest {
         policy.onNativeTryCell(false)
         assertEquals(Triple(true, false, false), policy.effective())
     }
+
+    @Test fun subscriptionTargetSelectsMatchingSimAndMarksNeedsCellular() {
+        val sim1 = internet.copy(id = 10, iface = "seth_lte0", subscriptions = setOf(3))
+        val sim2 = internet.copy(id = 11, iface = "seth_lte1", subscriptions = setOf(7))
+        assertTrue(HotspotUpstreamPolicy.needsCellular("sub:7"))
+        assertTrue(HotspotUpstreamPolicy.needsCellular("seth_lte0"))
+        assertTrue(HotspotUpstreamPolicy.needsCellular("pdp0"))
+        assertEquals(7, HotspotUpstreamPolicy.subscriptionIdOf("SUB:7"))
+        assertEquals(sim2, HotspotUpstreamPolicy.select("sub:7", listOf(sim1, sim2)))
+        assertNull(HotspotUpstreamPolicy.select("sub:99", listOf(sim1, sim2)))
+    }
 }

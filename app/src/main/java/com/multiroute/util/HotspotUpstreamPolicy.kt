@@ -14,6 +14,16 @@ data class HotspotCandidate(
 )
 
 object HotspotUpstreamPolicy {
+    const val SUBSCRIPTION_PREFIX = "sub:"
+
+    fun subscriptionTarget(subId: Int): String = "$SUBSCRIPTION_PREFIX$subId"
+
+    fun subscriptionIdOf(target: String?): Int? {
+        val normalized = normalize(target)
+        if (!normalized.startsWith(SUBSCRIPTION_PREFIX)) return null
+        return normalized.removePrefix(SUBSCRIPTION_PREFIX).toIntOrNull()?.takeIf { it > 0 }
+    }
+
     fun normalize(target: String?): String = when (val value = target.orEmpty().trim().lowercase()) {
         "", "default" -> "default"
         "mobile", "cellular" -> "cellular"
@@ -23,7 +33,10 @@ object HotspotUpstreamPolicy {
     }
 
     fun needsCellular(target: String): Boolean = normalize(target).let {
-        it == "cellular" || it.startsWith("rmnet") || it.startsWith("ccmni")
+        it == "cellular" || subscriptionIdOf(it) != null ||
+            it.startsWith("rmnet") || it.startsWith("ccmni") ||
+            it.startsWith("seth") || it.startsWith("pdp") ||
+            it.startsWith("wwan") || it.startsWith("v4-rmnet")
     }
 
     fun select(
@@ -36,8 +49,13 @@ object HotspotUpstreamPolicy {
     ): HotspotCandidate? {
         val normalized = normalize(target)
         if (normalized == "default") return null
+        val targetSubId = subscriptionIdOf(normalized)
         return candidates.filter { candidate ->
-            val nameMatches = normalized == "cellular" || candidate.iface.equals(normalized, true)
+            val nameMatches = when {
+                targetSubId != null -> candidate.cellular && targetSubId in candidate.subscriptions
+                normalized == "cellular" -> true
+                else -> candidate.iface.equals(normalized, true)
+            }
             val cellularTarget = needsCellular(normalized) || candidate.cellular
             nameMatches && candidate.iface.isNotBlank() && candidate.hasAddress && candidate.hasDefaultRoute &&
                 (!cellularTarget || (cellularPermitted && candidate.cellular &&

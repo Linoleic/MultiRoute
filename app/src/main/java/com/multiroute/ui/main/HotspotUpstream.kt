@@ -45,9 +45,15 @@ internal fun buildHotspotUpstreamOptions(
     val options = mutableListOf<HotspotUpstreamOption>()
     options += HotspotUpstreamOption(target = "default", isDefault = true)
     for (channel in eligible) {
-        val isSingleCellular = channel.transportType.equals("cellular", ignoreCase = true) && cellularCount == 1
+        val isCellular = channel.transportType.equals("cellular", ignoreCase = true)
+        val isSingleCellular = isCellular && cellularCount == 1
+        val target = when {
+            isSingleCellular -> "cellular"
+            isCellular && channel.subscriptionId > 0 -> HotspotUpstreamPolicy.subscriptionTarget(channel.subscriptionId)
+            else -> channel.interfaceName
+        }
         options += HotspotUpstreamOption(
-            target = if (isSingleCellular) "cellular" else channel.interfaceName,
+            target = target,
             channel = channel
         )
     }
@@ -70,6 +76,23 @@ internal fun buildHotspotUpstreamOptions(
     return options
 }
 
+internal fun isHotspotUpstreamWaiting(
+    target: String,
+    activeIface: String,
+    channels: List<NetworkChannel>
+): Boolean {
+    val normalized = HotspotUpstreamPolicy.normalize(target)
+    if (normalized == "default") return false
+    if (activeIface.isBlank() || activeIface == "none") return true
+    if (normalized == "cellular") return !HotspotUpstreamPolicy.needsCellular(activeIface)
+    val targetSubId = HotspotUpstreamPolicy.subscriptionIdOf(normalized)
+    if (targetSubId != null) {
+        val activeChannel = channels.firstOrNull { it.interfaceName.equals(activeIface, true) }
+        return activeChannel?.subscriptionId != targetSubId
+    }
+    return !normalized.equals(activeIface, true)
+}
+
 @Composable
 internal fun hotspotUpstreamLabel(target: String, channels: List<NetworkChannel>): String {
     val context = LocalContext.current
@@ -80,6 +103,12 @@ internal fun hotspotUpstreamLabel(target: String, channels: List<NetworkChannel>
         val singleCellular = eligible.filter { it.transportType.equals("cellular", ignoreCase = true) }.singleOrNull()
         return if (singleCellular != null) NetworkUtils.channelLabel(context, singleCellular)
         else stringResource(R.string.ui_hotspot_upstream_default_cellular_short)
+    }
+    val targetSubId = HotspotUpstreamPolicy.subscriptionIdOf(normalized)
+    if (targetSubId != null) {
+        val matchedSub = eligible.firstOrNull { it.subscriptionId == targetSubId }
+        return if (matchedSub != null) NetworkUtils.channelLabel(context, matchedSub)
+        else stringResource(R.string.ui_hotspot_upstream_sim_offline, targetSubId)
     }
     val matched = eligible.firstOrNull { it.interfaceName.equals(normalized, ignoreCase = true) }
     return when {

@@ -125,4 +125,18 @@ class HotspotUpstreamTest {
         assertTrue(isHotspotTargetSelected("cellular", "mobile", hasSpecificCellular = false))
         assertTrue(isHotspotTargetSelected("cellular", "rmnet_data3", hasSpecificCellular = false))
     }
+
+    @Test
+    fun dualSimsWithSubscriptionIdsUseStableSubTargetsAndMatchWaitingState() {
+        val s1 = sim1.copy(subscriptionId = 2)
+        val s2 = sim2.copy(subscriptionId = 5)
+        val options = buildHotspotUpstreamOptions(
+            channels = listOf(wifi0, s1, s2),
+            currentTarget = "sub:5"
+        )
+        assertEquals(listOf("default", "wlan0", "sub:2", "sub:5"), options.map { it.target })
+        assertFalse(isHotspotUpstreamWaiting("sub:5", "rmnet_data4", listOf(wifi0, s1, s2)))
+        assertTrue(isHotspotUpstreamWaiting("sub:5", "rmnet_data3", listOf(wifi0, s1, s2)))
+        assertTrue(isHotspotUpstreamWaiting("sub:5", "none", listOf(wifi0, s1, s2)))
+    }
 }

@@ -238,4 +238,11 @@ class ConfigTransferTest {
         )
         assertNull(ConfigTransfer.parse(badRoot.toString()))
     }
+
+    @Test
+    fun hotspotSubscriptionTargetRoundTripsValidation() {
+        val root = document().put("hotspot", JSONObject().put("upstream", "sub:3"))
+        val parsed = ConfigTransfer.parse(root.toString())!!
+        assertEquals("sub:3", parsed.hotspot)
+    }
 }

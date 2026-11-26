@@ -732,14 +732,9 @@ private fun HotspotUpstreamShortcut(
                 overflow = TextOverflow.Ellipsis
             )
             val hookError = status.isHotspotEnabled && status.hotspotHookState != com.multiroute.util.HotspotHookState.LOADED
-            val target = com.multiroute.util.HotspotUpstreamPolicy.normalize(status.hotspotUpstreamTarget)
             val waitingMismatch = status.isHotspotEnabled &&
                 status.hotspotHookState == com.multiroute.util.HotspotHookState.LOADED &&
-                target != "default" &&
-                (status.hotspotUpstreamActive == "none" || (
-                    if (target == "cellular") !com.multiroute.util.HotspotUpstreamPolicy.needsCellular(status.hotspotUpstreamActive)
-                    else !target.equals(status.hotspotUpstreamActive, true)
-                    ))
+                isHotspotUpstreamWaiting(status.hotspotUpstreamTarget, status.hotspotUpstreamActive, channels)
             val note = when {
                 hookError -> stringResource(when (status.hotspotHookState) {
                     com.multiroute.util.HotspotHookState.VERSION_MISMATCH -> R.string.dual_wifi_hotspot_upstream_hook_old

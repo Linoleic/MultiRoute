@@ -30,6 +30,7 @@ data class NetworkChannel(
     val underlyingIface: String? = null,
     val cellularLabel: String? = null,
     val subscriptionKey: String? = null,
+    val subscriptionId: Int = -1,
     val cellularRestricted: Boolean = false
 )
 

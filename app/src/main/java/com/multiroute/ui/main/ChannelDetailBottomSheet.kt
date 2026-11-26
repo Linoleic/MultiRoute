@@ -634,13 +634,7 @@ private fun HotspotUpstreamDetails(
             color = MaterialTheme.colorScheme.error
         )
     } else if (status.isHotspotEnabled && status.hotspotHookState == HotspotHookState.LOADED) {
-        val target = HotspotUpstreamPolicy.normalize(status.hotspotUpstreamTarget)
-        val mismatch = target != "default" && (
-            status.hotspotUpstreamActive == "none" || (
-                if (target == "cellular") !HotspotUpstreamPolicy.needsCellular(status.hotspotUpstreamActive)
-                else !target.equals(status.hotspotUpstreamActive, true)
-                )
-            )
+        val mismatch = isHotspotUpstreamWaiting(status.hotspotUpstreamTarget, status.hotspotUpstreamActive, channels)
         if (mismatch) {
             Text(
                 text = stringResource(R.string.dual_wifi_hotspot_upstream_waiting),

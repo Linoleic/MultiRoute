@@ -194,7 +194,9 @@ object ConfigTransfer {
             }
             if (root.has("hotspot")) {
                 hotspot = root.obj("hotspot").string("upstream")
-                require(hotspot == "default" || hotspot == "cellular" || RouteRuleBuilder.isValidInterfaceName(hotspot))
+                require(hotspot == "default" || hotspot == "cellular" ||
+                    com.multiroute.util.HotspotUpstreamPolicy.subscriptionIdOf(hotspot) != null ||
+                    RouteRuleBuilder.isValidInterfaceName(hotspot))
                 sections += Section.HOTSPOT
             }
             if (root.has("testServer")) {

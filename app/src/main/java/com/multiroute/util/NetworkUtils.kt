@@ -380,6 +380,7 @@ object NetworkUtils {
                     interfaceName = iface,
                     cellularLabel = simLabel,
                     subscriptionKey = subscription?.key,
+                    subscriptionId = subscription?.subId ?: -1,
                     cellularRestricted = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED),
                     transportType = transportType,
                     shortName = shortName,
