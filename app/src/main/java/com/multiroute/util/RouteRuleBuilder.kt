@@ -10,6 +10,7 @@ object RouteRuleBuilder {
     private val SAFE_IPV6_PREFIX_REGEX = Regex("""^[0-9a-fA-F:]+/(?:[0-9]|[1-9][0-9]|1[0-2][0-8])$""")
 
     const val DEFAULT_RULE_PREF = 14500
+    const val DNS_MARK_PREF = 14450
     const val LAN_BYPASS_PREF = 14400
     const val BOOT_LOG_PATH = "/data/adb/multiroute/last_boot_sync.log"
 
@@ -48,6 +49,15 @@ object RouteRuleBuilder {
     /** Dedicated NAT chain for the DNS redirect, so it can be flushed without touching anything else. */
     const val DNS_NAT_CHAIN = "MULTIROUTE_DNS"
 
+    /** Dedicated mangle chain that stamps per-interface fwmark on redirected DNS packets before NAT. */
+    const val DNS_MANGLE_CHAIN = "MULTIROUTE_DNS_MARK"
+
+    /** Dedicated NAT POSTROUTING chain to masquerade marked DNS packets when rerouted across interfaces. */
+    const val DNS_SNAT_CHAIN = "MULTIROUTE_DNS_SNAT"
+
+    /** Bits 24..30 of fwmark, disjoint from Android netd (0x001fffff) and wakeupctrl (0x80000000). */
+    const val DNS_FWMARK_MASK = "0x7f000000"
+
     /**
      * Validates whether an interface name consists strictly of alphanumeric and safe chars.
      * Prevents shell command injection vulnerabilities.
@@ -73,7 +83,7 @@ object RouteRuleBuilder {
     /**
      * Builds cleanup commands for routing rules at specified preference levels.
      */
-    fun buildCleanupCommands(prefs: List<Int> = listOf(DEFAULT_RULE_PREF, LAN_BYPASS_PREF)): List<String> {
+    fun buildCleanupCommands(prefs: List<Int> = listOf(DEFAULT_RULE_PREF, LAN_BYPASS_PREF, DNS_MARK_PREF)): List<String> {
         val commands = mutableListOf<String>()
         for (pref in prefs) {
             commands.add("while $IP_BIN rule del pref $pref 2>/dev/null; do :; done;")
@@ -160,10 +170,12 @@ object RouteRuleBuilder {
         pref: Int = DEFAULT_RULE_PREF,
         lanBypassPref: Int = LAN_BYPASS_PREF,
         channelResolvers: Map<String, List<String>> = emptyMap(),
-        vpnInterfaces: Set<String> = emptySet()
+        vpnInterfaces: Set<String> = emptySet(),
+        dnsExcludedUids: Set<Int> = emptySet(),
+        dnsMarkPref: Int = DNS_MARK_PREF
     ): String {
         val commands = mutableListOf<String>()
-        commands.addAll(buildCleanupCommands(listOf(pref, lanBypassPref)))
+        commands.addAll(buildCleanupCommands(listOf(pref, lanBypassPref, dnsMarkPref)))
 
         val uidCmds = buildUidRoutingCommands(channelToUidsMap, pref)
         if (uidCmds.isNotEmpty()) {
@@ -180,7 +192,9 @@ object RouteRuleBuilder {
         }
         // DNS redirection is applied together with the routing rules so both are atomic and both are
         // replayed by the boot script. An empty [channelResolvers] flushes the chain and drops the jump.
-        commands.addAll(buildDnsRedirectCommands(resolveUidResolvers(channelToUidsMap, channelResolvers)))
+        val uidResolvers = resolveUidResolvers(channelToUidsMap, channelResolvers, dnsExcludedUids)
+        val uidInterfaces = channelToUidsMap.flatMap { (iface, uids) -> uids.map { it to iface } }.toMap()
+        commands.addAll(buildDnsRedirectCommands(uidResolvers, uidInterfaces, dnsMarkPref))
 
         return commands.joinToString(" ")
     }
@@ -201,7 +215,8 @@ object RouteRuleBuilder {
     /** Maps every assigned UID to the resolvers of the channel it was assigned to. */
     fun resolveUidResolvers(
         channelToUidsMap: Map<String, List<Int>>,
-        channelResolvers: Map<String, List<String>>
+        channelResolvers: Map<String, List<String>>,
+        excludedUids: Set<Int> = emptySet()
     ): Map<Int, List<String>> {
         if (channelResolvers.isEmpty()) return emptyMap()
         val result = mutableMapOf<Int, List<String>>()
@@ -209,29 +224,39 @@ object RouteRuleBuilder {
             // Only IPv4 resolvers for now: the redirect below is an iptables (not ip6tables) rule.
             val resolvers = channelResolvers[iface].orEmpty().filter { it.isNotBlank() && !it.contains(':') }
             if (resolvers.isEmpty()) continue
-            for (uid in uids) result[uid] = resolvers
+            for (uid in uids) {
+                if (uid in excludedUids) continue
+                result[uid] = resolvers
+            }
         }
         return result
     }
 
     /**
-     * Builds the NAT rules that send an assigned app's DNS queries to its channel's own resolver.
+     * Builds the NAT + mangle rules that send an assigned app's DNS queries to its channel's own resolver.
      *
      * Android chooses the resolver from the *default* network, independently of where the kernel routes
      * the packets, so an assigned app would otherwise query an address that may only be reachable over a
-     * different link (or keep querying the resolver of a VPN tunnel). DNAT rewrites the destination before
-     * the reroute, and the reroute then follows the same per-UID rule as the app's other traffic.
-     *
-     * A dedicated chain is used so this can be flushed atomically and never touches NAT rules that belong
-     * to the ROM or another module.
+     * different link (or keep querying the resolver of a VPN tunnel). DNAT rewrites the destination,
+     * which triggers `ip_route_me_harder()` with `uid=0` — so we also stamp an interface-specific fwmark
+     * in `mangle OUTPUT` (and masquerade in `nat POSTROUTING` if the source address changed) so the
+     * rerouted packet still hits its assigned channel's routing table.
      */
-    fun buildDnsRedirectCommands(uidResolvers: Map<Int, List<String>>): List<String> {
+    fun buildDnsRedirectCommands(
+        uidResolvers: Map<Int, List<String>>,
+        uidInterfaces: Map<Int, String> = emptyMap(),
+        dnsMarkPref: Int = DNS_MARK_PREF
+    ): List<String> {
         // Every command ends with `;`: the whole sync script is joined with spaces, so a missing separator
         // makes the shell treat the next command as an argument of this one (that silently produced an
         // empty chain containing nothing but the flush).
         val commands = mutableListOf<String>()
         commands.add("$IPTABLES_BIN -t nat -N $DNS_NAT_CHAIN 2>/dev/null || true;")
         commands.add("$IPTABLES_BIN -t nat -F $DNS_NAT_CHAIN;")
+        commands.add("$IPTABLES_BIN -t mangle -N $DNS_MANGLE_CHAIN 2>/dev/null || true;")
+        commands.add("$IPTABLES_BIN -t mangle -F $DNS_MANGLE_CHAIN;")
+        commands.add("$IPTABLES_BIN -t nat -N $DNS_SNAT_CHAIN 2>/dev/null || true;")
+        commands.add("$IPTABLES_BIN -t nat -F $DNS_SNAT_CHAIN;")
 
         val usable = uidResolvers.filterKeys { isValidUid(it) }
             .mapValues { (_, resolvers) -> resolvers.firstOrNull { isValidPrefix("$it/32") } }
@@ -239,14 +264,53 @@ object RouteRuleBuilder {
 
         if (usable.isEmpty()) {
             commands.add("$IPTABLES_BIN -t nat -D OUTPUT -j $DNS_NAT_CHAIN 2>/dev/null || true;")
+            commands.add("$IPTABLES_BIN -t mangle -D OUTPUT -j $DNS_MANGLE_CHAIN 2>/dev/null || true;")
+            commands.add("$IPTABLES_BIN -t nat -D POSTROUTING -j $DNS_SNAT_CHAIN 2>/dev/null || true;")
             return commands
         }
         commands.add(
             "$IPTABLES_BIN -t nat -C OUTPUT -j $DNS_NAT_CHAIN 2>/dev/null || " +
                     "$IPTABLES_BIN -t nat -A OUTPUT -j $DNS_NAT_CHAIN;"
         )
+
+        val referencedIfaces = usable.keys
+            .mapNotNull { uidInterfaces[it]?.takeIf(::isValidInterfaceName) }
+            .distinct()
+            .sorted()
+            .take(127)
+        val ifaceMarks = referencedIfaces.mapIndexed { idx, iface ->
+            iface to String.format(java.util.Locale.US, "0x%08x", (idx + 1) shl 24)
+        }.toMap()
+
+        if (ifaceMarks.isNotEmpty()) {
+            commands.add(
+                "$IPTABLES_BIN -t mangle -C OUTPUT -j $DNS_MANGLE_CHAIN 2>/dev/null || " +
+                        "$IPTABLES_BIN -t mangle -A OUTPUT -j $DNS_MANGLE_CHAIN;"
+            )
+            commands.add(
+                "$IPTABLES_BIN -t nat -C POSTROUTING -j $DNS_SNAT_CHAIN 2>/dev/null || " +
+                        "$IPTABLES_BIN -t nat -A POSTROUTING -j $DNS_SNAT_CHAIN;"
+            )
+            commands.add(
+                "$IPTABLES_BIN -t nat -A $DNS_SNAT_CHAIN -m mark ! --mark 0x0/$DNS_FWMARK_MASK -j MASQUERADE;"
+            )
+            for ((iface, markHex) in ifaceMarks) {
+                commands.add("$IP_BIN rule add fwmark $markHex/$DNS_FWMARK_MASK lookup $iface pref $dnsMarkPref;")
+            }
+        } else {
+            commands.add("$IPTABLES_BIN -t mangle -D OUTPUT -j $DNS_MANGLE_CHAIN 2>/dev/null || true;")
+            commands.add("$IPTABLES_BIN -t nat -D POSTROUTING -j $DNS_SNAT_CHAIN 2>/dev/null || true;")
+        }
+
         for ((uid, resolver) in usable.toSortedMap()) {
+            val markHex = uidInterfaces[uid]?.let { ifaceMarks[it] }
             for (proto in listOf("udp", "tcp")) {
+                if (markHex != null) {
+                    commands.add(
+                        "$IPTABLES_BIN -t mangle -A $DNS_MANGLE_CHAIN -m owner --uid-owner $uid " +
+                                "-p $proto --dport 53 -j MARK --set-xmark $markHex/$DNS_FWMARK_MASK;"
+                    )
+                }
                 commands.add(
                     "$IPTABLES_BIN -t nat -A $DNS_NAT_CHAIN -m owner --uid-owner $uid " +
                             "-p $proto --dport 53 -j DNAT --to-destination $resolver:53;"

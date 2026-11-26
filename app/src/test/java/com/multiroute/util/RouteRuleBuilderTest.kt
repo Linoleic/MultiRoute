@@ -507,6 +507,49 @@ class RouteRuleBuilderTest {
         // A channel without a known resolver, or the feature being off, redirects nothing.
         assertTrue(RouteRuleBuilder.resolveUidResolvers(mapOf("wlan9" to listOf(10530)), mapOf("wlan1" to listOf("1.1.1.1"))).isEmpty())
         assertTrue(RouteRuleBuilder.resolveUidResolvers(mapOf("wlan1" to listOf(10530)), emptyMap()).isEmpty())
+
+        // Excluded UIDs (active VPN owners) are skipped from DNS DNAT while keeping other UIDs.
+        val filtered = RouteRuleBuilder.resolveUidResolvers(
+            channelToUidsMap = mapOf("rmnet_data3" to listOf(10251, 10365)),
+            channelResolvers = mapOf("rmnet_data3" to listOf("202.96.128.86")),
+            excludedUids = setOf(10251)
+        )
+        assertFalse(filtered.containsKey(10251))
+        assertEquals(listOf("202.96.128.86"), filtered[10365])
+    }
+
+    @Test
+    fun testFullSyncScriptExcludesVpnOwnerFromDnsDnatAndPreservesEgressWithFwmark() {
+        val script = RouteRuleBuilder.buildFullSyncScript(
+            channelToUidsMap = mapOf(
+                "rmnet_data3" to listOf(10251, 10365),
+                "tun0" to listOf(10364)
+            ),
+            channelResolvers = mapOf(
+                "rmnet_data3" to listOf("202.96.128.86"),
+                "tun0" to listOf("198.18.0.2")
+            ),
+            vpnInterfaces = setOf("tun0"),
+            dnsExcludedUids = setOf(10251)
+        )
+
+        // VPN owner (10251) still gets its pref 14500 policy route, but NOT DNS DNAT or DNS fwmark.
+        assertTrue(script.contains("/system/bin/ip rule add uidrange 10251-10251 lookup rmnet_data3 pref 14500;"))
+        assertFalse(script.contains("--uid-owner 10251"))
+
+        // Non-excluded UIDs get fwmark in mangle OUTPUT, matching pref 14450 ip rule, DNAT, and SNAT MASQUERADE.
+        assertTrue(script.contains("rule del pref ${RouteRuleBuilder.DNS_MARK_PREF}"))
+        assertTrue(script.contains("-t mangle -A ${RouteRuleBuilder.DNS_MANGLE_CHAIN} -m owner --uid-owner 10365 -p udp --dport 53 -j MARK --set-xmark 0x01000000/${RouteRuleBuilder.DNS_FWMARK_MASK};"))
+        assertTrue(script.contains("/system/bin/ip rule add fwmark 0x01000000/${RouteRuleBuilder.DNS_FWMARK_MASK} lookup rmnet_data3 pref ${RouteRuleBuilder.DNS_MARK_PREF};"))
+        assertTrue(script.contains("-t mangle -A ${RouteRuleBuilder.DNS_MANGLE_CHAIN} -m owner --uid-owner 10364 -p udp --dport 53 -j MARK --set-xmark 0x02000000/${RouteRuleBuilder.DNS_FWMARK_MASK};"))
+        assertTrue(script.contains("/system/bin/ip rule add fwmark 0x02000000/${RouteRuleBuilder.DNS_FWMARK_MASK} lookup tun0 pref ${RouteRuleBuilder.DNS_MARK_PREF};"))
+        assertTrue(script.contains("-t nat -A ${RouteRuleBuilder.DNS_SNAT_CHAIN} -m mark ! --mark 0x0/${RouteRuleBuilder.DNS_FWMARK_MASK} -j MASQUERADE;"))
+        assertTrue(script.contains("-t nat -A ${RouteRuleBuilder.DNS_NAT_CHAIN} -m owner --uid-owner 10364 -p udp --dport 53 -j DNAT --to-destination 198.18.0.2:53;"))
+
+        // Empty sync cleans up mangle/SNAT jumps as well.
+        val empty = RouteRuleBuilder.buildDnsRedirectCommands(emptyMap()).joinToString("\n")
+        assertTrue(empty.contains("-t mangle -D OUTPUT -j ${RouteRuleBuilder.DNS_MANGLE_CHAIN}"))
+        assertTrue(empty.contains("-t nat -D POSTROUTING -j ${RouteRuleBuilder.DNS_SNAT_CHAIN}"))
     }
 
     @Test

@@ -501,14 +501,22 @@ internal class RouteSyncCoordinator(
         } else {
             emptyMap()
         }
-        Log.i(TAG, "DNS redirect: channelResolvers=$channelResolvers for ${activeChannelMap.keys}")
+        val vpnOwnerUids = vpnChannels.values
+            .map { it.vpnOwnerUid }
+            .filter { RouteRuleBuilder.isValidUid(it) }
+            .toSet()
+        Log.i(
+            TAG,
+            "DNS redirect: channelResolvers=$channelResolvers for ${activeChannelMap.keys} excludedVpnOwners=$vpnOwnerUids"
+        )
 
         // 4. Sync Linux kernel policy routing dynamically for active interfaces
         val script = RouteRuleBuilder.buildFullSyncScript(
             activeChannelMap,
             connectedPrefixes,
             channelResolvers = channelResolvers,
-            vpnInterfaces = vpnChannels.keys
+            vpnInterfaces = vpnChannels.keys,
+            dnsExcludedUids = vpnOwnerUids
         )
         val success = shell.executeCommand(script, timeoutSeconds = RULE_SCRIPT_TIMEOUT_SECONDS)
 
