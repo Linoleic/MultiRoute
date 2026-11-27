@@ -66,7 +66,7 @@ APK 内包含 `META-INF/xposed/{module.prop, scope.list, java_init.list}`（入�
 
 ### 2. 分应用 DNS 改写（`iptables`）
 
-MultiRoute 在 IPv4 `nat` 表中创建 `MULTIROUTE_DNS` 链（挂接于 `OUTPUT`），将被指派 UID 的 **IPv4 UDP/TCP 53 端口**请求重定向至所选通道的 DNS 解析器。
+MultiRoute 在 IPv4 `nat` 表中创建 `MULTIROUTE_DNS` 链（挂接于 `OUTPUT`），将被指派 UID 的 **IPv4 UDP/TCP 53 端口**请求重定向至所选通道的 DNS 解析器（跳过活跃 VPN 宿主自身 UID，避免劫持其上游解析）；同时配合 `mangle OUTPUT`（`MULTIROUTE_DNS_MARK`）fwmark 与 `pref 14450` 策略规则保持 `OUTPUT DNAT` 重路由后的出口一致性，并在 `nat POSTROUTING`（`MULTIROUTE_DNS_SNAT` / `MASQUERADE`）修正源地址以匹配目标网卡。
 
 - IPv6 DNS、**Private DNS（DoT，853 端口）** 与 **DoH** 不作改写；
 - VPN 启用时，LSPosed 模块会自动将显式指定到物理通道的应用从非锁定 VPN 的接管 UID 范围中排除；若模块未激活或系统开启了 VPN 锁定模式，实际路径仍取决于 VPN 自身的路由策略。
@@ -89,13 +89,15 @@ MultiRoute 在 IPv4 `nat` 表中创建 `MULTIROUTE_DNS` 链（挂接于 `OUTPUT`
 
 正常卸载前请先在应用内将热点上游恢复为「系统默认」、断开由应用连接的副 Wi-Fi，并执行 **分流规则 → 清空所有应用分流规则**。若应用已无法打开，可手工执行以下命令：
 
-> 注意：以下命令会按优先级删除 `14400` 与 `14500` 的全部 IPv4/IPv6 路由规则、清空 `MULTIROUTE_DNS` 链并删除 MultiRoute 的开机脚本与规则缓存。执行前请检查是否与其他路由工具共用这些优先级；如使用过双 Wi-Fi，设备系统层面的设置与 Overlay 需另行恢复。
+> 注意：以下命令会按优先级删除 `14400`、`14450` 与 `14500` 的全部 IPv4/IPv6 路由规则、清空 `MULTIROUTE_DNS` / `MULTIROUTE_DNS_MARK` / `MULTIROUTE_DNS_SNAT` 链并删除 MultiRoute 的开机脚本与运行状态缓存。执行前请检查是否与其他路由工具共用这些优先级；如使用过双 Wi-Fi，设备系统层面的设置与 Overlay 需另行恢复。
 
 ```bash
-su -c 'rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/system/multiroute_rules_cache'
-su -c 'while ip rule del pref 14500 2>/dev/null; do :; done; while ip rule del pref 14400 2>/dev/null; do :; done'
-su -c 'while ip -6 rule del pref 14500 2>/dev/null; do :; done; while ip -6 rule del pref 14400 2>/dev/null; do :; done'
+su -c 'rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/system/multiroute_rules_cache /data/system/multiroute_scenario_plans /data/system/multiroute_configured_route_interfaces'
+su -c 'while ip rule del pref 14500 2>/dev/null; do :; done; while ip rule del pref 14450 2>/dev/null; do :; done; while ip rule del pref 14400 2>/dev/null; do :; done'
+su -c 'while ip -6 rule del pref 14500 2>/dev/null; do :; done; while ip -6 rule del pref 14450 2>/dev/null; do :; done; while ip -6 rule del pref 14400 2>/dev/null; do :; done'
 su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat -F MULTIROUTE_DNS 2>/dev/null; iptables -t nat -X MULTIROUTE_DNS 2>/dev/null'
+su -c 'iptables -t mangle -D OUTPUT -j MULTIROUTE_DNS_MARK 2>/dev/null; iptables -t mangle -F MULTIROUTE_DNS_MARK 2>/dev/null; iptables -t mangle -X MULTIROUTE_DNS_MARK 2>/dev/null'
+su -c 'iptables -t nat -D POSTROUTING -j MULTIROUTE_DNS_SNAT 2>/dev/null; iptables -t nat -F MULTIROUTE_DNS_SNAT 2>/dev/null; iptables -t nat -X MULTIROUTE_DNS_SNAT 2>/dev/null'
 ```
 
 ---
@@ -110,11 +112,11 @@ su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat 
 - `ConnectivityService.getActiveNetworkForUidInternal`
 - `ConnectivityService.getMobileDataPreferredUids`（在遵循该接口的 ROM 上支持按 SIM 蜂窝分流）
 - `Vpn.agentConnect`（`VpnUidRoutingHook`）：自动将显式路由到物理通道的应用从非锁定 VPN 的 UID 接管范围中排除
-- 链路变更、解锁与 Wi-Fi SSID 切换唤醒（`BootRestoreWatchdog`）：在网络切换或开机解锁时触发场景方案重算与无线调试自动触发，无需后台轮询或常驻服务。
+- 链路变更、VPN 上下线、解锁与 Wi-Fi SSID 切换唤醒（`BootRestoreWatchdog`）：在网络或 VPN 状态切换以及开机解锁时触发场景方案重算与无线调试自动触发，无需后台轮询或常驻服务。
 
 ### 2. 个人热点上游调度（`NetworkStack / Tethering APEX`）
 
-MultiRoute Hook NetworkStack / Tethering APEX 中的 `UpstreamNetworkMonitor.getCurrentPreferredUpstream`，监听 `Settings.Global`（`multiroute_hotspot_upstream`）与广播以请求 Android Tethering 异步重选热点上游：
+MultiRoute 解析并 Hook NetworkStack / Tethering APEX 中的 `UpstreamNetworkMonitor.getCurrentPreferredUpstream`（支持 AOSP、`android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor` 及基于 `TetheringService.makeTethering()` 的 jarjar 前缀兜底解析），监听 `Settings.Global`（`multiroute_hotspot_upstream`，双卡/eSIM 目标按 `sub:<subId>` 稳定绑定）与广播以请求 Android Tethering 异步重选热点上游：
 
 ```
                       ┌───────────────────────┐

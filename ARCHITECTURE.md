@@ -66,7 +66,7 @@ Each network interface has its own routing table maintained by Android's `netd`.
 
 ### 2. Per-App DNS Redirection (`iptables`)
 
-MultiRoute installs a `MULTIROUTE_DNS` chain in the IPv4 `nat` table (linked from `OUTPUT`) to redirect assigned UIDs' **IPv4 UDP/TCP port 53** packets to the selected channel's resolver.
+MultiRoute installs a `MULTIROUTE_DNS` chain in the IPv4 `nat` table (linked from `OUTPUT`) to redirect assigned UIDs' **IPv4 UDP/TCP port 53** packets to the selected channel's resolver (skipping active VPN owner UIDs so VPN clients' own upstream queries are untouched). It pairs with `mangle OUTPUT` (`MULTIROUTE_DNS_MARK`) fwmark + `pref 14450` policy rules to preserve per-channel egress after `OUTPUT DNAT` rerouting, and `nat POSTROUTING` (`MULTIROUTE_DNS_SNAT` / `MASQUERADE`) so source addresses match the target interface.
 
 - IPv6 DNS, **Private DNS (DoT, port 853)**, and **DNS-over-HTTPS (DoH)** are not rewritten.
 - When a VPN is active, the LSPosed module automatically excludes apps explicitly routed to physical channels from non-lockdown VPN UID ranges; if the module is inactive or VPN lockdown is enabled, paths depend on the VPN's mode and routing policy.
@@ -89,13 +89,15 @@ MultiRoute installs a `MULTIROUTE_DNS` chain in the IPv4 `nat` table (linked fro
 
 Under normal circumstances, reset Hotspot Upstream to **System Default**, disconnect managed Secondary Wi-Fi, and run **App routing → menu → Clear all app routing rules** inside the app before uninstalling. If the app can no longer run:
 
-> Note: These commands remove all IPv4/IPv6 rules at priorities `14400` and `14500`, delete the `MULTIROUTE_DNS` NAT chain, and remove MultiRoute's boot scripts and rule cache. Check for priority conflicts with other routing tools first, and revert any vendor-specific Dual Wi-Fi settings/overlays separately if used.
+> Note: These commands remove all IPv4/IPv6 rules at priorities `14400`, `14450`, and `14500`, delete the `MULTIROUTE_DNS` / `MULTIROUTE_DNS_MARK` / `MULTIROUTE_DNS_SNAT` chains, and remove MultiRoute's boot scripts and runtime state files. Check for priority conflicts with other routing tools first, and revert any vendor-specific Dual Wi-Fi settings/overlays separately if used.
 
 ```bash
-su -c 'rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/system/multiroute_rules_cache'
-su -c 'while ip rule del pref 14500 2>/dev/null; do :; done; while ip rule del pref 14400 2>/dev/null; do :; done'
-su -c 'while ip -6 rule del pref 14500 2>/dev/null; do :; done; while ip -6 rule del pref 14400 2>/dev/null; do :; done'
+su -c 'rm -f /data/adb/service.d/00-multiroute-restore.sh /data/adb/service.d/01-multiroute-dualwifi.sh /data/system/multiroute_rules_cache /data/system/multiroute_scenario_plans /data/system/multiroute_configured_route_interfaces'
+su -c 'while ip rule del pref 14500 2>/dev/null; do :; done; while ip rule del pref 14450 2>/dev/null; do :; done; while ip rule del pref 14400 2>/dev/null; do :; done'
+su -c 'while ip -6 rule del pref 14500 2>/dev/null; do :; done; while ip -6 rule del pref 14450 2>/dev/null; do :; done; while ip -6 rule del pref 14400 2>/dev/null; do :; done'
 su -c 'iptables -t nat -D OUTPUT -j MULTIROUTE_DNS 2>/dev/null; iptables -t nat -F MULTIROUTE_DNS 2>/dev/null; iptables -t nat -X MULTIROUTE_DNS 2>/dev/null'
+su -c 'iptables -t mangle -D OUTPUT -j MULTIROUTE_DNS_MARK 2>/dev/null; iptables -t mangle -F MULTIROUTE_DNS_MARK 2>/dev/null; iptables -t mangle -X MULTIROUTE_DNS_MARK 2>/dev/null'
+su -c 'iptables -t nat -D POSTROUTING -j MULTIROUTE_DNS_SNAT 2>/dev/null; iptables -t nat -F MULTIROUTE_DNS_SNAT 2>/dev/null; iptables -t nat -X MULTIROUTE_DNS_SNAT 2>/dev/null'
 ```
 
 ---
@@ -110,11 +112,11 @@ Kernel `ip rule` steers socket packets, while apps also query `ConnectivityManag
 - `ConnectivityService.getActiveNetworkForUidInternal`
 - `ConnectivityService.getMobileDataPreferredUids` (used for SIM-based cellular routing on ROMs that honor it)
 - `Vpn.agentConnect` (`VpnUidRoutingHook`) to automatically exclude apps explicitly routed to physical channels from non-lockdown VPN UID ranges
-- Link-change, unlock, and Wi-Fi SSID transition triggers (`BootRestoreWatchdog`) so Scenario Plans re-evaluate and Wireless ADB automation executes on boot/unlock/trusted Wi-Fi without polling.
+- Link-change, VPN transition, unlock, and Wi-Fi SSID transition triggers (`BootRestoreWatchdog`) so Scenario Plans re-evaluate and Wireless ADB automation executes on boot/unlock/trusted Wi-Fi without polling.
 
 ### 2. Personal Hotspot Upstream Steering (`NetworkStack / Tethering APEX`)
 
-MultiRoute hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` inside the NetworkStack / Tethering APEX runtime, observing `Settings.Global` (`multiroute_hotspot_upstream`) and broadcast triggers to ask Android Tethering to re-evaluate SoftAP upstream selection asynchronously:
+MultiRoute resolves and hooks `UpstreamNetworkMonitor.getCurrentPreferredUpstream` inside the NetworkStack / Tethering APEX runtime (supporting AOSP, `android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor`, and a `TetheringService.makeTethering()` fallback for future jarjar prefixes), observing `Settings.Global` (`multiroute_hotspot_upstream`, with dual-SIM/eSIM targets pinned by stable `sub:<subId>`) and broadcast triggers to ask Android Tethering to re-evaluate SoftAP upstream selection asynchronously:
 
 ```
                       ┌───────────────────────┐

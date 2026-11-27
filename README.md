@@ -21,9 +21,9 @@ MultiRoute is an Android LSPosed module for per-app network routing (including s
 ## Features
 
 - **Per-app policy routing**: Assign individual apps to **Primary Wi-Fi**, **Secondary Wi-Fi**, **Cellular** (including secondary SIM selection on dual-SIM devices), **Ethernet**, or **System Default** via Linux kernel policy routing without a userspace VPN. Connected LAN subnets stay routed on their own interfaces so local devices (NAS, printers, casting) remain reachable.
-- **Cloned apps & scenario plans**: Cloned spaces (e.g., Xiaomi XSpace `(999)`) and work profiles are listed as separate targets. Save named **Scenario Plans** with conditions (*Wi-Fi SSID*, *Dual Wi-Fi active*, *Cellular only*, *Always*, or *Manual*). Matching plans stack in priority order and re-evaluate on network changes even when the app UI is closed.
+- **Cloned apps & scenario plans**: Cloned spaces (e.g., Xiaomi XSpace `(999)`) and work profiles are listed as separate targets. Save named **Scenario Plans** with primary triggers (*Wi-Fi SSID*, *Dual Wi-Fi active*, *Cellular only*, *Always*, or *Manual*) and an optional **VPN state condition** (*Any* / *When VPN is on* / *When VPN is off*), plus **Pause all base routing rules**, **Plans off / global pause**, drag-handle reordering, and a decoupled full-screen app editor. Matching plans stack in priority order and re-evaluate automatically on network or VPN changes even when the app UI is closed.
 - **Dual Wi-Fi management (`STA + STA`)**: Connect and switch a secondary Wi-Fi network alongside primary Wi-Fi, distinguish access points sharing an SSID by BSSID and band, and show band compatibility indicators.
-- **Personal hotspot upstream selection**: Choose the personal hotspot upstream directly in Channels (**System Default**, active physical links such as **Primary/Secondary Wi-Fi**, **Ethernet**, or specific **SIM Cellular**, plus **Default mobile data** on demand—for example, sharing cellular data over hotspot while staying connected to an intranet Wi-Fi).
+- **Personal hotspot upstream selection**: Choose the personal hotspot upstream directly in Channels (**System Default**, active physical links such as **Primary/Secondary Wi-Fi**, **Ethernet**, or specific **SIM Cellular**, plus **Default mobile data** on demand—for example, sharing cellular data over hotspot while staying connected to an intranet Wi-Fi), with stable dual-SIM/eSIM subscription ID (`sub:<subId>`) pinning and Google Connectivity Mainline APEX (`TetheringGoogle`) support.
 - **Channel monitoring, topology & egress probes**: Switch between list and interactive topology views to inspect per-interface rates, 30-second traffic graphs, cumulative usage, and Wi-Fi link rates; switch VPN/Hotspot upstreams directly and run multi-channel public egress checks.
 - **Wireless debugging helper**: Manage Android 11+ Native TLS wireless debugging and Legacy TCP mode (configurable port `1024..65535`), inspect active ADB connections and peer IPs, copy `adb connect` commands, and configure boot/unlock recovery, automatic switching on trusted Wi-Fi networks, or system auto-start takeover.
 
@@ -40,6 +40,7 @@ MultiRoute is an Android LSPosed module for per-app network routing (including s
 
 | Verified Environments | Status |
 | :--- | :--- |
+| **Android 17 / Pixel (Google Mainline)** | Verified hotspot upstream hook (`TetheringGoogle` Connectivity APEX), foreground/background VPN state scenario switching, app routing, and rule recovery |
 | **Android 17 / HyperOS (Phone)** | Verified Dual Wi-Fi, secondary SIM controls and SIM-based routing, app and clone routing, IPv4/IPv6 routing, and rule recovery |
 | **Android 16 / HyperOS (Tablet)** | Verified Dual Wi-Fi, app and clone routing, IPv4/IPv6 routing, DNS redirection, and rule recovery (no cellular hardware) |
 | **Android 16 / AOSP** | Verified connecting, disconnecting, and IPv4 Internet access via saved secondary Wi-Fi networks; other features not broadly verified |
@@ -84,10 +85,10 @@ From v1.2 onward, the package ID changed from `com.multiroute` to `io.github.lin
 MultiRoute provides four main destinations (**App routing**, **Channels**, **Tools**, and **Settings**), using bottom navigation on narrow screens and a navigation rail with list-detail panes on wide screens:
 
 ### 1. App Routing
-- **Single-app assignment**: Tap an app (or its `(999)` clone / work profile entry) and select a target channel.
+- **Single-app assignment**: Tap an app (or its `(999)` clone / work profile entry) and select a target channel; pull down on the app list to rescan installed/cloned apps and re-sort by current rules.
 - **Batch assignment**: Long-press an item to enter multi-select mode and assign or reset multiple apps together.
-- **Scenario plans**: Save assignments as named plans with trigger conditions (*Wi-Fi network*, *Dual Wi-Fi online*, *Cellular only*, *Always*, or *Manual*). Matching plans override mentioned apps in priority order and re-evaluate when links change, even while MultiRoute is not in the foreground.
-- **Rule actions**: Use the toolbar menu to reapply rules or clear all app routing rules.
+- **Scenario plans**: Save assignments as named plans with primary triggers (*Wi-Fi network*, *Dual Wi-Fi online*, *Cellular only*, *Always*, or *Manual*) and an optional **VPN state condition** (*Any* / *When VPN is on* / *When VPN is off*), including a **Pause all base routing rules** option (falls back to system default without losing saved base rules). Plans support drag-handle reordering, per-plan enable switches, a **Plans off** mode, and a decoupled full-screen **Edit apps** editor, while the top-bar chip shows a concise label and a `+N` badge when multiple plans match. Plans re-evaluate automatically on link or VPN changes, both in the foreground and when MultiRoute is closed.
+- **Rule actions**: Use the toolbar menu to toggle **Pause all routing** (with a 1-tap Resume banner while paused), reapply rules, or clear all app routing rules.
 
 ### 2. Channels
 - **Channel list & traffic meter**: View active links (`Primary Wi-Fi`, `Secondary Wi-Fi`, `Cellular`, `VPN`, `Hotspot` downlinks, `Ethernet`) along with current RX/TX rates, a 30-second rate history graph, window peak speeds, and cumulative traffic since boot.
@@ -106,7 +107,7 @@ MultiRoute provides four main destinations (**App routing**, **Channels**, **Too
 - **Runtime logs & module status**: Open the toolbar status icon to verify hook readiness and build parity, or open **Tools → Runtime logs** to check per-UID rule status, boot logs, wireless ADB automation logs, and exportable diagnostic snapshots.
 
 ### 4. Settings & Backup
-- Configure **Auto-Failover** (fall back to the default network when an assigned link drops, with optional HTTP 204 connectivity checks), **Per-App DNS Redirection**, failover hold-off timers, **Theme / Material You**, and **App Language** (`Follow system` / `简体中文` / `English`).
+- Configure **Auto-Failover** (fall back to the default network when an assigned link drops, with optional HTTP 204 connectivity checks), **Per-App DNS Redirection**, **Pause all routing** (under **Settings → Routing behavior**), failover hold-off timers, **Theme / Material You**, and **App Language** (`Follow system` / `简体中文` / `English`).
 - **Backup & Restore (v3 JSON)**: Preview and restore selected categories (app routing, SIM targets, scenario plans, network policies, hotspot preference, non-secret Dual Wi-Fi settings, appearance, and probe servers). Compatible with v1/v2 backups; Wi-Fi passwords, UID caches, logs, and wireless ADB automation settings are excluded.
 
 ---
