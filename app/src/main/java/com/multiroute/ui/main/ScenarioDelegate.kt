@@ -327,7 +327,7 @@ internal class ScenarioDelegate(
         } else {
             ScenarioEngine.selectProfiles(profiles, observation, mode, manualIds)
         }
-        val profile = selected.firstOrNull()
+        val profile = selected.lastOrNull()
         val trigger = profile?.trigger
         val conflicts = mutableMapOf<String, Int>()
         val claimed = mutableMapOf<String, String>()
@@ -357,6 +357,7 @@ internal class ScenarioDelegate(
                     scenarioConflicts = conflicts,
                     activeScenarioId = profile?.id,
                     activeScenarioName = profile?.name,
+                    activeScenarioNames = selected.map { it.name },
                     activeScenarioTrigger = trigger,
                     activeScenarioSsid = trigger?.let { ScenarioEngine.matchedSsid(it, observation) },
                     activeScenarioManual = mode == ScenarioEngine.SelectionMode.MANUAL

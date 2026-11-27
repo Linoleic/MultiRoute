@@ -95,6 +95,7 @@ data class ScenarioUiState(
     /** Plan id -> how many of its apps a later (higher-priority) active plan re-routed. */
     val scenarioConflicts: Map<String, Int> = emptyMap(),
     val activeScenarioName: String? = null,
+    val activeScenarioNames: List<String> = emptyList(),
     val activeScenarioTrigger: ScenarioTrigger? = null,
     val activeScenarioSsid: String? = null,
     val activeScenarioManual: Boolean = false,
@@ -195,6 +196,7 @@ data class MainUiState(
     val activeScenarioIds: Set<String> get() = scenario.activeScenarioIds
     val scenarioConflicts: Map<String, Int> get() = scenario.scenarioConflicts
     val activeScenarioName: String? get() = scenario.activeScenarioName
+    val activeScenarioNames: List<String> get() = scenario.activeScenarioNames
     val activeScenarioTrigger: ScenarioTrigger? get() = scenario.activeScenarioTrigger
     val activeScenarioSsid: String? get() = scenario.activeScenarioSsid
     val activeScenarioManual: Boolean get() = scenario.activeScenarioManual

@@ -212,42 +212,57 @@ fun MainScreen(
                                         )
                                     }
                                 } else {
-                                    val actionLabel = uiState.activeScenarioName?.let {
-                                        stringResource(R.string.scenario_current, it)
-                                    } ?: if (uiState.scenarioMode == com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED) {
-                                        stringResource(R.string.scenario_mode_disabled_chip)
+                                    val activeName = uiState.activeScenarioName
+                                    val extraScenarioCount = if (!uiState.routingPaused && activeName != null) {
+                                        (uiState.activeScenarioIds.size - 1).coerceAtLeast(0)
+                                    } else 0
+                                    val actionLabel = when {
+                                        uiState.routingPaused -> stringResource(R.string.routing_paused_chip)
+                                        activeName != null -> activeName
+                                        uiState.scenarioMode == com.multiroute.util.ScenarioEngine.SelectionMode.DISABLED ->
+                                            stringResource(R.string.scenario_mode_disabled_chip)
+                                        else -> stringResource(R.string.scenario_default)
+                                    }
+                                    val actionDescription = if (!uiState.routingPaused && activeName != null) {
+                                        val namesSummary = if (uiState.activeScenarioNames.isNotEmpty()) {
+                                            uiState.activeScenarioNames.asReversed().joinToString(" · ")
+                                        } else {
+                                            activeName
+                                        }
+                                        stringResource(R.string.scenario_current, namesSummary)
                                     } else {
-                                        stringResource(R.string.scenario_default)
+                                        actionLabel
                                     }
                                     val onScenarioAction: () -> Unit = {
                                         viewModel.openScenarioSheet()
                                     }
-                                    val isHighlighted = uiState.activeScenarioName != null
-                                    val scenarioColor = if (isHighlighted) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    val isHighlighted = !uiState.routingPaused && activeName != null
+                                    val scenarioContainer = when {
+                                        uiState.routingPaused -> MaterialTheme.colorScheme.errorContainer
+                                        isHighlighted -> MaterialTheme.colorScheme.secondaryContainer
+                                        else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                                    }
+                                    val scenarioColor = when {
+                                        uiState.routingPaused -> MaterialTheme.colorScheme.onErrorContainer
+                                        isHighlighted -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                                     }
                                     if (useScenarioIcon) {
                                         TooltipBox(
                                             positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-                                            tooltip = { PlainTooltip { Text(actionLabel) } },
+                                            tooltip = { PlainTooltip { Text(actionDescription) } },
                                             state = rememberTooltipState()
                                         ) {
                                             FilledTonalIconButton(
                                                 onClick = onScenarioAction,
                                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                                    containerColor = if (isHighlighted) {
-                                                        MaterialTheme.colorScheme.secondaryContainer
-                                                    } else {
-                                                        MaterialTheme.colorScheme.surfaceContainerHigh
-                                                    },
+                                                    containerColor = scenarioContainer,
                                                     contentColor = scenarioColor
                                                 )
                                             ) {
                                                 Icon(
                                                     painterResource(R.drawable.ic_symbol_layers),
-                                                    contentDescription = actionLabel
+                                                    contentDescription = actionDescription
                                                 )
                                             }
                                         }
@@ -258,11 +273,7 @@ fun MainScreen(
                                             shapes = ButtonDefaults.shapes(),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             colors = ButtonDefaults.filledTonalButtonColors(
-                                                containerColor = if (isHighlighted) {
-                                                    MaterialTheme.colorScheme.secondaryContainer
-                                                } else {
-                                                    MaterialTheme.colorScheme.surfaceContainerHigh
-                                                },
+                                                containerColor = scenarioContainer,
                                                 contentColor = scenarioColor
                                             )
                                         ) {
@@ -274,10 +285,20 @@ fun MainScreen(
                                             Spacer(Modifier.width(6.dp))
                                             Text(
                                                 text = actionLabel,
+                                                modifier = Modifier.weight(1f, fill = false),
                                                 style = MaterialTheme.typography.labelLarge,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
+                                            if (extraScenarioCount > 0) {
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(
+                                                    text = "+$extraScenarioCount",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            }
                                         }
                                     }
                                     ModuleStatusButton(uiState) {
