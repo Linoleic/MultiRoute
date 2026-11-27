@@ -75,9 +75,13 @@ internal class EnvironmentAndChannelDelegate(
         }
     }
 
-    // Underlying-network changes can be reported by the VPN alone. Refresh the displayed snapshot
-    // without sending a routing update on each VPN capability change.
+    // VPN interface availability/loss changes refresh scenario state and resync routing rules;
+    // in-place capability changes on the same VPN interface only refresh the UI snapshot.
     private val vpnChannelCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            refreshVpnChannels()
+        }
+
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             refreshVpnChannels()
         }
@@ -101,9 +105,21 @@ internal class EnvironmentAndChannelDelegate(
         vpnChannelRefreshJob = scope.launch {
             delay(350L)
             try {
+                val previousVpnIfaces = uiStateFlow.value.channelProbe.channels
+                    .filter { it.isVpn }
+                    .map { it.interfaceName }
+                    .toSet()
                 val (channels, supportedVpn) = loadActiveChannels()
                 uiStateFlow.update {
                     it.copy(channelProbe = it.channelProbe.copy(channels = channels, supportedAndroidVpn = supportedVpn))
+                }
+                onRefreshScenario()
+                val newVpnIfaces = channels
+                    .filter { it.isVpn }
+                    .map { it.interfaceName }
+                    .toSet()
+                if (previousVpnIfaces != newVpnIfaces) {
+                    withContext(Dispatchers.IO) { SuHelper.syncAllRouteRules(application) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -298,6 +314,7 @@ internal class EnvironmentAndChannelDelegate(
                         )
                     )
                 }
+                onRefreshScenario()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

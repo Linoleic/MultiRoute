@@ -422,7 +422,9 @@ internal class RouteSyncCoordinator(
             baseUidRules.values.count { CellularTargets.isSim(it) }
         shell.executeCommand(
             if (scenarioPlanCount > 0) {
-                "echo $scenarioPlanCount > ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}"
+                "printf '%s\\n' '$scenarioPlanCount' > ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}.tmp && " +
+                    "chmod 644 ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}.tmp && " +
+                    "mv -f ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}.tmp ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}"
             } else {
                 "rm -f ${RouteRuleBuilder.SCENARIO_PLAN_MARKER}"
             }

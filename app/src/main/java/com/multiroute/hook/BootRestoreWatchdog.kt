@@ -451,6 +451,19 @@ internal class BootRestoreWatchdog(
                     .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
                     .build(),
                 object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        val current = runCatching { cm.getLinkProperties(network)?.interfaceName }.getOrNull()
+                        if (current != null) {
+                            val previous = interfaces.put(network, current)
+                            if (previous != current) {
+                                queue(previous)
+                                queue(current)
+                            }
+                        } else {
+                            queue("vpn:available")
+                        }
+                    }
+
                     override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
                         val current = properties.interfaceName
                         val previous = if (current == null) interfaces.remove(network) else interfaces.put(network, current)
@@ -460,7 +473,7 @@ internal class BootRestoreWatchdog(
                     }
 
                     override fun onLost(network: Network) {
-                        queue(interfaces.remove(network))
+                        queue(interfaces.remove(network) ?: "vpn:lost")
                     }
 
                     private fun queue(iface: String?) {
