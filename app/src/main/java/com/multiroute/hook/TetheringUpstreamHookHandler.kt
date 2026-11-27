@@ -23,13 +23,9 @@ internal class TetheringUpstreamHookHandler(
         val handles = mutableListOf<XposedInterface.HookHandle>()
         val ready = AtomicBoolean(false)
         try {
-            // Google Mainline builds can relocate Tethering classes under android.net.tethering.
-            val type = listOf(
-                "com.android.networkstack.tethering.UpstreamNetworkMonitor",
-                "android.net.tethering.com.android.networkstack.tethering.UpstreamNetworkMonitor"
-            ).firstNotNullOfOrNull { name ->
-                runCatching { Class.forName(name, false, classLoader) }.getOrNull()
-            } ?: throw ClassNotFoundException("UpstreamNetworkMonitor is absent from this package loader")
+            // Google Mainline builds relocate Tethering classes under android.net.connectivity / android.net.tethering.
+            val type = HookPolicyHelpers.resolveUpstreamMonitorClass(classLoader)
+                ?: throw ClassNotFoundException("UpstreamNetworkMonitor is absent from this package loader")
             val bool = Boolean::class.javaPrimitiveType!!
             // Resolve the required surface before installing any policy overrides.
             val select = type.getDeclaredMethod("getCurrentPreferredUpstream")
@@ -112,7 +108,7 @@ internal class TetheringUpstreamHookHandler(
             }
             ready.set(true)
             isTetheringHooked = true
-            xposed.log(Log.INFO, HOOK_TAG, "[TetheringHook] Installed upstream selection, lifecycle and network-event hooks")
+            xposed.log(Log.INFO, HOOK_TAG, "[TetheringHook] Installed upstream selection, lifecycle and network-event hooks (${type.name})")
         } catch (t: Throwable) {
             ready.set(false)
             handles.asReversed().forEach { runCatching { it.unhook() } }

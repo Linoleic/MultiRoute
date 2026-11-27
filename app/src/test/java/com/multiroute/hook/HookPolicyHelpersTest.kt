@@ -181,4 +181,56 @@ class HookPolicyHelpersTest {
             }
         )
     }
+
+    @Test
+    fun upstreamMonitorCandidatesIncludeAospAndConnectivityApex() {
+        assertTrue(
+            "com.android.networkstack.tethering.UpstreamNetworkMonitor" in
+                HookPolicyHelpers.UPSTREAM_MONITOR_CLASS_CANDIDATES
+        )
+        assertTrue(
+            "android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor" in
+                HookPolicyHelpers.UPSTREAM_MONITOR_CLASS_CANDIDATES
+        )
+    }
+
+    @Test
+    fun resolveUpstreamMonitorClassHandlesDirectCandidateAndTetheringServiceFallback() {
+        val directResolved = HookPolicyHelpers.resolveUpstreamMonitorClass { name ->
+            if (name == "android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor") {
+                StubUpstreamMonitor::class.java
+            } else {
+                null
+            }
+        }
+        assertEquals(StubUpstreamMonitor::class.java, directResolved)
+
+        val serviceFallbackResolved = HookPolicyHelpers.resolveUpstreamMonitorClass { name ->
+            if (name == "com.android.networkstack.tethering.TetheringService") {
+                StubTetheringService::class.java
+            } else {
+                null
+            }
+        }
+        assertEquals(StubUpstreamMonitor::class.java, serviceFallbackResolved)
+
+        val emptyLoader = object : ClassLoader(null) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                throw ClassNotFoundException(name)
+            }
+        }
+        assertNull(HookPolicyHelpers.resolveUpstreamMonitorClass(emptyLoader))
+    }
+
+    private class StubUpstreamMonitor
+
+    private class StubTethering {
+        @Suppress("unused")
+        val mUpstreamNetworkMonitor: StubUpstreamMonitor? = null
+    }
+
+    private class StubTetheringService {
+        @Suppress("unused")
+        fun makeTethering(): StubTethering? = null
+    }
 }

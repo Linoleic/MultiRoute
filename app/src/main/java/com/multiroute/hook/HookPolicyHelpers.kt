@@ -19,6 +19,36 @@ internal object HookPolicyHelpers {
         "com.google.android.networkstack"
     )
 
+    val UPSTREAM_MONITOR_CLASS_CANDIDATES = listOf(
+        "com.android.networkstack.tethering.UpstreamNetworkMonitor",
+        "android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor",
+        "android.net.tethering.com.android.networkstack.tethering.UpstreamNetworkMonitor"
+    )
+
+    fun resolveUpstreamMonitorClass(classLoader: ClassLoader): Class<*>? =
+        resolveUpstreamMonitorClass { name ->
+            runCatching { Class.forName(name, false, classLoader) }.getOrNull()
+        }
+
+    internal fun resolveUpstreamMonitorClass(loadClass: (String) -> Class<*>?): Class<*>? {
+        UPSTREAM_MONITOR_CLASS_CANDIDATES.firstNotNullOfOrNull(loadClass)?.let { return it }
+
+        // Fallback for future Mainline jarjar prefixes: follow TetheringService.makeTethering() -> Tethering.
+        val serviceClass = loadClass("com.android.networkstack.tethering.TetheringService") ?: return null
+        val tetheringType = serviceClass.declaredMethods
+            .firstOrNull { it.name == "makeTethering" }
+            ?.returnType
+            ?: return null
+
+        runCatching {
+            tetheringType.declaredFields.firstOrNull { it.name == "mUpstreamNetworkMonitor" }?.type
+        }.getOrNull()?.let { return it }
+
+        val pkgPrefix = tetheringType.name.substringBeforeLast('.', "")
+        val monitorName = if (pkgPrefix.isEmpty()) "UpstreamNetworkMonitor" else "$pkgPrefix.UpstreamNetworkMonitor"
+        return loadClass(monitorName)
+    }
+
     fun isConnectivityServiceName(serviceName: String): Boolean =
         serviceName.contains("ConnectivityService")
 
