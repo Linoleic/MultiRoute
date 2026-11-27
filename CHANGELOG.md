@@ -5,6 +5,30 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.11.0-beta.4 - 2026-11-27
+
+**中文**
+
+### 变更
+
+- 优化顶部栏场景方案按钮：去除冗余的「方案：」前缀，无命中方案时显示「基础分流」，全局暂停分流时直接高亮显示「已暂停分流」；同时命中多个方案时优先显示最高优先级方案并在右侧附带不截断的 `+N` 角标。
+
+### 修复
+
+- 修复 Pixel 等使用 Google Connectivity Mainline APEX（`TetheringGoogle`）的设备上热点上行 Hook 无法加载的问题：支持 `android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor` 类名，并通过 `TetheringService.makeTethering()` 增加后续 jarjar 前缀兜底解析。
+- 修复配置「VPN 状态条件」的场景方案在开关 VPN 时不会自动切换与同步规则的问题：补全前台 VPN 连接监听触发的场景刷新与内核规则同步，加固 `system_server` 后台 VPN 监听的 `onAvailable` / `onLost` 唤醒及场景标记文件权限（`0644`）。
+
+**English**
+
+### Changed
+
+- Streamlined the top-bar scenario button by dropping the redundant `Plan: ` prefix, showing `Base rules` when no plan is active, highlighting `Routing paused` when globally paused, and displaying the highest-priority active plan with a non-truncating `+N` badge when multiple plans match.
+
+### Fixed
+
+- Fixed hotspot upstream hook loading on Pixel and other devices using Google Connectivity Mainline APEX (`TetheringGoogle`) by supporting `android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor` and adding a `TetheringService.makeTethering()` fallback resolver for future jarjar prefixes.
+- Fixed scenario plans with a VPN state condition not auto-switching or syncing rules when toggling VPN: wired foreground VPN availability/loss callbacks to refresh scenarios and resync kernel rules, and hardened `system_server` background VPN `onAvailable`/`onLost` wakeups and scenario marker permissions (`0644`).
+
 ## v1.11.0-beta.3 - 2026-11-27
 
 **中文**
