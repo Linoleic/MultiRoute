@@ -5,6 +5,52 @@ Release notes are generated from the matching `## vX.Y.Z` section, verbatim. Kee
 bilingual, Chinese first: the release page is what most users read.
 -->
 
+## v1.11.0 - 2026-11-27
+
+**中文**
+
+### 新增
+
+- 场景方案新增可选「VPN 状态条件」（不限 / VPN 开启时 / VPN 关闭时）与「暂停全部基础分流规则」选项，支持与「仅蜂窝」「Wi-Fi 名称」「始终」等主条件组合使用；无论应用在前台或后台，开关 VPN 与网络变化时均会自动切换并同步规则，同时支持配置备份校验。
+- 场景方案新增「停用场景」模式、全局「暂停全部分流」开关（位于「应用分流」右上角菜单与「设置 → 分流行为」，暂停时顶部横幅一键恢复）、拖拽手柄排序、单方案独立开关、删除二次确认、Wi-Fi 名称手动输入/已保存网络点选，以及完全独立于基础分流的全屏方案应用编辑器（保留离线通道、未安装应用与已保存 Wi-Fi 目标）。
+- 双卡/eSIM 热点共享出口改用稳定的订阅 ID（`sub:<subId>`）绑定以防蜂窝接口名漂移，扩展蜂窝基带接口前缀识别（`seth`、`pdp`、`wwan`、`v4-rmnet`），并支持 Pixel 等 Google Connectivity Mainline APEX（`TetheringGoogle`）设备的热点上行 Hook。
+- 应用分流列表新增下拉刷新，随时重新扫描已安装/分身应用并按最新规则重排。
+
+### 变更
+
+- 优化顶部栏场景方案按钮：去除冗余的「方案：」前缀，无命中方案时显示「基础分流」，全局暂停时直接高亮显示「已暂停分流」，同时命中多个方案时优先显示最高优先级方案并在右侧附带不截断的 `+N` 角标。
+- 优化场景卡片为单行操作底栏与胶囊状态标签，打开「条件」「保存方案」或「编辑应用」时保持底层抽屉开启并配备平滑进退动画。
+
+### 修复
+
+- 修复 Pixel 等 Google Connectivity Mainline APEX（`TetheringGoogle`）设备上热点上行 Hook 无法加载的问题（支持 `android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor` 及 `TetheringService.makeTethering()` 兜底解析）。
+- 修复「DNS 跟随通道」开启时 `MULTIROUTE_DNS` 误劫持活跃 VPN 宿主自身上游 DNS 及 `OUTPUT DNAT` 重路由丢失按 UID 出口的问题（跳过 VPN 宿主并配合 `mangle OUTPUT` fwmark、`pref 14450` 规则与 `POSTROUTING MASQUERADE` 保序）。
+- 修复断开或关闭 WLAN 后 `NetworkUtils` 读取 `dumpsys wifi` 历史残留 SSID 的问题，并重构个人热点检测与排除逻辑（基于 nl80211 `type AP`、`dumpsys wifi`/`tethering` 与 `NET_CAPABILITY_LOCAL_NETWORK`），同时修复列表模式下活跃热点卡片偶发不显示的问题。
+- 修复基础分流在应用卸载或重装更换 UID 后 `uid_<n>` 残留与孤儿 UID 问题（按持久化包名规则实时对账重建，分身扫描失败时安全保留分身 UID），并增强 eSIM 订阅跨用户发现与非地面卫星 eSIM 过滤。
+- 修复带 VPN 状态条件的场景在前后台开关 VPN 时不会自动切换或后台标记文件权限受限的问题。
+
+**English**
+
+### Added
+
+- Added an optional **VPN state condition** (`Any` / `When VPN is on` / `When VPN is off`) and a **Pause all base routing rules** option to scenario plans, combining with primary triggers (`Cellular only`, `Wi-Fi SSID`, `Always`, etc.), automatically re-evaluating and syncing rules on both foreground and background VPN/link changes, and including backup validation.
+- Added a **Plans off** mode, a global **Pause all routing** toggle (in the App Rules overflow menu and **Settings → Routing behavior**, with a 1-tap Resume banner), drag-handle priority reordering, per-plan enable switches, delete confirmation, manual/saved Wi-Fi SSID selection, and a decoupled full-screen Scenario App Overrides editor (preserving offline channels, uninstalled apps, and saved Wi-Fi targets).
+- Pinned dual-SIM/eSIM hotspot upstream selection by stable subscription ID (`sub:<subId>`) to avoid cellular interface drift, expanded modem interface prefix detection (`seth`, `pdp`, `wwan`, `v4-rmnet`), and added support for Google Connectivity Mainline APEX (`TetheringGoogle`) hotspot hooks on Pixel devices.
+- Added pull-to-refresh to the App List to rescan installed/cloned apps and re-sort by current rules.
+
+### Changed
+
+- Streamlined the top-bar scenario button by dropping the redundant `Plan: ` prefix, showing `Base rules` when no plan is active, highlighting `Routing paused` when globally paused, and displaying the highest-priority active plan with a non-truncating `+N` badge when multiple plans match.
+- Streamlined scenario plan cards with a single-row action bar and status pill badges, and kept the Scenario Plans sheet open with smooth slide+fade transitions when opening Details, Save, or Edit Apps.
+
+### Fixed
+
+- Fixed hotspot upstream hook loading on Pixel and other devices using Google Connectivity Mainline APEX (`TetheringGoogle`) by supporting `android.net.connectivity.com.android.networkstack.tethering.UpstreamNetworkMonitor` and adding a `TetheringService.makeTethering()` fallback resolver for future jarjar prefixes.
+- Fixed `MULTIROUTE_DNS` hijacking active VPN clients' own upstream DNS queries and losing per-UID routing after `OUTPUT DNAT` rerouting (now excludes active VPN owner UIDs and preserves egress via `mangle OUTPUT` fwmark, `pref 14450` policy rules, and `POSTROUTING MASQUERADE`).
+- Fixed `NetworkUtils` falling back to stale `dumpsys wifi` SSIDs after Wi-Fi disconnect/disable, refactored personal hotspot detection and exclusion to rely on nl80211 `type AP`, `dumpsys wifi`/`tethering`, and `NET_CAPABILITY_LOCAL_NETWORK`, and fixed active Hotspot cards occasionally missing in Channels List mode.
+- Fixed stale and orphan `uid_<n>` kernel rules after uninstalls or UID-changing reinstalls by reconciling against durable package rules (safely preserving clone UIDs when secondary-user enumeration fails), hardened cross-user eSIM discovery, and filtered non-terrestrial satellite eSIMs.
+- Fixed scenario plans with a VPN state condition not auto-switching on foreground/background VPN toggles or hitting restrictive marker permissions.
+
 ## v1.11.0-beta.4 - 2026-11-27
 
 **中文**
